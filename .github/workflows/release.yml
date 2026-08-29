@@ -16,6 +16,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # job 级 env：让步骤 if 条件可以检查签名密钥是否存在（secrets 不能直接在 if 中引用）
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
     steps:
       - name: Checkout（完整历史，供提交解析与打标签）
         uses: actions/checkout@v4
@@ -80,10 +83,11 @@ jobs:
       # ---- 正式签名：Secrets 中配置 KEYSTORE_BASE64 后自动启用；否则回退 debug 签名 ----
       # Secrets 只能存文本，keystore 需先 Base64 编码后存入 KEYSTORE_BASE64，
       # 此步骤在运行器上还原为文件并导出 KEYSTORE_* 环境变量供 Gradle 读取。
+      # 注意：if 条件不能直接引用 secrets 上下文，改用 job 级 env（见 job 顶部 env.KEYSTORE_BASE64）。
       - name: 准备正式签名（还原 keystore）
-        if: steps.version.outputs.skip != 'true' && secrets.KEYSTORE_BASE64 != ''
+        if: steps.version.outputs.skip != 'true' && env.KEYSTORE_BASE64 != ''
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           echo "KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
           echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
           echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> "$GITHUB_ENV"
