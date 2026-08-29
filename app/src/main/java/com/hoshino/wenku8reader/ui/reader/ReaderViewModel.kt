@@ -11,6 +11,7 @@ import com.hoshino.wenku8reader.data.Volume
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
+import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
 import kotlinx.coroutines.Dispatchers
@@ -38,9 +39,10 @@ class ReaderViewModel(
     private val repository: Wenku8Repository,
     private val preferences: AppPreferences,
     private val readerSettings: ReaderSettings,
+    val readingStats: ReadingStatsStore,
 ) : ViewModel() {
 
-    private val bookId: Int = savedStateHandle["id"] ?: 0
+    val bookId: Int = savedStateHandle["id"] ?: 0
 
     private val _ui = MutableStateFlow(ReaderUiState())
     val ui: StateFlow<ReaderUiState> = _ui.asStateFlow()

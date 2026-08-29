@@ -55,6 +55,7 @@ import com.hoshino.wenku8reader.ui.navigation.Routes
 import com.hoshino.wenku8reader.ui.reader.ReaderScreen
 import com.hoshino.wenku8reader.ui.settings.CustomizationScreen
 import com.hoshino.wenku8reader.ui.settings.SettingsPage
+import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 
 private data class TabDest(
     val labelRes: Int,
@@ -122,8 +123,15 @@ fun MainScaffold() {
                     onOpenDownloads = {
                         nav.navigate(Routes.DOWNLOADS) { launchSingleTop = true }
                     },
+                    onOpenStats = { nav.navigate(Routes.STATS) { launchSingleTop = true } },
                     onOpenCustom = { nav.navigate(Routes.SETTINGS_CUSTOM) },
                     onOpenAbout = { nav.navigate(Routes.ABOUT) },
+                )
+            }
+            composable(Routes.STATS) {
+                ReadingStatsScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
                 )
             }
             composable(Routes.SETTINGS_CUSTOM) {
@@ -171,6 +179,7 @@ private fun MainPagerScreen(
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenStats: () -> Unit,
     onOpenCustom: () -> Unit,
     onOpenAbout: () -> Unit,
 ) {
@@ -187,6 +196,7 @@ private fun MainPagerScreen(
             1 -> BookcasePage(
                 onOpenBook = onOpenBook,
                 onOpenDownloads = onOpenDownloads,
+                onOpenStats = onOpenStats,
             )
             2 -> SettingsPage(
                 onOpenCustom = onOpenCustom,

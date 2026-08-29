@@ -13,6 +13,7 @@ import com.hoshino.wenku8reader.ui.explore.ExploreViewModel
 import com.hoshino.wenku8reader.ui.explore.TagBooksViewModel
 import com.hoshino.wenku8reader.ui.reader.ReaderViewModel
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
+import com.hoshino.wenku8reader.ui.stats.ReadingStatsViewModel
 
 /**
  * Central factory wiring every ViewModel to the app container. Screen-scoped
@@ -56,8 +57,10 @@ object AppViewModelProvider {
                 application().container.repository,
                 application().container.preferences,
                 application().container.readerSettings,
+                application().container.readingStats,
             )
         }
+        initializer { ReadingStatsViewModel(application().container.readingStats) }
     }
 
     private fun CreationExtras.application(): Wenku8Application =

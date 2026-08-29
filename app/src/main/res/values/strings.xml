@@ -9,7 +9,20 @@
     <string name="action_search">搜索</string>
     <string name="action_account">账号</string>
     <string name="action_downloads">下载管理</string>
+    <string name="action_stats">阅读统计</string>
     <string name="error_unknown">操作失败，请重试</string>
+
+    <!-- 阅读热力图 -->
+    <string name="stats_title">阅读热力图</string>
+    <string name="stats_week">本周</string>
+    <string name="stats_month">本月</string>
+    <string name="stats_year">本年</string>
+    <string name="stats_all">全部</string>
+    <string name="stats_empty">暂无阅读记录，先去读几页吧～</string>
+    <string name="stats_total">共阅读 %1$d 分钟</string>
+    <string name="stats_day_detail">%1$s · %2$d 分钟</string>
+    <string name="stats_books_title">书籍阅读时长</string>
+    <string name="stats_minutes">%1$d 分钟</string>
 
     <!-- 底部导航 -->
     <string name="tab_explore">探索</string>

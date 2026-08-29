@@ -7,6 +7,7 @@ import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.LocalLibraryStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
+import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 
 /**
@@ -29,6 +30,9 @@ class AppContainer(context: Context) {
     val preferences: AppPreferences = AppPreferences(context)
 
     val localLibrary: LocalLibraryStore = LocalLibraryStore(context)
+
+    /** 阅读时长聚合存储（按书+日期，热力图数据源）。 */
+    val readingStats: ReadingStatsStore = ReadingStatsStore(context)
 
     val downloadEngine: DownloadEngine = DownloadEngine(context, client)
 }

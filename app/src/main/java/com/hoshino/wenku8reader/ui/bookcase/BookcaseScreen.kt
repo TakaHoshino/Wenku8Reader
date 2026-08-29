@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -67,6 +68,7 @@ import com.hoshino.wenku8reader.ui.components.TonalCard
 fun BookcasePage(
     onOpenBook: (Int) -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenStats: () -> Unit,
     vm: BookcaseViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -80,6 +82,9 @@ fun BookcasePage(
                 title = { Text(stringResource(R.string.bookcase_title)) },
                 actions = {
                     SortMenu(ui, onSelect = { vm.setSortType(it) }, onToggleReverse = { vm.setSortReversed(!ui.sortReversed) })
+                    IconButton(onClick = onOpenStats) {
+                        Icon(Icons.Filled.CalendarMonth, contentDescription = stringResource(R.string.action_stats))
+                    }
                     IconButton(onClick = { vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.action_refresh))
                     }

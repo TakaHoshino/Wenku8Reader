@@ -76,6 +76,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -101,6 +102,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -147,6 +150,15 @@ fun ReaderScreen(
     val idx = ui.flatChapters.indexOfFirst { it.cid == ui.currentCid }
     val prev = if (idx > 0) ui.flatChapters[idx - 1] else null
     val next = if (idx in 0 until ui.flatChapters.lastIndex) ui.flatChapters[idx + 1] else null
+
+    // 阅读时长埋点：有正文时在前台累计，退出阅读器时冲刷（见下方 ReadingTimeTracker）
+    if (chapter != null) {
+        ReadingTimeTracker(
+            bookId = vm.bookId,
+            bookName = ui.title,
+            store = vm.readingStats,
+        )
+    }
 
     // 阅读器配色按主题模式分离：浅色/深色各自独立的背景色与字体色
     val isDarkTheme = rs.isDarkTheme(isSystemInDarkTheme())
@@ -1085,4 +1097,50 @@ private fun readBattery(context: Context): Int {
     val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
     val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
     return if (level >= 0 && scale > 0) level * 100 / scale else 100
+}
+
+// ------------------------------------------------------------------ //
+// 阅读时长埋点
+// ------------------------------------------------------------------ //
+
+/**
+ * 阅读时长统计（阅读热力图数据源）：
+ * - 仅应用在前台（Lifecycle RESUMED）且阅读器可见时累计；
+ * - 每 60 秒把整段时长写入 [ReadingStatsStore] 并持久化；
+ * - 退出阅读器（组合销毁）时把不足 60 秒的余量也冲刷进去，保证不丢。
+ * 聚合口径：每日/每书分钟数 = ceil(秒数 / 60)，不足 1 分钟按 1 分钟计（由 UI 层聚合）。
+ */
+@Composable
+private fun ReadingTimeTracker(
+    bookId: Int,
+    bookName: String,
+    store: com.hoshino.wenku8reader.data.local.ReadingStatsStore,
+) {
+    if (bookId <= 0) return
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var pendingSeconds by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(bookId) {
+        while (true) {
+            delay(1000)
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                pendingSeconds++
+                if (pendingSeconds >= 60) {
+                    store.addSeconds(bookId, bookName, pendingSeconds)
+                    store.persist()
+                    pendingSeconds = 0
+                }
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            // 冲刷余量，避免退出阅读器时丢失最后不足 60 秒的阅读
+            if (pendingSeconds > 0) {
+                store.addSeconds(bookId, bookName, pendingSeconds)
+                store.persist()
+            }
+        }
+    }
 }

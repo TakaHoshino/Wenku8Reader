@@ -129,7 +129,14 @@ Wenku8Reader/
 - `AppPreferences`（prefs：`account`/`reading`/`ui`）：账号明文凭据；每书 `progress_{bookId}` = 当前 cid；`progress_pos_/progress_total_` = 章节位置；书柜排序。
 - `ReaderSettings`（prefs：`settings`）：**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题与阅读器。所有 setter 均先更新内存 StateFlow 再写 SharedPreferences（`emit()`）。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
 - `LocalLibraryStore`（prefs：`library`）：本地书架快照（JSONArray 序列化 `LibraryBook`）。
+- `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
 - `DefaultAccount`：内置账号（`技术性文档(只读勿动)/wenku8account.txt`），首启静默登录保证未登录也能读内容。
+
+### 4.7 阅读统计（`ReadingStatsStore` / `ui/stats/`）
+- **埋点**：`ReaderScreen` 内 `ReadingTimeTracker`——仅应用前台（Lifecycle RESUMED）且正文可见时累计，每 60s 整段写入并持久化，退出阅读器时冲刷余量（不丢最后不足 60s 的阅读）；1s 定时器仅在组合期内存在，开销可忽略。
+- **存储**：按「书 + 日期」聚合秒数（一书一天一条），SharedPreferences JSON；`persist()` 后 `version` 流 +1，UI 据此重算。
+- **聚合算法**：先按天/按书**分别累计秒数**，再统一 `ceil(秒/60)` 成分钟（不足 1 分钟按 1 分钟）——逐条 ceil 再求和会有累加误差（两条 30s 同日应计 1 分钟而非 2 分钟）；聚合在 `Dispatchers.Default` 执行。
+- **热力图**：GitHub 风格周列矩阵（列=周、行=周一..周日），尺度（本周/本月/本年/全部）由 ViewModel 的 `rangeOf` 定界，`buildWeeks` 铺格子（范围外/未来为 null），`buildLabels` 每月首列标 "M月"；颜色分级 0→中性灰 / 1~10→浅绿 / 11~30→中绿 / >30→深绿；点方块显示当日详情；书籍列表按时长降序（点条目跳详情）。
 
 ---
 

@@ -9,6 +9,7 @@ object Routes {
     const val SETTINGS_CUSTOM = "settings/custom"
     const val ABOUT = "about"
     const val DOWNLOADS = "downloads"
+    const val STATS = "stats"
     const val DETAIL = "detail/{id}"
     const val READER = "reader/{id}"
     const val TAG = "tag/{tag}"
