@@ -19,10 +19,18 @@
     <string name="stats_year">本年</string>
     <string name="stats_all">全部</string>
     <string name="stats_empty">暂无阅读记录，先去读几页吧～</string>
-    <string name="stats_total">共阅读 %1$d 分钟</string>
-    <string name="stats_day_detail">%1$s · %2$d 分钟</string>
     <string name="stats_books_title">书籍阅读时长</string>
     <string name="stats_minutes">%1$d 分钟</string>
+    <string name="stats_summary_total">累计分钟</string>
+    <string name="stats_summary_week">本周分钟</string>
+    <string name="stats_summary_streak">连续天数</string>
+    <string name="stats_summary_avg">日均分钟</string>
+    <string name="stats_legend_less">少</string>
+    <string name="stats_legend_more">多</string>
+    <string name="stats_legend_weekday">工作日</string>
+    <string name="stats_legend_weekend">周末</string>
+    <string name="stats_day_total">当日共 %1$d 分钟</string>
+    <string name="stats_no_records">当日暂无阅读记录</string>
 
     <!-- 底部导航 -->
     <string name="tab_explore">探索</string>

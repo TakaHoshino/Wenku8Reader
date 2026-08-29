@@ -46,8 +46,22 @@ data class ReadingStatsUiState(
     /** 每列顶部标签（如 "1月"），无标签为 null。 */
     val weekLabels: List<String?> = emptyList(),
     val selectedDay: HeatmapDay? = null,
+    /** 所选范围内的总分钟数。 */
     val totalMinutes: Int = 0,
+    /** 本周（周一到今天）总分钟数。 */
+    val weekMinutes: Int = 0,
+    /** 连续阅读天数（从今天起向前连续有记录的自然日数）。 */
+    val streakDays: Int = 0,
+    /** 范围内有记录的天数（用于日均计算）。 */
+    val activeDays: Int = 0,
+    /** 每日分钟数 = 总分钟 / 活跃天数（无记录为 0）。 */
+    val avgDailyMinutes: Int = 0,
+    /** 书籍在所选范围内的累计分钟数（降序）。 */
     val bookList: List<BookMinutes> = emptyList(),
+    /** 每个日期的当日书籍分钟明细（LNR 风格：点日期看当日详情）。 */
+    val dailyBookMinutes: Map<Long, List<BookMinutes>> = emptyMap(),
+    /** 每个日期的当日总分钟（先累计秒再 ceil 一次，精确）。 */
+    val dayTotalMinutes: Map<Long, Int> = emptyMap(),
     val hasAnyData: Boolean = false,
 )
 
@@ -97,6 +111,8 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
         val daySeconds = HashMap<Long, Long>()
         val bookSeconds = HashMap<Int, Long>()
         val bookName = HashMap<Int, String>()
+        // 当日每书明细：(epochDay, bookId) -> (书名, 秒数)
+        val dayBookSeconds = HashMap<Long, HashMap<Int, Pair<String, Long>>>()
         var totalSeconds = 0L
         for (r in records) {
             val d = LocalDate.ofEpochDay(r.epochDay)
@@ -105,6 +121,9 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
             daySeconds.merge(r.epochDay, r.seconds, Long::plus)
             bookSeconds.merge(r.bookId, r.seconds, Long::plus)
             if (r.bookName.isNotBlank()) bookName[r.bookId] = r.bookName
+            val byBook = dayBookSeconds.getOrPut(r.epochDay) { HashMap() }
+            val prev = byBook[r.bookId]
+            byBook[r.bookId] = (r.bookName to (prev?.second ?: 0L) + r.seconds)
         }
 
         // 2) 分钟化（向上取整，不足 1 分钟按 1 分钟）
@@ -120,12 +139,38 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
             BookMinutes(id, bookName[id] ?: "书 $id", ceilMinutes(sec))
         }.sortedByDescending { it.minutes }
 
+        // 5) 当日每书明细（LNR 风格：点日期看当日详情）
+        val dailyBookMinutes = dayBookSeconds.mapValues { (_, byBook) ->
+            byBook.map { (id, pair) ->
+                BookMinutes(id, pair.first.ifBlank { bookName[id] ?: "书 $id" }, ceilMinutes(pair.second))
+            }.sortedByDescending { it.minutes }
+        }
+
+        // 6) 汇总：本周时长 / 连续阅读天数 / 活跃天数 / 日均
+        val weekStart = today.with(DayOfWeek.MONDAY)
+        val weekSeconds = records
+            .filter { LocalDate.ofEpochDay(it.epochDay) in weekStart..today }
+            .sumOf { it.seconds }
+        var streak = 0
+        var cursor = today
+        while (dailyMinutes.containsKey(cursor.toEpochDay())) {
+            streak++
+            cursor = cursor.minusDays(1)
+        }
+        val activeDays = daySeconds.size
+
         return ReadingStatsUiState(
             scale = s,
             weeks = weeks,
             weekLabels = labels,
             totalMinutes = ceilMinutes(totalSeconds),
+            weekMinutes = ceilMinutes(weekSeconds),
+            streakDays = streak,
+            activeDays = activeDays,
+            avgDailyMinutes = if (activeDays > 0) ceilMinutes(totalSeconds / activeDays) else 0,
             bookList = books,
+            dailyBookMinutes = dailyBookMinutes,
+            dayTotalMinutes = dailyMinutes,
             hasAnyData = records.isNotEmpty(),
         )
     }

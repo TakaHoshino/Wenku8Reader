@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -40,8 +41,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -50,6 +57,7 @@ import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
+import java.time.DayOfWeek
 
 private val CellSize = 14.dp
 private val CellGap = 3.dp
@@ -128,29 +136,23 @@ fun ReadingStatsScreen(
                         .padding(horizontal = 16.dp),
                 ) {
                     Spacer(Modifier.height(4.dp))
-                    HeatmapGrid(ui, onSelect = vm::selectDay)
+
+                    // 汇总卡（LNR StatsCards 风格）：累计 / 本周 / 连续 / 日均
+                    SummaryRow(ui)
                     Spacer(Modifier.height(8.dp))
 
-                    // 累计时长 + 选中日期详情
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            stringResource(R.string.stats_total, ui.totalMinutes),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        ui.selectedDay?.let { day ->
-                            Text(
-                                stringResource(R.string.stats_day_detail, formatDate(day.date), day.minutes),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
+                    HeatmapGrid(ui, onSelect = vm::selectDay)
+                    Spacer(Modifier.height(6.dp))
+
+                    // 图例（少 → 多）：工作日绿 / 周末蓝
+                    HeatmapLegend()
                     Spacer(Modifier.height(12.dp))
+
+                    // 选中日期 → 当日详情卡（LNR DailyStatsBlock 风格）
+                    ui.selectedDay?.let { day ->
+                        DailyDetailCard(day, ui)
+                        Spacer(Modifier.height(12.dp))
+                    }
 
                     // 书籍累计时长列表（降序）
                     SegmentedColumn(
@@ -180,12 +182,162 @@ fun ReadingStatsScreen(
     }
 }
 
+/** 汇总卡行：累计分钟 / 本周分钟 / 连续天数 / 日均分钟。 */
+@Composable
+private fun SummaryRow(ui: ReadingStatsUiState) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SummaryCard(stringResource(R.string.stats_summary_total), ui.totalMinutes)
+        SummaryCard(stringResource(R.string.stats_summary_week), ui.weekMinutes)
+        SummaryCard(stringResource(R.string.stats_summary_streak), ui.streakDays)
+        SummaryCard(stringResource(R.string.stats_summary_avg), ui.avgDailyMinutes)
+    }
+}
+
+@Composable
+private fun RowScope.SummaryCard(label: String, value: Int) {
+    Column(
+        Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            value.toString(),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
+/** 图例：少 → 多，工作日（绿）/ 周末（蓝）两行。 */
+@Composable
+private fun HeatmapLegend() {
+    Column {
+        LegendRow(colors = listOf(
+            MaterialTheme.colorScheme.surfaceContainerHighest,
+            WeekdayColor(10), WeekdayColor(30), WeekdayColor(Int.MAX_VALUE),
+        ))
+        LegendRow(colors = listOf(
+            MaterialTheme.colorScheme.surfaceContainerHighest,
+            WeekendColor(10), WeekendColor(30), WeekendColor(Int.MAX_VALUE),
+        ), labels = true)
+    }
+}
+
+@Composable
+private fun LegendRow(colors: List<Color>, labels: Boolean = false) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (labels) {
+            Text(
+                stringResource(R.string.stats_legend_less),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(6.dp))
+        } else {
+            Text(
+                stringResource(R.string.stats_legend_weekday),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+        }
+        colors.forEach { color ->
+            Box(
+                Modifier
+                    .padding(horizontal = 1.dp)
+                    .size(10.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(color),
+            )
+        }
+        if (labels) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                stringResource(R.string.stats_legend_more),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 当日详情卡（LNR DailyStatsBlock）：日期 + 当日总分钟 + 当日每本书明细。 */
+@Composable
+private fun DailyDetailCard(day: HeatmapDay, ui: ReadingStatsUiState) {
+    val total = ui.dayTotalMinutes[day.epochDay] ?: 0
+    val books = ui.dailyBookMinutes[day.epochDay].orEmpty()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                formatDate(day.date),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.W600,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                stringResource(R.string.stats_day_total, total),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (books.isEmpty()) {
+            Text(
+                stringResource(R.string.stats_no_records),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+        } else {
+            books.forEach { book ->
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        book.bookName,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.stats_minutes, book.minutes),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** 热力图矩阵：顶部为每列（周）的月份标签，下方为 7 行（周一..周日）× N 列的方块。 */
 @Composable
 private fun HeatmapGrid(
     ui: ReadingStatsUiState,
     onSelect: (HeatmapDay?) -> Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -221,7 +373,10 @@ private fun HeatmapGrid(
                                     Modifier
                                 }
                             )
-                            .clickable(enabled = day != null) { onSelect(day) },
+                            .clickable(enabled = day != null) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onSelect(day)
+                            },
                     )
                 }
             }
@@ -230,18 +385,33 @@ private fun HeatmapGrid(
 }
 
 /**
- * 颜色分级（参考 GitHub 贡献图绿色系，浅/深色主题均清晰）：
- * 0 分钟 → 中性灰；1~10 分钟 → 浅绿；11~30 分钟 → 中绿；>30 分钟 → 深绿。
+ * 色阶（参考 LNR Levels）：0 分钟 → 中性灰；1~10 → 浅绿/蓝；11~30 → 中；>30 → 深。
+ * 工作日绿色系 #329c32、周末蓝色系 #29538f，按 alpha 递增区分强度（深浅主题均清晰）。
  */
 @Composable
 private fun cellColor(day: HeatmapDay?): Color {
     val scheme = MaterialTheme.colorScheme
+    if (day == null || !day.hasData || day.minutes <= 0) return scheme.surfaceContainerHighest
+    val weekend = day.date.dayOfWeek == DayOfWeek.SATURDAY || day.date.dayOfWeek == DayOfWeek.SUNDAY
     return when {
-        day == null || !day.hasData || day.minutes <= 0 -> scheme.surfaceContainerHighest
-        day.minutes <= 10 -> Color(0xFF9BE9A8)
-        day.minutes <= 30 -> Color(0xFF30A14E)
-        else -> Color(0xFF216E39)
+        day.minutes <= 10 -> if (weekend) WeekendColor(10) else WeekdayColor(10)
+        day.minutes <= 30 -> if (weekend) WeekendColor(30) else WeekdayColor(30)
+        else -> if (weekend) WeekendColor(Int.MAX_VALUE) else WeekdayColor(Int.MAX_VALUE)
     }
+}
+
+/** 工作日（绿）分级色：alpha 随分钟递增（参考 LNR #329c32 系）。 */
+private fun WeekdayColor(minutes: Int): Color = when {
+    minutes <= 10 -> Color(0x44329c32)
+    minutes <= 30 -> Color(0x8C329c32)
+    else -> Color(0xFF329c32)
+}
+
+/** 周末（蓝）分级色（参考 LNR #29538f 系）。 */
+private fun WeekendColor(minutes: Int): Color = when {
+    minutes <= 10 -> Color(0x4429538f)
+    minutes <= 30 -> Color(0x8C29538f)
+    else -> Color(0xFF29538f)
 }
 
 private fun formatDate(date: java.time.LocalDate): String =
