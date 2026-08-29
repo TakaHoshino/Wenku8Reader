@@ -138,3 +138,23 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 2. `versionName` 不要用 `1.0`、`1.0.0.1` 等非 SemVer 写法；三段的语义化版本便于 changelog 与 tag 一一对应。
 3. 修改版本号时 `versionCode` 与 `versionName` **必须同步改**，只改一个会导致「版本号没变但 code 变了」的困惑。
 4. tag 命名统一 `v` 前缀小写（`v1.0.1`），与 versionName 完全一致，便于脚本解析。
+
+## 8. dev 分支：只构建不发布
+
+**场景**：dev 分支的开发包需要可安装验证，但不参与正式版本号递增、不打 tag、不发布 Release。
+
+**已部署**：`.github/workflows/dev.yml`（push 到 `dev` 分支或手动触发）。
+
+| 项 | 行为 |
+|---|---|
+| 触发 | push `dev` 分支 / 手动 `workflow_dispatch` |
+| versionName | **不变**：不设 `APP_VERSION_NAME`，用 `gradle.properties` 的 `VERSION_NAME`（默认 `1.0.0`），提交内容不影响它 |
+| versionCode | **递增**：`APP_VERSION_CODE = github.run_number`（dev 工作流内每次运行唯一且递增，满足覆盖安装判断） |
+| 发布 | **不发布**：无 git tag、无 GitHub Release；APK 以 **Actions Artifact** 形式产出（Actions 页 → 本次运行 → Artifacts 下载） |
+| 签名 | 配置了 `KEYSTORE_BASE64` 等 Secrets 则正式签名，否则回退 debug 签名（可安装） |
+
+**与 release 工作流的关系**：两者完全独立——`release.yml` 只监听 `main/master`，`dev.yml` 只监听 `dev`，互不触发；版本号互不影响。
+
+**注意事项**：
+- dev 包 versionCode 来自 dev 工作流自己的 `run_number`（与 release 工作流计数器相互独立），两个工作流产出的 versionCode 可能相同——但 dev（debug 签名）与 release（正式签名）签名不同，本就不能互相覆盖安装，无冲突。
+- 若希望 dev 包与 release 包可互相覆盖安装（同一签名），需保证 dev 的 versionCode 永远大于已发布的 release——届时可把 dev 的 versionCode 改为「release 分支最新 run_number」或手动维护 `VERSION_CODE`（当前方案不保证这一点）。
