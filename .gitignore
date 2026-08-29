@@ -1,0 +1,53 @@
+# ===== 参考文档（只读，勿提交，勿修改） =====
+/技术性文档(只读勿动)
+./DEVELOPMENT.md
+
+# ===== Gradle =====
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ===== 本地配置（含 SDK 路径等，勿提交） =====
+local.properties
+
+# ===== 构建产物 =====
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+release/
+
+# ===== 日志 / 堆转储 / 临时文件 =====
+*.log
+*.hprof
+*.tmp
+*.swp
+*~
+
+# ===== Android Studio / IntelliJ IDEA =====
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+.externalNativeBuild/
+.cxx/
+.kotlin/
+
+# ===== 签名文件（勿提交任何 keystore/jks） =====
+*.jks
+*.keystore
+!debug.keystore
+
+# ===== 其他编辑器 =====
+.vscode/
+
+# ===== 操作系统文件 =====
+.DS_Store
+Thumbs.db
+desktop.ini

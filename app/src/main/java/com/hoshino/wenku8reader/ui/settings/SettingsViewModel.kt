@@ -1,0 +1,26 @@
+package com.hoshino.wenku8reader.ui.settings
+
+import androidx.lifecycle.ViewModel
+import com.hoshino.wenku8reader.data.local.ReaderSettings
+import com.hoshino.wenku8reader.data.local.ReaderSettingsState
+import kotlinx.coroutines.flow.StateFlow
+
+class SettingsViewModel(private val readerSettings: ReaderSettings) : ViewModel() {
+
+    val ui: StateFlow<ReaderSettingsState> = readerSettings.flow
+
+    fun setDarkMode(mode: String) = readerSettings.setDarkMode(mode)
+    fun setDynamicColor(enabled: Boolean) = readerSettings.setDynamicColor(enabled)
+    fun setSeedColor(color: Long) = readerSettings.setSeedColor(color)
+    fun setAmoled(enabled: Boolean) = readerSettings.setAmoled(enabled)
+    fun setReaderBackgroundLight(color: Long) = readerSettings.setReaderBackgroundLight(color)
+    fun setReaderTextColorLight(color: Long) = readerSettings.setReaderTextColorLight(color)
+    fun setReaderBackgroundDark(color: Long) = readerSettings.setReaderBackgroundDark(color)
+    fun setReaderTextColorDark(color: Long) = readerSettings.setReaderTextColorDark(color)
+    fun setBackgroundImage(path: String?) = readerSettings.setBackgroundImage(path)
+    fun setFontFamily(key: String) = readerSettings.setFontFamily(key)
+    fun setFontSize(size: Int) = readerSettings.setFontSize(size)
+    fun setFontWeight(weight: Int) = readerSettings.setFontWeight(weight)
+    fun setLineSpacing(spacing: Float) = readerSettings.setLineSpacing(spacing)
+    fun setTraditionalChinese(enabled: Boolean) = readerSettings.setTraditionalChinese(enabled)
+}

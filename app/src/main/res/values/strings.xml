@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">轻小说文库</string>
+
+    <!-- 通用 -->
+    <string name="action_refresh">刷新</string>
+    <string name="action_retry">重试</string>
+    <string name="action_back">返回</string>
+    <string name="action_search">搜索</string>
+    <string name="action_account">账号</string>
+    <string name="action_downloads">下载管理</string>
+    <string name="error_unknown">操作失败，请重试</string>
+
+    <!-- 底部导航 -->
+    <string name="tab_explore">探索</string>
+    <string name="tab_bookcase">书架</string>
+    <string name="tab_settings">设置</string>
+
+    <!-- 探索页 -->
+    <string name="search_press_to_search">输入书名或作者后点搜索</string>
+    <string name="explore_tab_recommend">推荐</string>
+    <string name="explore_tab_tags">标签</string>
+    <string name="explore_tags">分类</string>
+    <string name="explore_tag_all">查看全部</string>
+    <string name="explore_tags_empty">暂无分类</string>
+    <string name="explore_tags_blocked">未能获取分类，可能被站点拦截，请重试</string>
+
+    <!-- 首页 -->
+    <string name="home_subtitle">今日书库</string>
+    <string name="home_empty">暂无内容</string>
+    <string name="home_error">加载失败：%1$s</string>
+
+    <!-- 搜索 -->
+    <string name="search_hint">书名或作者…</string>
+    <string name="search_by_author">作者</string>
+    <string name="search_result_id">ID：%1$d</string>
+
+    <!-- 书架 -->
+    <string name="bookcase_title">我的书架</string>
+    <string name="bookcase_empty_local">本地书架为空，可在书籍详情页收藏</string>
+    <string name="bookcase_progress">已读 %1$d / %2$d 章</string>
+    <string name="bookcase_sort">排序</string>
+    <string name="bookcase_sort_default">默认</string>
+    <string name="bookcase_sort_latest">最近更新</string>
+    <string name="bookcase_sort_name">书名</string>
+    <string name="bookcase_sort_word_count">字数</string>
+    <string name="bookcase_sort_reverse">倒序</string>
+
+    <!-- 详情 · 收藏 -->
+    <string name="detail_favorite">收藏</string>
+    <string name="detail_fav_local_done">已收藏至本地书架</string>
+    <string name="detail_fav_local_removed">已从本地书架移除</string>
+
+    <!-- 详情 -->
+    <string name="detail_title_default">书籍详情</string>
+    <string name="detail_cover">封面</string>
+    <string name="detail_author">作者：%1$s</string>
+    <string name="detail_category">分类：%1$s</string>
+    <string name="detail_status">状态：%1$s</string>
+    <string name="detail_word_count">字数：%1$s</string>
+    <string name="detail_tags">标签：%1$s</string>
+    <string name="detail_start_reading">开始阅读</string>
+    <string name="detail_continue_reading">继续阅读</string>
+    <string name="detail_offline_download">离线下载</string>
+    <string name="detail_format_txt">TXT</string>
+    <string name="detail_format_epub">EPUB</string>
+    <string name="detail_downloading">下载中 %1$d%%</string>
+    <string name="detail_queued">排队中…</string>
+    <string name="detail_saved">已保存：%1$s</string>
+    <string name="detail_failed">失败：%1$s</string>
+    <string name="detail_cancelled">已取消</string>
+    <string name="detail_description">内容简介</string>
+    <string name="detail_no_description">无</string>
+
+    <!-- 下载管理 -->
+    <string name="downloads_title">下载任务</string>
+    <string name="downloads_empty">暂无下载任务</string>
+    <string name="downloads_running">下载中…</string>
+    <string name="downloads_done">已完成 → %1$s</string>
+    <string name="downloads_failed">失败：%1$s</string>
+    <string name="downloads_cancelled">已取消</string>
+
+    <!-- 阅读器 -->
+    <string name="reader_font_size">字号</string>
+    <string name="reader_toc">目录</string>
+    <string name="reader_prev_chapter">上一章</string>
+    <string name="reader_next_chapter">下一章</string>
+    <string name="reader_chapter_position">第 %1$d / %2$d 章</string>
+    <string name="reader_current">当前</string>
+    <string name="reader_no_content">（本章无正文）</string>
+    <string name="reader_illustration">插图</string>
+    <string name="reader_toc_empty">目录为空</string>
+    <string name="reader_font_size_sp">%1$dsp</string>
+    <string name="reader_settings">阅读器设置</string>
+    <string name="reader_turn_mode">翻页方式</string>
+    <string name="reader_mode_page">侧滑翻页</string>
+    <string name="reader_mode_scroll">滚动翻页</string>
+    <string name="reader_volume_turn">音量键翻页（上键上一页，下键下一页）</string>
+    <string name="reader_auto_next">自动切换下一章</string>
+    <string name="reader_turn_direction">翻页方向</string>
+    <string name="reader_turn_left">向左翻</string>
+    <string name="reader_turn_right">向右翻</string>
+    <string name="reader_auto_interval">自动翻页间隔（秒）</string>
+    <string name="reader_auto_turn">自动翻页</string>
+    <string name="reader_progress_percent">%1$d%%</string>
+    <string name="reader_battery">%1$d%%</string>
+    <string name="reader_settings_appearance">外观</string>
+    <string name="reader_settings_action">操作</string>
+    <string name="reader_settings_margin">边距</string>
+    <string name="reader_click_turn">点按翻页</string>
+    <string name="reader_auto_margin">自动边距</string>
+    <string name="reader_margin_top">上边距</string>
+    <string name="reader_margin_bottom">下边距</string>
+    <string name="reader_margin_left">左边距</string>
+    <string name="reader_margin_right">右边距</string>
+
+    <!-- 错误提示 -->
+    <string name="error_home_load">加载失败：%1$s</string>
+    <string name="error_book_info">书籍信息加载失败，请重试</string>
+    <string name="error_chapter_index">章节目录加载失败，请重试</string>
+    <string name="error_chapter_load">章节加载失败，请重试</string>
+    <string name="error_rate_limited">站点限流(HTTP %1$d)，请稍后重试</string>
+    <string name="error_cancelled">已取消</string>
+
+    <!-- 设置 -->
+    <string name="settings_section_account">账号</string>
+    <string name="settings_builtin_account">内置账户</string>
+    <string name="settings_builtin_account_hint">使用内置账户访问内容</string>
+    <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_reading">阅读设置</string>
+    <string name="settings_section_about">关于</string>
+    <string name="settings_default_font_size">默认字号</string>
+    <string name="settings_version">版本 %1$s</string>
+    <string name="settings_dark_mode_summary">切换应用的深色 / 浅色主题</string>
+    <string name="settings_amoled">纯黑模式</string>
+    <string name="settings_amoled_summary">深色模式下使用纯黑背景，OLED 屏幕更省电</string>
+    <string name="settings_dynamic_color_summary">跟随系统壁纸生成主题色（Android 12+）</string>
+
+    <!-- 设置 · 自定义 -->
+    <string name="settings_custom">自定义</string>
+    <string name="settings_custom_desc">主题与纸张 · 简繁转换 · 字体设置</string>
+    <string name="settings_theme_paper">主题与纸张</string>
+    <string name="settings_dark_mode">深色主题</string>
+    <string name="settings_dark_system">跟随系统</string>
+    <string name="settings_dark_light">浅色</string>
+    <string name="settings_dark_dark">深色</string>
+    <string name="settings_dynamic_color">动态取色</string>
+    <string name="settings_manual_color">手动取色</string>
+    <string name="settings_reader_background">阅读器背景</string>
+    <string name="settings_background_color">背景颜色</string>
+    <string name="settings_background_image">背景图片</string>
+    <string name="settings_pick_image">选择图片</string>
+    <string name="settings_clear_image">清除图片</string>
+    <string name="settings_text_color">字体颜色</string>
+    <string name="settings_mode_light">浅色模式</string>
+    <string name="settings_mode_dark">深色模式</string>
+    <string name="settings_font">字体</string>
+    <string name="settings_font_default">系统默认</string>
+    <string name="settings_font_sans">无衬线</string>
+    <string name="settings_font_serif">衬线</string>
+    <string name="settings_font_mono">等宽</string>
+    <string name="settings_font_size">字体大小</string>
+    <string name="settings_font_weight">字重</string>
+    <string name="settings_line_spacing">行间距</string>
+    <string name="settings_preview">预览</string>
+    <string name="settings_preview_text">轻小说文库 · 阅读预览\n人生若只如初见，何事秋风悲画扇。\nAa Bb 123 · 简体字</string>
+    <string name="settings_simplified_traditional">简繁转换</string>
+    <string name="settings_simplified_traditional_desc">开启后阅读器内文本自动转为繁体中文</string>
+    <string name="settings_font_size_value">%1$dsp</string>
+    <string name="settings_font_weight_value">%1$d</string>
+    <string name="settings_line_spacing_value">%1$.1f</string>
+
+    <!-- 关于页 -->
+    <string name="about_title">关于</string>
+    <string name="about_version">版本 %1$s</string>
+    <string name="about_links">链接</string>
+    <string name="about_repo_title">GitHub 仓库</string>
+    <string name="about_repo_url">https://github.com/TakaHoshino/Wenku8Reader</string>
+    <string name="about_support_title">给作者买杯咖啡</string>
+    <string name="about_support_desc">爱发电 · 支持开发</string>
+    <string name="about_support_url">https://www.ifdian.net/a/wenku8reader</string>
+    <string name="about_intro_title">关于本应用</string>
+    <string name="about_intro_body">轻小说文库（Wenku8Reader）—— 基于 wenku8.net 的 Android 轻小说阅读客户端。原生 Kotlin + Jetpack Compose + Material Design 3 构建，支持沉浸式阅读、书架收藏、离线下载（TXT/EPUB）、简繁转换与个性化外观定制。</string>
+    <string name="about_disclaimer">本应用仅用于个人学习与交流，站点内容版权归原作者及 wenku8.net 所有，请支持正版。</string>
+</resources>
