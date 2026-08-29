@@ -43,10 +43,15 @@ jobs:
 
       # ---- 构建 ----
       # 不设置 APP_VERSION_NAME → 使用 gradle.properties 默认版本名（不递增）；
-      # 只设置 APP_VERSION_CODE = run_number（每次构建递增，用于设备升级判断）。
+      # versionCode 用「时间基准」yyyymmddHH：跨工作流单调递增、必然大于任何历史已装版本，
+      # 避免按 run_number（各工作流独立计数，从 1 开始）导致的降级安装失败。
+      - name: 计算递增 versionCode（时间基准）
+        id: version
+        run: echo "version_code=$(date +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+
       - name: 构建 Release APK
         env:
-          APP_VERSION_CODE: ${{ github.run_number }}
+          APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
         run: |
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew

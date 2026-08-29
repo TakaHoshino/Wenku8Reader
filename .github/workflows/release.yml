@@ -1,7 +1,7 @@
 # 自动化版本发布（详见 VERSIONING.md）
 # - 触发：push 到 main/master，或手动 workflow_dispatch
 # - 版本：解析 Conventional Commits 自动升级（feat→minor，fix→patch，BREAKING→major）
-# - versionCode：使用 github.run_number（每次运行唯一且递增）
+# - versionCode：时间基准 yyyymmddHH（跨工作流单调递增，必然大于任何历史已装版本）
 # - 产出：打 git tag vX.Y.Z + GitHub Release（含 APK 与自动生成更新日志）
 name: Release
 
@@ -93,12 +93,19 @@ jobs:
           echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> "$GITHUB_ENV"
           echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
 
-      # ---- 构建：versionName 由语义解析注入，versionCode = github.run_number ----
+      # ---- 构建：versionName 由语义解析注入，versionCode 用时间基准 yyyymmddHH ----
+      # （跨工作流单调递增、必然大于任何历史已装版本；避免 run_number 各工作流独立计数
+      #   导致 code 过小、用户无法从本地包/旧包覆盖升级）
+      - name: 计算递增 versionCode（时间基准）
+        if: steps.version.outputs.skip != 'true'
+        id: vcode
+        run: echo "version_code=$(date +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+
       - name: 构建 Release APK
         if: steps.version.outputs.skip != 'true'
         env:
           APP_VERSION_NAME: ${{ steps.version.outputs.version }}
-          APP_VERSION_CODE: ${{ github.run_number }}
+          APP_VERSION_CODE: ${{ steps.vcode.outputs.version_code }}
         run: |
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew

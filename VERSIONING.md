@@ -17,17 +17,20 @@
 
 ### versionCode（系统版本号，单调递增整数）
 
-规则：`主版本 × 10000 + 次版本 × 100 + 修订号`，只增不减。
+**CI 自动化构建（release/dev 工作流）**：`yyyymmddHH`（如 2026082914），时间基准、跨工作流单调递增，必然大于任何历史已装版本。
 
-| versionName | versionCode |
+**本地手动构建**：`主版本 × 10000 + 次版本 × 100 + 修订号`，只增不减。
+
+| versionName | versionCode（本地规则） |
 |---|---|
 | 1.0.0 | 10000 |
 | 1.0.1 | 10001 |
 | 1.1.0 | 10100 |
 | 2.3.4 | 20304 |
 
-- 该规则在 `主<200、次<100、修订<100` 时无冲突（`int` 上限 20 亿内）。
+- 本地规则在 `主<200、次<100、修订<100` 时无冲突（`int` 上限 20 亿内）。
 - **铁律**：versionCode 一旦发布**绝不回退**——Android 系统以此判断是否允许覆盖安装（降版本会被拒绝）。
+- 为什么 CI 不用 `主×10000+…`：自动化按提交递增语义版本，难以与「本地手动维护」的规则保持一致；时间基准 `yyyymmddHH` 天然满足「单调递增 + 跨工作流（dev/release）互不冲突 + 必然大于历史版本」，也无需跨工作流协调计数器。同一小时内两次构建 code 相同属可接受的边界情况（重新触发同一构建即可）。
 
 ## 2. 升级决策速查
 
@@ -42,7 +45,7 @@
 
 1. **语义解析**：读取最近 `vX.Y.Z` 标签之后的提交，按 Conventional Commits 决定升级——
    `feat:` → 次版本 +1；`fix:` → 修订号 +1；`BREAKING CHANGE` / `!` → 主版本 +1；无相关提交则跳过发布。
-2. **versionCode = `github.run_number`**：每次工作流运行的全局递增编号，保证唯一且单调递增（这正是 Android 系统判断新旧所需的性质）。
+2. **versionCode = `yyyymmddHH`**（时间基准）：每次构建必然大于历史所有已装版本（含本地调试包与 dev 包），保证覆盖安装不降级。
 3. **构建注入**：`build.gradle.kts` 优先读环境变量 `APP_VERSION_NAME` / `APP_VERSION_CODE`；本地构建回退 `gradle.properties` 的 `VERSION_NAME` / `VERSION_CODE`。
 4. **产出**：打 `vX.Y.Z` 标签 → 生成更新日志（自上次标签的 feat/fix 提交）→ GitHub Release 附 APK。
 5. **签名**：配置仓库 Secrets（`KEYSTORE_PATH` 等）后用正式签名；未配置时回退 debug 签名，保证可安装。
@@ -149,12 +152,12 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 |---|---|
 | 触发 | push `dev` 分支 / 手动 `workflow_dispatch` |
 | versionName | **不变**：不设 `APP_VERSION_NAME`，用 `gradle.properties` 的 `VERSION_NAME`（默认 `1.0.0`），提交内容不影响它 |
-| versionCode | **递增**：`APP_VERSION_CODE = github.run_number`（dev 工作流内每次运行唯一且递增，满足覆盖安装判断） |
+| versionCode | **递增**：时间基准 `yyyymmddHH`（如 `2026082914`），必然大于任何历史已装版本，覆盖安装不降级 |
 | 发布 | **不发布**：无 git tag、无 GitHub Release；APK 以 **Actions Artifact** 形式产出（Actions 页 → 本次运行 → Artifacts 下载） |
 | 签名 | 配置了 `KEYSTORE_BASE64` 等 Secrets 则正式签名，否则回退 debug 签名（可安装） |
 
-**与 release 工作流的关系**：两者完全独立——`release.yml` 只监听 `main/master`，`dev.yml` 只监听 `dev`，互不触发；版本号互不影响。
+**与 release 工作流的关系**：两者完全独立——`release.yml` 只监听 `main/master`，`dev.yml` 只监听 `dev`，互不触发；版本号互不影响（versionCode 均为时间基准，天然错开）。
 
 **注意事项**：
-- dev 包 versionCode 来自 dev 工作流自己的 `run_number`（与 release 工作流计数器相互独立），两个工作流产出的 versionCode 可能相同——但 dev（debug 签名）与 release（正式签名）签名不同，本就不能互相覆盖安装，无冲突。
-- 若希望 dev 包与 release 包可互相覆盖安装（同一签名），需保证 dev 的 versionCode 永远大于已发布的 release——届时可把 dev 的 versionCode 改为「release 分支最新 run_number」或手动维护 `VERSION_CODE`（当前方案不保证这一点）。
+- dev 包与 release 包 versionCode 都随时间递增，**互相可覆盖安装的前提是签名一致**：dev 默认回退 debug 签名、release 用正式签名（若已配置），两者签名不同时无法互相覆盖（需卸载）；若希望互通，让 dev 也使用正式签名（配置同一组 Secrets 即可）。
+- 同一小时内构建的多个包 versionCode 相同，覆盖安装会被拒绝——重新触发一次构建（下一小时）即可，或手动加一。
