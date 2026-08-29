@@ -99,7 +99,10 @@ jobs:
         env:
           APP_VERSION_NAME: ${{ steps.version.outputs.version }}
           APP_VERSION_CODE: ${{ github.run_number }}
-        run: ./gradlew :app:assembleRelease --no-daemon
+        run: |
+          # gradlew 在 Windows 上创建，Linux runner 需补可执行位
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --no-daemon
 
       - name: 创建并推送 Git 标签
         if: steps.version.outputs.skip != 'true'
