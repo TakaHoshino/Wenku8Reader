@@ -32,7 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,7 +46,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,20 +53,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.JobStatus
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
-import com.hoshino.wenku8reader.ui.common.rememberCoverRequest
+import com.hoshino.wenku8reader.ui.common.CoverImage
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.StatusTag
 import com.hoshino.wenku8reader.ui.components.TonalCard
@@ -190,13 +186,13 @@ fun DetailScreen(
                                     .fillMaxWidth()
                                     .padding(14.dp),
                             ) {
-                                AsyncImage(
-                                    model = rememberCoverRequest(info.coverUrl, 120.dp, 170.dp, crossfade = true),
+                                CoverImage(
+                                    url = info.coverUrl,
+                                    width = 120.dp,
+                                    height = 170.dp,
                                     contentDescription = stringResource(R.string.detail_cover),
-                                    modifier = Modifier
-                                        .size(120.dp, 170.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Crop,
+                                    cornerRadius = 12.dp,
+                                    crossfade = true,
                                 )
                                 Spacer(Modifier.width(16.dp))
                                 Column(Modifier.weight(1f)) {
@@ -229,7 +225,7 @@ fun DetailScreen(
                             onClick = { onRead(vm.bookId) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Filled.MenuBook, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(
                                 if (vm.hasProgress()) R.string.detail_continue_reading

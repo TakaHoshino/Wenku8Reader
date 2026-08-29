@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hoshino.wenku8reader.ui.MainScaffold
+import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.reader.VolumeKeyTurn
 import com.hoshino.wenku8reader.ui.theme.Wenku8ReaderTheme
 
@@ -42,11 +43,7 @@ class MainActivity : ComponentActivity() {
             val app = application as Wenku8Application
             val settings by app.container.readerSettings.flow.collectAsStateWithLifecycle()
             Wenku8ReaderTheme(
-                darkTheme = when (settings.darkMode) {
-                    "dark" -> true
-                    "light" -> false
-                    else -> isSystemInDarkTheme()
-                },
+                darkTheme = settings.isDarkTheme(isSystemInDarkTheme()),
                 dynamicColor = settings.dynamicColor,
                 seedColor = Color(settings.seedColor),
                 amoled = settings.amoled,

@@ -45,7 +45,8 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
     private var homeLoaded = false
 
     companion object {
-        private const val MAX_TAGS = 20
+        // 内置分类共 50 个，全部展示（与 LightNovelReader 展示 ~48 个分类一致）
+        private const val MAX_TAGS = 50
     }
 
     fun loadHomeOnce() {

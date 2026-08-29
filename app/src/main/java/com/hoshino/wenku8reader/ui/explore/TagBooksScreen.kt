@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -29,18 +28,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
-import com.hoshino.wenku8reader.ui.common.rememberCoverRequest
+import com.hoshino.wenku8reader.ui.common.CoverImage
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
@@ -127,13 +123,12 @@ fun TagBooksScreen(
                                         Text(book.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     },
                                     leadingContent = {
-                                        AsyncImage(
-                                            model = rememberCoverRequest(book.coverUrl, 48.dp, 68.dp),
+                                        CoverImage(
+                                            url = book.coverUrl,
+                                            width = 48.dp,
+                                            height = 68.dp,
                                             contentDescription = book.name,
-                                            modifier = Modifier
-                                                .size(48.dp, 68.dp)
-                                                .clip(RoundedCornerShape(8.dp)),
-                                            contentScale = ContentScale.Crop,
+                                            cornerRadius = 8.dp,
                                         )
                                     },
                                     onClick = { onOpenBook(book.id) },

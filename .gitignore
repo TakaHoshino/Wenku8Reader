@@ -1,6 +1,6 @@
 # ===== 参考文档（只读，勿提交，勿修改） =====
 /技术性文档(只读勿动)
-./DEVELOPMENT.md
+OPTIMIZATION_REPORT.md
 
 # ===== Gradle =====
 .gradle/
@@ -51,3 +51,4 @@ captures/
 .DS_Store
 Thumbs.db
 desktop.ini
+

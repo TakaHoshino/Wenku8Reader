@@ -45,18 +45,21 @@ fun Wenku8ReaderTheme(
     )
 }
 
-/** 把 surface/background 系列压到纯黑，用于 OLED 省电。 */
+/**
+ * 把 surface/background 系列压到真黑，用于 OLED 省电。
+ * 背景/主容器压到纯黑或近黑（<0x10），卡片仅保留极轻微抬升以便区分。
+ */
 private fun ColorScheme.amoledCopy(): ColorScheme = copy(
     background = Color.Black,
     onBackground = onSurface,
     surface = Color.Black,
     surfaceDim = Color.Black,
-    surfaceBright = Color(0xFF1F1F1F),
+    surfaceBright = Color(0xFF1A1A1A),
     surfaceContainerLowest = Color.Black,
-    surfaceContainerLow = Color(0xFF101010),
-    surfaceContainer = Color(0xFF161616),
-    surfaceContainerHigh = Color(0xFF202020),
-    surfaceContainerHighest = Color(0xFF2A2A2A),
+    surfaceContainerLow = Color(0xFF080808),
+    surfaceContainer = Color(0xFF0D0D0D),
+    surfaceContainerHigh = Color(0xFF171717),
+    surfaceContainerHighest = Color(0xFF1F1F1F),
 )
 
 /** 从单个种子色构建完整 MD3 色板（浅色 / 深色 / 深色纯黑）。 */
@@ -66,10 +69,10 @@ private fun manualScheme(seed: Color, dark: Boolean, amoled: Boolean): ColorSche
     return if (dark) {
         val surface = if (amoled) Color(0xFF000000) else Color(0xFF141218)
         val containerLowest = if (amoled) Color(0xFF000000) else Color(0xFF0F0D13)
-        val containerLow = if (amoled) Color(0xFF111111) else Color(0xFF1D1B20)
-        val container = if (amoled) Color(0xFF1A1A1A) else Color(0xFF211F26)
-        val containerHigh = if (amoled) Color(0xFF242424) else Color(0xFF2B2930)
-        val containerHighest = if (amoled) Color(0xFF2E2E2E) else Color(0xFF36343B)
+        val containerLow = if (amoled) Color(0xFF080808) else Color(0xFF1D1B20)
+        val container = if (amoled) Color(0xFF0D0D0D) else Color(0xFF211F26)
+        val containerHigh = if (amoled) Color(0xFF171717) else Color(0xFF2B2930)
+        val containerHighest = if (amoled) Color(0xFF1F1F1F) else Color(0xFF36343B)
 
         darkColorScheme(
             primary = seed.blend(Color.White, 0.22f),

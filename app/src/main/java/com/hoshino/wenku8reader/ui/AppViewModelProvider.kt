@@ -22,7 +22,12 @@ object AppViewModelProvider {
 
     val Factory = viewModelFactory {
         initializer { ExploreViewModel(application().container.repository) }
-        initializer { SettingsViewModel(application().container.readerSettings) }
+        initializer {
+            SettingsViewModel(
+                application().container.readerSettings,
+                application().container.client,
+            )
+        }
         initializer {
             BookcaseViewModel(
                 application().container.localLibrary,

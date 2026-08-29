@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -69,6 +70,7 @@ fun AboutScreen(
         }.getOrNull() ?: "1.0.0"
     }
     val repoUrl = stringResource(R.string.about_repo_url)
+    val qqGroupUrl = stringResource(R.string.about_qq_group_url)
     val supportUrl = stringResource(R.string.about_support_url)
 
     ExpressiveScaffold(
@@ -144,6 +146,17 @@ fun AboutScreen(
                             leadingContent = { Icon(Icons.Filled.Code, contentDescription = null) },
                             headlineContent = { Text(stringResource(R.string.about_repo_title)) },
                             supportingContent = { Text(repoUrl) },
+                            trailingContent = {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                            },
+                        )
+                    },
+                    {
+                        SegmentedListItem(
+                            onClick = { uriHandler.openUri(qqGroupUrl) },
+                            leadingContent = { Icon(Icons.Filled.Forum, contentDescription = null) },
+                            headlineContent = { Text(stringResource(R.string.about_qq_group)) },
+                            supportingContent = { Text(stringResource(R.string.about_qq_group_desc)) },
                             trailingContent = {
                                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
                             },

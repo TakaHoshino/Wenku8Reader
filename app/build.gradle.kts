@@ -4,6 +4,23 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// ---- 版本号来源（自动化版本管理，详见根目录 VERSIONING.md）----
+// 优先级：
+// 1) CI 环境变量（GitHub Actions）：APP_VERSION_NAME（Conventional Commits 语义解析）
+//    与 APP_VERSION_CODE（= github.run_number，唯一且递增）
+// 2) 本地构建回退：gradle.properties 的 VERSION_NAME / VERSION_CODE（手动维护）
+val releaseVersionName: String =
+    System.getenv("APP_VERSION_NAME")
+        ?: (project.findProperty("VERSION_NAME") as String?)
+        ?: "1.0.0"
+val releaseVersionCode: Int =
+    (System.getenv("APP_VERSION_CODE")
+        ?: (project.findProperty("VERSION_CODE") as String?)
+        ?: "10000").toIntOrNull() ?: 10000
+
+// 是否注入正式签名（CI secrets）：未注入时 release 回退 debug 签名，保证可安装
+val useReleaseSigning = System.getenv("KEYSTORE_PATH") != null
+
 android {
     namespace = "com.hoshino.wenku8reader"
     compileSdk = 34
@@ -12,13 +29,32 @@ android {
         applicationId = "com.hoshino.wenku8reader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
+    }
+
+    signingConfigs {
+        if (useReleaseSigning) {
+            create("release") {
+                storeFile = file(System.getenv("KEYSTORE_PATH")!!)
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = if (useReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

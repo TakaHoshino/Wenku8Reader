@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -47,7 +48,7 @@ import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -108,6 +109,7 @@ import coil.request.ImageRequest
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.ChapterContent
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
+import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
 import java.io.File
@@ -147,11 +149,7 @@ fun ReaderScreen(
     val next = if (idx in 0 until ui.flatChapters.lastIndex) ui.flatChapters[idx + 1] else null
 
     // 阅读器配色按主题模式分离：浅色/深色各自独立的背景色与字体色
-    val isDarkTheme = when (rs.darkMode) {
-        "dark" -> true
-        "light" -> false
-        else -> isSystemInDarkTheme()
-    }
+    val isDarkTheme = rs.isDarkTheme(isSystemInDarkTheme())
     val textColor = if (isDarkTheme) Color(rs.readerTextColorDark) else Color(rs.readerTextColorLight)
     val paperColor = if (isDarkTheme) Color(rs.readerBackgroundDark) else Color(rs.readerBackgroundLight)
 
@@ -206,9 +204,10 @@ fun ReaderScreen(
         BoxWithConstraints(
             Modifier.fillMaxSize(),
         ) {
-            if (rs.backgroundMode == "image" && rs.backgroundImagePath != null) {
+            val bgImagePath = rs.backgroundImagePath
+            if (rs.backgroundMode == "image" && bgImagePath != null) {
                 AsyncImage(
-                    model = File(rs.backgroundImagePath),
+                    model = File(bgImagePath),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
@@ -410,7 +409,9 @@ fun ReaderScreen(
                                             contentDescription = stringResource(R.string.reader_illustration),
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .padding(contentPadding),
+                                                .padding(contentPadding)
+                                                // LNR 风格占位底色：加载中/失败时保持稳定视觉
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                                             contentScale = ContentScale.Fit,
                                         )
                                         null -> {}
@@ -584,7 +585,7 @@ private fun ReaderBottomBar(
                 )
             }
             IconButton(onClick = onOpenToc) {
-                Icon(Icons.Filled.List, contentDescription = stringResource(R.string.reader_toc))
+                Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.reader_toc))
             }
             IconButton(onClick = onSettings) {
                 Icon(Icons.Filled.Settings,
@@ -743,7 +744,9 @@ private fun ScrollContent(
                     contentDescription = stringResource(R.string.reader_illustration),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 6.dp)
+                        // LNR 风格占位底色：加载中/失败时保持稳定视觉
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                     contentScale = ContentScale.FillWidth,
                     loading = {
                         Box(

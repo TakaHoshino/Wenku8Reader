@@ -83,14 +83,14 @@ class DownloadEngine(
                 bytes = downloadTxt(info, gid, encoding) { p ->
                     update(bookId) { it.copy(progress = p) }
                 }
-                fileName = "${sanitize(info.title)}.txt"
+                fileName = "${info.title}.txt"
                 mime = "text/plain; charset=utf-8"
             } else {
                 update(bookId) { it.copy(progress = 0.05f) }
                 bytes = downloadEpub(info, gid) { p ->
                     update(bookId) { it.copy(progress = p) }
                 }
-                fileName = "${sanitize(info.title)}.epub"
+                fileName = "${info.title}.epub"
                 mime = "application/epub+zip"
             }
             checkCancelled(bookId)
@@ -187,10 +187,5 @@ class DownloadEngine(
         if (cancelFlags[bookId] == true) {
             throw CancellationException("已取消")
         }
-    }
-
-    private fun sanitize(name: String): String {
-        val s = name.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").trim('_', '.')
-        return s.ifEmpty { "novel" }
     }
 }

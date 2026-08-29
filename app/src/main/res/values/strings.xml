@@ -135,6 +135,9 @@
     <string name="settings_amoled">纯黑模式</string>
     <string name="settings_amoled_summary">深色模式下使用纯黑背景，OLED 屏幕更省电</string>
     <string name="settings_dynamic_color_summary">跟随系统壁纸生成主题色（Android 12+）</string>
+    <string name="settings_section_network">网络</string>
+    <string name="settings_primary_mirror">主站域名</string>
+    <string name="settings_primary_mirror_summary">被 Cloudflare 拦截时可切换镜像，其余域名自动兜底</string>
 
     <!-- 设置 · 自定义 -->
     <string name="settings_custom">自定义</string>
@@ -176,6 +179,9 @@
     <string name="about_links">链接</string>
     <string name="about_repo_title">GitHub 仓库</string>
     <string name="about_repo_url">https://github.com/TakaHoshino/Wenku8Reader</string>
+    <string name="about_qq_group">QQ交流群</string>
+    <string name="about_qq_group_desc">加入群聊 · 反馈与交流</string>
+    <string name="about_qq_group_url">https://qm.qq.com/q/PeFKgwevG6</string>
     <string name="about_support_title">给作者买杯咖啡</string>
     <string name="about_support_desc">爱发电 · 支持开发</string>
     <string name="about_support_url">https://www.ifdian.net/a/wenku8reader</string>

@@ -20,9 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,14 +31,12 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarScrollBehavior
-import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,9 +45,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -57,13 +52,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
-import com.hoshino.wenku8reader.ui.common.rememberCoverRequest
+import com.hoshino.wenku8reader.ui.common.CoverImage
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.TonalCard
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
 
 /**
  * 书架页（主 Tab）。参考 SukiSU-Ultra：折叠大顶栏 + surfaceBright 卡片列表，
@@ -80,12 +73,10 @@ fun BookcasePage(
 
     LaunchedEffect(Unit) { vm.load() }
 
-    val scrollBehavior = androidx.compose.material3.TopAppBarDefaults
-        .exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
-
+    // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = { Text(stringResource(R.string.bookcase_title)) },
                 actions = {
                     SortMenu(ui, onSelect = { vm.setSortType(it) }, onToggleReverse = { vm.setSortReversed(!ui.sortReversed) })
@@ -96,9 +87,10 @@ fun BookcasePage(
                         Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.action_downloads))
                     }
                 },
-                colors = expressiveLargeTopAppBarColors(),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                scrollBehavior = scrollBehavior,
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
@@ -132,8 +124,7 @@ fun BookcasePage(
             else -> LazyColumn(
                 Modifier
                     .fillMaxSize()
-                    .padding(inner)
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    .padding(inner),
             ) {
                 items(ui.entries, key = { it.bookId }) { entry ->
                     BookcaseCard(
@@ -157,7 +148,7 @@ private fun SortMenu(
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }) {
-            Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.bookcase_sort))
+            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.bookcase_sort))
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             Text(
@@ -226,13 +217,12 @@ private fun BookcaseCard(
                 .height(116.dp)
                 .padding(horizontal = 14.dp, vertical = 4.dp),
         ) {
-            AsyncImage(
-                model = rememberCoverRequest(entry.coverUrl, 72.dp, 108.dp),
+            CoverImage(
+                url = entry.coverUrl,
+                width = 72.dp,
+                height = 108.dp,
                 contentDescription = entry.title,
-                modifier = Modifier
-                    .size(72.dp, 108.dp)
-                    .clip(RoundedCornerShape(10.dp)),
-                contentScale = ContentScale.Crop,
+                cornerRadius = 10.dp,
             )
             Spacer(Modifier.width(12.dp))
             Column(

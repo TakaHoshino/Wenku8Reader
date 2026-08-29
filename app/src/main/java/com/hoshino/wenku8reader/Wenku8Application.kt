@@ -1,7 +1,6 @@
 package com.hoshino.wenku8reader
 
 import android.app.Application
-import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.di.AppContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,14 +20,11 @@ class Wenku8Application : Application() {
 
     /** Signs in with the built-in default account so content works without any login UI. */
     private fun silentLogin() {
-        if (DefaultAccount.USERNAME.isBlank()) return
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            val client = container.client
-            val ok = runCatching { client.isLoggedIn() }.getOrDefault(false)
-            if (!ok) {
-                runCatching {
-                    client.login(DefaultAccount.USERNAME, DefaultAccount.PASSWORD)
-                }
+            repeat(3) { attempt ->
+                val ok = runCatching { container.client.ensureLoggedIn() }.getOrDefault(false)
+                if (ok) return@launch
+                kotlinx.coroutines.delay(2000L * (attempt + 1))
             }
         }
     }

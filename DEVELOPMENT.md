@@ -65,7 +65,7 @@ Wenku8Reader/
             ├── AppViewModelProvider.kt    # 手写 ViewModel.Factory
             ├── MainScaffold.kt           # 分页式主 Tab（HorizontalPager + 弹簧动画）+ NavHost 子页栈
             ├── navigation/Routes.kt      # 类型安全路由常量（MAIN 为三 Tab 宿主路由）
-            ├── common/                   # UiText.kt / ReaderAppearance.kt(fontFamilyFor) / FontSizes.kt / CoilRequests.kt(封面请求，带 Referer + 目标尺寸解码)
+            ├── common/                   # UiText.kt / ReaderAppearance.kt(fontFamilyFor) / CoilRequests.kt(封面请求，带 Referer + 目标尺寸解码)
             ├── theme/Theme.kt            # MD3 主题（动态取色 + 种子色 + AMOLED 纯黑）
             ├── theme/Type.kt             # 全局 Typography（参考 SukiSU expressive 风格）
             ├── theme/Colors.kt           # 种子色预设
@@ -99,8 +99,14 @@ Wenku8Reader/
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
 - **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`、随机/固定 Chrome UA。
-- **多镜像域名**：`MIRRORS = [www.wenku8.net, www.wenku8.cc, www.wenku8.com]`。
-- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp 随机 Android UA，逐镜像尝试。首页采用**快路径直连优先**（默认 UA 正常时毫秒级返回），仅在直连失败或解析为空（疑似 CF 挑战页）时自动升级到三级绕过栈。其余接口只用 OkHttp。
+- **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net, www.wenku8.com]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
+- **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 OkHttp/Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
+- **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
+- **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks`，需登录）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
+- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp 随机 Android UA，逐镜像尝试。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
+- **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
+- **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。
+- **本地磁盘缓存**（`data/local/HtmlDiskCache.kt`）：抓取内容按 URL 落盘到 `filesDir/html_cache`（卸载前持久），命中且未过期直接返回、避免二次加载；仅缓存非 CF 挑战/非登录页。TTL：首页 1h、详情/目录 7d、章节正文 30d、标签书单 1d；总量超 30MB 时按最旧优先清理。内存缓存（快）→ 磁盘缓存（持久）→ 网络，三级取数。
 - **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；`RATE_CODES = {403,429,500,502,503,504}` 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。搜索额外 5s 最小间隔，超频错误页自动等 5s 重试一次。
 - **搜索精确命中**：POST `/so.php`，302 到 `/book/{id}.htm` 时直接解析单书详情。
 - **Referer**：`refererFor()` 按请求自身 host 生成，镜像安全。
@@ -149,7 +155,7 @@ Wenku8Reader/
 - `DetailScreen/ViewModel`：封面+基本信息 TonalCard（标签用 StatusTag 药丸）、阅读按钮、离线下载 TonalCard（TXT/EPUB + 进度）、简介 TonalCard。
 - `BookcasePage/ViewModel`：书架 TonalCard 列表 + 排序（顶栏 DropdownMenu）+ 刷新。
 - `DownloadsScreen/ViewModel`：下载任务 TonalCard 列表（进度/取消/完成路径），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、手动种子色）/ 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、手动种子色）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
 - `AboutScreen`：关于页——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`，现为 1.0.0）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
 - `SettingsComponents.kt`：`SectionTitle` / `SettingLabel` 等复用组件。
@@ -258,8 +264,9 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - **`android:largeHeap="true"`**：图片批量解码的内存压力下减少 GC 停顿（实测 5 次 ~950ms 大停顿疑似 GC）。
 - 保留 `beyondViewportPageCount = 2`（三页预组合）：切换时纯滚动+绘制，不触发组合。
 - 遗留：滚动模式阅读器长章节整章排版、Tab 切换双页绘制的固有成本。
+- **首页滚动优化（参考 LightNovelReader）**：① 滚动时**预取下一个区块封面**（`HomeBody` 监听 `firstVisibleItemIndex`，用 `Coil.imageLoader().enqueue` 提前解码），进入视口时图片已就绪，消除「区块组合+解码同帧爆发」；② 封面加**占位底色**（`surfaceContainerHighest`），加载中视觉稳定无弹出感；③ 封面行 4 本 + 普通 `clickable`（去动画状态）；④ 主 Tab 顶栏改为静态 64dp（去折叠布局级联）。
 
-### 7.5 待办 / 可扩展方向（建议）
+### 7.6 待办 / 可扩展方向（建议）
 - 分页目前用**估算**（宽/字号），可改用 Compose `TextMeasurer` 精确测量后切页（此前实现过基于 TextMeasurer 的 `getSlipStrings`，后为性能改回估算）。
 - **滚动模式长章节**：`ScrollContent` 用单个 `Text(chapter.text)` 一次性排版整章，超长章节打开时首帧排版偏慢；可改为按段落 `LazyColumn` 增量排版（注意保持阅读位置语义）。
 - 章节进度条在非沉浸时可能覆盖正文最后约 1~2 行（浮动层叠于文本之上），如需避免可调整其位置/透明度。
@@ -269,7 +276,9 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 
 ---
 
-## 8. 参考文档（只读，勿修改）
+## 8. 参考文档与版本管理
+
+- 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 规则、发布三件套）。
 
 `技术性文档(只读勿动)/`：
 - `wenku8-api.md` —— wenku8.net 全接口逆向文档（登录/搜索/详情/目录/正文/下载/书架、编码约定、限流策略）。**优先读它再改数据层。**

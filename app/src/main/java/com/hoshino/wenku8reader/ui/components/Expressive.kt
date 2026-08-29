@@ -33,7 +33,6 @@ import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
@@ -95,15 +94,6 @@ fun ExpressiveScaffold(
         content = content,
     )
 }
-
-@Composable
-fun expressiveTopAppBarColors(
-    containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
-    scrolledContainerColor: Color = containerColor,
-): TopAppBarColors = TopAppBarDefaults.topAppBarColors(
-    containerColor = containerColor,
-    scrolledContainerColor = scrolledContainerColor,
-)
 
 @Composable
 fun expressiveLargeTopAppBarColors(
@@ -193,41 +183,6 @@ fun StatusTag(
             color = contentColor,
         )
     }
-}
-
-// ---------------------------------------------------------------------------
-// WarningCard：错误/提示色卡片（errorContainer / tertiaryContainer）
-// ---------------------------------------------------------------------------
-
-enum class WarningLevel { Error, Notice }
-
-@Composable
-fun WarningCard(
-    message: String,
-    level: WarningLevel = WarningLevel.Error,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
-) {
-    val containerColor = when (level) {
-        WarningLevel.Error -> MaterialTheme.colorScheme.errorContainer
-        WarningLevel.Notice -> MaterialTheme.colorScheme.tertiaryContainer
-    }
-    val content = @Composable {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.contentColorFor(containerColor),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        )
-    }
-    TonalCard(
-        modifier = modifier,
-        containerColor = containerColor,
-        onClick = onClick,
-        content = content,
-    )
 }
 
 // ---------------------------------------------------------------------------
@@ -469,27 +424,4 @@ fun SegmentedDropdownItem(
             }
         }
     }
-}
-
-@Composable
-fun SegmentedRadioItem(
-    title: String,
-    summary: String? = null,
-    selected: Boolean,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    SegmentedListItem(
-        onClick = onClick,
-        enabled = enabled,
-        headlineContent = { Text(title) },
-        leadingContent = {
-            RadioButton(
-                selected = selected,
-                onClick = null,
-                enabled = enabled,
-            )
-        },
-        supportingContent = summary?.let { { Text(it) } },
-    )
 }

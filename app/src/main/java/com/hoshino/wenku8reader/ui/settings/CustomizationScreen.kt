@@ -61,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
 import java.io.File
@@ -296,11 +297,7 @@ fun CustomizationScreen(
 
             // 预览（跟随当前主题模式的阅读器配色）
             SettingLabel(stringResource(R.string.settings_preview))
-            val isDarkPreview = when (rs.darkMode) {
-                "dark" -> true
-                "light" -> false
-                else -> isSystemInDarkTheme()
-            }
+            val isDarkPreview = rs.isDarkTheme(isSystemInDarkTheme())
             val previewPaper = if (isDarkPreview) Color(rs.readerBackgroundDark) else Color(rs.readerBackgroundLight)
             val previewText = if (isDarkPreview) Color(rs.readerTextColorDark) else Color(rs.readerTextColorLight)
             Card(

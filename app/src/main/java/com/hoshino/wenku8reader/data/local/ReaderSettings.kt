@@ -15,6 +15,7 @@ data class ReaderSettingsState(
     val dynamicColor: Boolean = true,          // Android 12+ dynamic color
     val seedColor: Long = 0xFF3F5BA9L,        // manual theme seed (ARGB)
     val amoled: Boolean = false,              // 深色下使用纯黑背景（OLED 省电）
+    val primaryMirror: String = DEFAULT_MIRROR, // 主站镜像（默认 wenku8.cc，可在设置切换）
     val backgroundMode: String = "color",      // "color" | "image"
     // 阅读器配色按主题模式分离：浅色模式默认纯白背景 + 纯黑字体
     val readerBackgroundLight: Long = 0xFFFFFFFFL,
@@ -39,7 +40,15 @@ data class ReaderSettingsState(
     val bottomPadding: Int = 16,
     val leftPadding: Int = 20,
     val rightPadding: Int = 20,
-)
+) {
+    companion object {
+        /** 默认主站镜像（用户可在设置页「网络」中切换）。 */
+        const val DEFAULT_MIRROR = "https://www.wenku8.cc"
+
+        /** 旧版本默认值，用于迁移：未手动改过主域的用户自动切到新默认值。 */
+        const val LEGACY_DEFAULT_MIRROR = "https://www.wenku8.net"
+    }
+}
 
 /**
  * App-wide customization store backed by SharedPreferences. Holds the single
@@ -57,7 +66,10 @@ class ReaderSettings(context: Context) {
         dynamicColor = prefs.getBoolean("dynamic_color", true),
         seedColor = prefs.getLong("seed_color", 0xFF3F5BA9L),
         amoled = prefs.getBoolean("amoled", false),
-        backgroundMode = prefs.getString("bg_mode", "color") ?: "color",
+        // 默认 wenku8.cc；旧默认 wenku8.net（用户未手动改过）自动迁移到新默认
+        primaryMirror = prefs.getString("primary_mirror", null)
+            ?.takeUnless { it == ReaderSettingsState.LEGACY_DEFAULT_MIRROR }
+            ?: ReaderSettingsState.DEFAULT_MIRROR,        backgroundMode = prefs.getString("bg_mode", "color") ?: "color",
         // 旧版本只有单一 reader_bg / reader_text_color：迁移为浅色模式配色
         readerBackgroundLight = prefs.getLong(
             "reader_bg_light",
@@ -96,6 +108,7 @@ class ReaderSettings(context: Context) {
             .putBoolean("dynamic_color", next.dynamicColor)
             .putLong("seed_color", next.seedColor)
             .putBoolean("amoled", next.amoled)
+            .putString("primary_mirror", next.primaryMirror)
             .putString("bg_mode", next.backgroundMode)
             .putLong("reader_bg_light", next.readerBackgroundLight)
             .putLong("reader_text_light", next.readerTextColorLight)
@@ -125,6 +138,7 @@ class ReaderSettings(context: Context) {
     fun setDynamicColor(enabled: Boolean) = emit { it.copy(dynamicColor = enabled) }
     fun setSeedColor(color: Long) = emit { it.copy(seedColor = color) }
     fun setAmoled(enabled: Boolean) = emit { it.copy(amoled = enabled) }
+    fun setPrimaryMirror(url: String) = emit { it.copy(primaryMirror = url) }
     fun setReaderBackgroundLight(color: Long) =
         emit { it.copy(readerBackgroundLight = color, backgroundMode = "color") }
     fun setReaderTextColorLight(color: Long) = emit { it.copy(readerTextColorLight = color) }
@@ -149,4 +163,14 @@ class ReaderSettings(context: Context) {
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }
     fun setLeftPadding(v: Int) = emit { it.copy(leftPadding = v) }
     fun setRightPadding(v: Int) = emit { it.copy(rightPadding = v) }
+}
+
+/**
+ * 解析当前是否为深色主题（含「跟随系统」）。MainActivity 主题、阅读器配色、
+ * 自定义页预览共用此逻辑，避免三处重复。
+ */
+fun ReaderSettingsState.isDarkTheme(systemDark: Boolean): Boolean = when (darkMode) {
+    "dark" -> true
+    "light" -> false
+    else -> systemDark
 }

@@ -27,16 +27,15 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.TopAppBarScrollBehavior
-import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -44,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -57,7 +55,6 @@ import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.SegmentedSwitchItem
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
 import com.hoshino.wenku8reader.ui.theme.seedColorOptions
 
 /**
@@ -80,14 +77,10 @@ fun SettingsPage(
         }.getOrNull()
     }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
-
+    // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
         topBar = {
-            TopBar(
-                scrollBehavior = scrollBehavior,
-                onOpenDownloads = onOpenDownloads,
-            )
+            TopBar(onOpenDownloads = onOpenDownloads)
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
     ) { inner ->
@@ -95,7 +88,6 @@ fun SettingsPage(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(inner)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState()),
         ) {
             // 账号
@@ -181,6 +173,27 @@ fun SettingsPage(
                 )
             }
 
+            // 网络（主站镜像切换）
+            val mirrorOptions = listOf(
+                "https://www.wenku8.cc",
+                "https://www.wenku8.net",
+                "https://www.wenku8.com",
+            )
+            SegmentedColumn(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+                title = stringResource(R.string.settings_section_network),
+                items = listOf {
+                    SegmentedDropdownItem(
+                        icon = Icons.Filled.Public,
+                        title = stringResource(R.string.settings_primary_mirror),
+                        summary = stringResource(R.string.settings_primary_mirror_summary),
+                        items = mirrorOptions,
+                        selectedIndex = mirrorOptions.indexOf(rs.primaryMirror).coerceAtLeast(0),
+                        onItemSelected = { index -> vm.setPrimaryMirror(mirrorOptions[index]) },
+                    )
+                },
+            )
+
             // 阅读器自定义
             SegmentedColumn(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
@@ -223,10 +236,9 @@ fun SettingsPage(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
-    scrollBehavior: TopAppBarScrollBehavior? = null,
     onOpenDownloads: () -> Unit,
 ) {
-    LargeTopAppBar(
+    TopAppBar(
         title = { Text(stringResource(R.string.tab_settings)) },
         actions = {
             IconButton(onClick = onOpenDownloads) {
@@ -236,9 +248,10 @@ private fun TopBar(
                 )
             }
         },
-        colors = expressiveLargeTopAppBarColors(),
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
         windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-        scrollBehavior = scrollBehavior,
     )
 }
 

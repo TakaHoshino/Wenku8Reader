@@ -71,6 +71,36 @@ class CookieStore(context: Context) : CookieJar {
         prefs.edit().putString("data", arr.toString()).apply()
     }
 
+    /**
+     * 保存 WebView 解出 Cloudflare 挑战后写入的原始 Cookie 头（"k=v; k2=v2"），
+     * 典型如 `cf_clearance` / `__cf_bm`。持久化后 OkHttp / Cronet 请求可直接复用，
+     * 无需每次都重跑 WebView 挑战。
+     */
+    @Synchronized
+    fun saveRaw(url: HttpUrl, rawHeader: String) {
+        if (rawHeader.isBlank()) return
+        val hostList = cookies.getOrPut(url.host) { mutableListOf() }
+        rawHeader.split(";").forEach { pair ->
+            val idx = pair.indexOf('=')
+            if (idx > 0) {
+                val name = pair.substring(0, idx).trim()
+                val value = pair.substring(idx + 1).trim()
+                if (name.isNotEmpty() && value.isNotEmpty()) {
+                    hostList.removeAll { it.name == name }
+                    hostList.add(
+                        Cookie.Builder()
+                            .name(name)
+                            .value(value)
+                            .domain(url.host)
+                            .path("/")
+                            .build()
+                    )
+                }
+            }
+        }
+        persist()
+    }
+
     @Synchronized
     fun clear() {
         cookies.clear()

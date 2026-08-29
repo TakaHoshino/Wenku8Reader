@@ -1,5 +1,6 @@
 package com.hoshino.wenku8reader.ui.explore
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,11 +15,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -35,15 +36,14 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarScrollBehavior
-import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,12 +51,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -64,17 +64,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
+import coil.Coil
+import coil.request.ImageRequest
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.HomeBook
 import com.hoshino.wenku8reader.data.HomeSection
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
-import com.hoshino.wenku8reader.ui.common.rememberCoverRequest
+import com.hoshino.wenku8reader.ui.common.CoverImage
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.TonalCard
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
 import com.hoshino.wenku8reader.ui.components.pressClickable
 
 /**
@@ -97,12 +97,10 @@ fun ExplorePage(
     LaunchedEffect(Unit) { vm.loadHomeOnce() }
     LaunchedEffect(mode) { if (mode == ExploreMode.TAGS) vm.loadTags() }
 
-    val scrollBehavior = androidx.compose.material3.TopAppBarDefaults
-        .exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
-
+    // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = onOpenDownloads) {
@@ -112,9 +110,10 @@ fun ExplorePage(
                         )
                     }
                 },
-                colors = expressiveLargeTopAppBarColors(),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                scrollBehavior = scrollBehavior,
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
@@ -138,8 +137,7 @@ fun ExplorePage(
             Box(
                 Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    .fillMaxWidth(),
             ) {
                 when (mode) {
                     ExploreMode.RECOMMEND -> {
@@ -343,6 +341,40 @@ private fun HomeBody(
     onOpenBook: (Int) -> Unit,
     onRefresh: () -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    // 参考 LightNovelReader：滚动时预取下一个区块的封面，进入视口时图片已就绪，
+    // 避免「区块组合 + 图片解码」在同一帧爆发导致的卡顿。
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val imageLoader = remember { Coil.imageLoader(context) }
+    LaunchedEffect(ui.sections) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { idx ->
+                // 首项是「今日书库」标题行（index 0），其后为区块
+                val sectionIdx = idx - 1
+                if (sectionIdx in 0 until ui.sections.lastIndex) {
+                    ui.sections.drop(sectionIdx + 1).take(2).forEach { section ->
+                        section.books.forEach { b ->
+                            b.coverUrl?.let { url ->
+                                runCatching {
+                                    imageLoader.enqueue(
+                                        ImageRequest.Builder(context)
+                                            .data(url)
+                                            .size(
+                                                with(density) { 104.dp.roundToPx() },
+                                                with(density) { 146.dp.roundToPx() },
+                                            )
+                                            .setHeader("Referer", "https://www.wenku8.net/")
+                                            .build()
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
     when {
         ui.homeLoading && ui.sections.isEmpty() ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -376,7 +408,10 @@ private fun HomeBody(
                 )
             }
 
-        else -> LazyColumn(Modifier.fillMaxSize()) {
+        else -> LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+        ) {
             item {
                 Row(
                     Modifier
@@ -454,13 +489,12 @@ private fun HomeSectionBlock(section: HomeSection, onOpenBook: (Int) -> Unit) {
             modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
         )
         if (section.books.any { it.coverUrl != null }) {
-            // 每行最多 6 本：首页图片总量减半，显著降低滚动时的解码批量回调
-            // 与 Tab 切换时整页绘制的节点数（gfxinfo 实测 UI 线程瓶颈）
+            // 每行 4 本：快速滑动时一次性组合的封面数更少，显著降低组合爆发
             LazyRow(
                 Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
             ) {
-                items(section.books.take(6), key = { it.id }) { b ->
+                items(section.books.take(4), key = { it.id }) { b ->
                     HomeCoverCard(b, onOpenBook)
                 }
             }
@@ -508,16 +542,16 @@ private fun HomeCoverCard(b: HomeBook, onOpenBook: (Int) -> Unit) {
         Modifier
             .width(104.dp)
             .padding(4.dp)
-            .pressClickable { onOpenBook(b.id) },
+            // 高频组合项：用普通 clickable，避免 pressClickable 的动画状态开销
+            .clickable { onOpenBook(b.id) },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        AsyncImage(
-            model = rememberCoverRequest(b.coverUrl, 104.dp, 146.dp),
+        CoverImage(
+            url = b.coverUrl,
+            width = 104.dp,
+            height = 146.dp,
             contentDescription = b.name,
-            modifier = Modifier
-                .size(104.dp, 146.dp)
-                .clip(RoundedCornerShape(10.dp)),
-            contentScale = ContentScale.Crop,
+            cornerRadius = 10.dp,
         )
         Spacer(Modifier.height(4.dp))
         Text(

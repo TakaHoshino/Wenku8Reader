@@ -30,6 +30,8 @@ import java.io.IOException
 import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
+import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -38,6 +40,9 @@ import kotlin.coroutines.resume
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import com.hoshino.wenku8reader.data.local.HtmlDiskCache
 
 /**
  * Minimal wenku8.net (jieqi CMS) API client.
@@ -50,10 +55,17 @@ import kotlin.random.Random
  *   reduce the chance of triggering Cloudflare/anti-bot challenges.
  * - A global adaptive throttle plus exponential back-off handles 429/5xx.
  */
-class Wenku8Client(context: Context) {
+class Wenku8Client(
+    context: Context,
+    /** 用户选定的主站镜像（设置页可切换）；缺省用 wenku8.net */
+    private val primaryMirrorProvider: () -> String = { DEFAULT_BASE },
+    /** 内置账号凭据（供需登录接口 ensureLoggedIn 静默登录用） */
+    private val defaultCredentials: () -> Pair<String, String>? = { null },
+) {
 
     private val appContext = context.applicationContext
     private val cookieStore = CookieStore(appContext)
+    private val htmlCache = HtmlDiskCache(appContext)
     private val okHttp = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
@@ -75,22 +87,48 @@ class Wenku8Client(context: Context) {
         private set
 
     companion object {
-        private const val BASE = "https://www.wenku8.net"
+        private const val DEFAULT_BASE = "https://www.wenku8.cc"
         private const val DL = "https://dl.wenku8.com"
+
+        // ---- 官方 App API（无网页 CF 验证，参考 LightNovelReader）----
+        private const val APP_API_OFFICIAL = "http://app.wenku8.com/android.php"
+        private const val APP_API_RELAY = "https://wenku8-relay.mewx.org"
+        private const val APP_VER = "1.24-pico-mochi"
+        private const val APP_UA =
+            "Dalvik/2.1.0 (Linux; U; Android 15; 23114RD76B Build/AQ3A.240912.001)"
         private const val UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         private val GB18030: Charset = Charset.forName("GB18030")
         private val RATE_CODES = setOf(403, 429, 500, 502, 503, 504)
 
+        // ---- 磁盘缓存 TTL（见 HtmlDiskCache）----
+        const val TTL_HOME = 60L * 60 * 1000                 // 首页 1 小时
+        const val TTL_BOOK = 7L * 24 * 60 * 60 * 1000        // 详情/目录 7 天
+        const val TTL_CHAPTER = 30L * 24 * 60 * 60 * 1000    // 章节正文 30 天
+        const val TTL_TAG_BOOKS = 24L * 60 * 60 * 1000       // 标签书单 1 天
+
+        /**
+         * 内置分类清单（标准 wenku8 标签，参考 LightNovelReader 的 tagList）。
+         * 直接作为「标签」页的分类来源：秒回、无需登录/网络；
+         * 每个分类下的书籍仍按需在线抓取（tagBooks）。
+         */
+        private val BUILT_IN_TAGS = listOf(
+            "校园", "青春", "恋爱", "治愈", "群像", "竞技", "音乐", "美食", "旅行", "欢乐向",
+            "经营", "职场", "斗智", "脑洞", "宅文化", "穿越", "奇幻", "魔法", "异能", "战斗",
+            "科幻", "机战", "战争", "冒险", "龙傲天", "悬疑", "犯罪", "复仇", "黑暗", "猎奇",
+            "惊悚", "间谍", "末日", "游戏", "大逃杀", "青梅竹马", "妹妹", "女儿", "JK", "JC",
+            "大小姐", "性转", "伪娘", "人外", "后宫", "百合", "耽美", "NTR", "女性视角",
+        )
+
         /** Mirror hosts; used to fall back when a host returns a Cloudflare block. */
         private val MIRRORS = listOf(
-            "https://www.wenku8.net",
             "https://www.wenku8.cc",
+            "https://www.wenku8.net",
             "https://www.wenku8.com",
         )
 
-        /** Random Android Chrome UA for low-trust requests (mirrors the reference probe). */
+        /** 随机 Android Chrome UA（参考 LightNovelReader：随机 Build ID 与子版本）。 */
         private fun randomAndroidUa(): String {
             val os = listOf("8.1.0", "9", "10", "11", "12", "13", "14", "15")
             val device = listOf(
@@ -104,11 +142,55 @@ class Wenku8Client(context: Context) {
                 "OPPO Reno6; Build/RP1A.200720.011",
                 "vivo X60; Build/RP1A.200720.012",
             )
+            // Chrome 主版本 100-140，子版本/构建/补丁号随机（增大 UA 熵）
             val chrome = 100 + Random.nextInt(41)
+            val minor = Random.nextInt(0, 4000)
+            val build = Random.nextInt(0, 200)
+            val patch = Random.nextInt(0, 150)
             return "Mozilla/5.0 (Linux; Android ${os.random()}; ${device.random()}) " +
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chrome.0.0.0 Mobile Safari/537.36"
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chrome.0.$minor.$build Mobile Safari/537.$patch"
         }
     }
+
+    // ------------------------------------------------------------------ //
+    // 主镜像选择（设置页可切换）+ cf_clearance UA 绑定
+    // ------------------------------------------------------------------ //
+
+    /** 用户选定的主镜像优先，其余镜像按固定顺序兜底。 */
+    private val mirrors: List<String>
+        get() = buildList {
+            val primary = primaryMirrorProvider().ifBlank { DEFAULT_BASE }
+            add(primary)
+            MIRRORS.filter { it != primary }.forEach { add(it) }
+        }
+
+    private val base: String get() = mirrors.first()
+
+    /**
+     * WebView 解出 Cloudflare 挑战时使用的 UA（按主机记录）。
+     * cf_clearance 令牌与该 UA 绑定，后续 OkHttp/Cronet 复用令牌时必须使用同一 UA。
+     */
+    private val challengeUa = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun uaFor(url: String): String =
+        runCatching { url.toHttpUrl().host }.getOrNull()?.let { challengeUa[it] }
+            ?: randomAndroidUa()
+
+    /** 切换主镜像/清空会话时调用：清空全部 Cookie 与 UA 绑定。 */
+    fun clearCookies() {
+        challengeUa.clear()
+        cookieStore.clear()
+    }
+
+    // ------------------------------------------------------------------ //
+    // 内存缓存（参考 LightNovelReader 的 2h Cache）
+    // ------------------------------------------------------------------ //
+    private val infoCache = TimedCache(2 * 60 * 60 * 1000L)
+    private val tocCache = TimedCache(2 * 60 * 60 * 1000L)
+    private val chapterCache = TimedCache(30 * 60 * 1000L)
+
+    /** App API 串行限流（官方 App 行为：同时间仅一个请求）。 */
+    private val appApiSemaphore = Semaphore(1)
 
     // ------------------------------------------------------------------ //
     // pacing / retry
@@ -200,6 +282,24 @@ class Wenku8Client(context: Context) {
             String(bytes, GB18030)
         }
 
+    /**
+     * 带本地磁盘缓存的抓取：命中且未过期直接返回（免二次加载）。
+     * 仅缓存「非 CF 挑战页/非登录页」的有效内容，避免缓存到垃圾页。
+     */
+    private suspend fun getHtmlCached(
+        url: String,
+        ttlMs: Long,
+        retries: Int = 3,
+        ua: String = UA,
+    ): String {
+        htmlCache.get(url, ttlMs)?.let { return it }
+        val html = getHtml(url, retries, ua)
+        if (html.isNotBlank() && !isChallenge(html) && !html.contains("login.php")) {
+            htmlCache.put(url, html)
+        }
+        return html
+    }
+
     private fun gbkForm(pairs: List<Pair<String, String>>): RequestBody {
         val sb = StringBuilder()
         pairs.forEachIndexed { i, (k, v) ->
@@ -215,7 +315,7 @@ class Wenku8Client(context: Context) {
     private suspend fun postForm(url: String, pairs: List<Pair<String, String>>): Response {
         val req = Request.Builder()
             .url(url)
-            .browserHeaders("$BASE/login.php")
+            .browserHeaders("$base/login.php")
             .post(gbkForm(pairs))
             .build()
         return execute(req, retries = 2)
@@ -224,14 +324,26 @@ class Wenku8Client(context: Context) {
     // ------------------------------------------------------------------ //
     // account
     // ------------------------------------------------------------------ //
-    suspend fun isLoggedIn(): Boolean = withContext(Dispatchers.IO) {
-        !getHtml("$BASE/index.php").contains("frmlogin")
+
+    /** 是否持有有效会话：以 jieqiUserInfo 会话 Cookie 为准（旧版 frmlogin 标记已随页面改版失效）。 */
+    private fun hasSession(): Boolean =
+        cookieStore.loadForRequest(base.toHttpUrl()).any {
+            it.name == "jieqiUserInfo" && it.value.isNotBlank()
+        }
+
+    suspend fun isLoggedIn(): Boolean = withContext(Dispatchers.IO) { hasSession() }
+
+    /** 确保已登录（供 tags/bookcase 等需登录接口调用）。 */
+    suspend fun ensureLoggedIn(): Boolean {
+        if (isLoggedIn()) return true
+        val creds = defaultCredentials() ?: return false
+        return login(creds.first, creds.second)
     }
 
     suspend fun login(user: String, pass: String): Boolean = withContext(Dispatchers.IO) {
         val resp = postForm(
-            "$BASE/login.php?do=submit" +
-                "&jumpurl=http%3A%2F%2Fwww.wenku8.net%2Findex.php",
+            "$base/login.php?do=submit" +
+                "&jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}",
             listOf(
                 "username" to user,
                 "password" to pass,
@@ -240,9 +352,9 @@ class Wenku8Client(context: Context) {
                 "submit" to "\u00A0\u00A0\u767B\u00A0\u00A0\u5F55\u00A0",
             )
         )
-        val bytes = readBytes(resp)
-        val html = String(bytes, GB18030)
-        val ok = !html.contains("frmlogin")
+        readBytes(resp)
+        // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
+        val ok = hasSession()
         if (ok) {
             username = user
             cookieStore.persist()
@@ -251,7 +363,7 @@ class Wenku8Client(context: Context) {
     }
 
     suspend fun logout() {
-        runCatching { getBytes("$BASE/logout.php") }
+        runCatching { getBytes("$base/logout.php") }
         cookieStore.clear()
         username = null
     }
@@ -270,7 +382,7 @@ class Wenku8Client(context: Context) {
 
         val type = if (byAuthor) "author" else "articlename"
         val resp = postForm(
-            "$BASE/so.php",
+            "$base/so.php",
             listOf(
                 "searchtype" to type,
                 "searchkey" to keyword,
@@ -297,20 +409,118 @@ class Wenku8Client(context: Context) {
     }
 
     suspend fun bookInfo(id: Int): BookInfo = withContext(Dispatchers.IO) {
-        Parsers.parseBookInfo(getHtml("$BASE/book/$id.htm"), id)
+        infoCache.get("info_$id") ?: run {
+            // 网页优先（含磁盘缓存 + cf_clearance 快路径）；失败/空则走官方 App API（免 CF）
+            val web = runCatching {
+                Parsers.parseBookInfo(getHtmlCached("$base/book/$id.htm", TTL_BOOK), id)
+            }.getOrNull()
+            val info = web?.takeIf { it.title.isNotBlank() }
+                ?: appApiBookInfo(id)
+                ?: throw IOException("书籍信息获取失败")
+            infoCache.put("info_$id", info)
+            info
+        }
     }
 
     suspend fun chapters(bookId: Int, groupId: Int): List<Volume> = withContext(Dispatchers.IO) {
-        Parsers.parseChapterIndex(getHtml("$BASE/novel/$groupId/$bookId/index.htm"))
+        tocCache.get("toc_$bookId") ?: run {
+            val web = runCatching {
+                Parsers.parseChapterIndex(
+                    getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK)
+                )
+            }.getOrNull()
+            val volumes = web?.takeIf { it.isNotEmpty() }
+                ?: appApiVolumes(bookId)
+                ?: throw IOException("章节目录加载失败")
+            tocCache.put("toc_$bookId", volumes)
+            volumes
+        }
     }
 
     suspend fun chapterContent(gid: Int, bookId: Int, cid: String): ChapterContent =
         withContext(Dispatchers.IO) {
-            Parsers.parseChapter(getHtml("$BASE/novel/$gid/$bookId/$cid.htm"))
+            chapterCache.get("chap_${bookId}_$cid") ?: run {
+                val web = runCatching {
+                    Parsers.parseChapter(
+                        getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER)
+                    )
+                }.getOrNull()
+                val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
+                    ?: appApiChapter(bookId, cid)
+                    ?: throw IOException("章节加载失败")
+                chapterCache.put("chap_${bookId}_$cid", chapter)
+                chapter
+            }
         }
 
+    // ------------------------------------------------------------------ //
+    // 官方 App API（免 CF，参考 LightNovelReader 的 Wenku8AppDataSource）
+    // ------------------------------------------------------------------ //
+
+    /** POST 官方 App API；官方地址失败后尝试社区中继。串行限流 + 随机延迟。 */
+    private suspend fun appApiGet(request: String): String? = withContext(Dispatchers.IO) {
+        appApiSemaphore.withPermit {
+            for (host in listOf(APP_API_OFFICIAL, APP_API_RELAY)) {
+                val text = runCatching {
+                    var attempt = 0
+                    while (true) {
+                        val body = gbkForm(
+                            listOf(
+                                "request" to Base64.getEncoder()
+                                    .encodeToString(request.toByteArray()),
+                                "timetoken" to System.currentTimeMillis().toString(),
+                                "appver" to APP_VER,
+                            )
+                        )
+                        val req = Request.Builder()
+                            .url(host)
+                            .post(body)
+                            .header("User-Agent", APP_UA)
+                            .header("Accept", "*/*")
+                            .build()
+                        val resp = execute(req, retries = 1)
+                        val text = readBytes(resp).toString(GB18030)
+                        if (text.isNotBlank()) return@runCatching text
+                        if (attempt >= 2) break
+                        attempt++
+                        delay(2500L * attempt)
+                    }
+                    ""
+                }.getOrNull()
+                if (!text.isNullOrBlank()) {
+                    // App API 官方行为：请求间随机 1.5~2s 延迟，避免被限流
+                    delay(Random.nextLong(1500, 2001))
+                    return@withPermit text
+                }
+            }
+            null
+        }
+    }
+
+    private suspend fun appApiBookInfo(id: Int): BookInfo? {
+        val meta = appApiGet("action=book&do=meta&aid=$id&t=0") ?: return null
+        val info = Parsers.parseAppBookInfo(meta, id) ?: return null
+        // 简介在 do=intro 接口：响应正文即简介纯文本
+        val intro = appApiGet("action=book&do=intro&aid=$id&t=0")
+        val description = intro?.let { html ->
+            html.substringAfter("<body>", html).substringBefore("</body>")
+                .replace(Regex("<[^>]+>"), "").trim()
+        }?.takeIf { it.isNotBlank() } ?: ""
+        return info.copy(description = description)
+    }
+
+    private suspend fun appApiVolumes(bookId: Int): List<Volume>? {
+        val list = appApiGet("action=book&do=list&aid=$bookId&t=0") ?: return null
+        return Parsers.parseAppVolumes(list)
+    }
+
+    private suspend fun appApiChapter(bookId: Int, cid: String): ChapterContent? {
+        val text = appApiGet("action=book&do=text&aid=$bookId&cid=$cid&t=0") ?: return null
+        return Parsers.parseAppChapter(text)
+    }
+
     suspend fun bookcase(): List<BookcaseItem> = withContext(Dispatchers.IO) {
-        Parsers.parseBookcase(getHtml("$BASE/modules/article/bookcase.php"))
+        Parsers.parseBookcase(getHtml("$base/modules/article/bookcase.php"))
     }
 
     /**
@@ -319,9 +529,12 @@ class Wenku8Client(context: Context) {
      * WebView → Cronet → OkHttp 随机 UA 的三级 Cloudflare 绕过栈。
      */
     suspend fun homepage(): List<HomeSection> = withContext(Dispatchers.IO) {
-        val direct = runCatching { Parsers.parseHomepage(getHtml("$BASE/index.php")) }
-            .getOrDefault(emptyList())
-        if (direct.isNotEmpty()) return@withContext direct
+        // 快路径：cf_clearance cookie-first 逐镜像直连（磁盘缓存 1 小时，避免二次加载）
+        tryDirect(
+            urlFor = { h -> "$h/index.php" },
+            parse = { html -> Parsers.parseHomepage(html).takeIf { it.isNotEmpty() } },
+            ttlMs = TTL_HOME,
+        )?.let { return@withContext it }
 
         val sections = fetchWithBypass(
             urlFor = { h -> "$h/index.php" },
@@ -330,21 +543,24 @@ class Wenku8Client(context: Context) {
         sections ?: throw IOException("首页获取失败：直连与三级绕过均未命中")
     }
 
-    /** All tag names. WebView (real browser engine) first, then Cronet, then OkHttp mirrors. */
+    /**
+     * 分类清单：直接返回内置标准标签（秒回，无需登录/网络）。
+     * 书籍仍按分类在线抓取，故此处先确保登录（供后续 tagBooks 使用）。
+     */
     suspend fun tags(): List<String> = withContext(Dispatchers.IO) {
-        val steps = mutableListOf<String>()
-        val tags = fetchWithBypass(
-            urlFor = { h -> "$h/modules/article/tags.php" },
-            parse = { html -> Parsers.parseTags(html).takeIf { it.isNotEmpty() } },
-            steps = steps,
-        )
-        tags ?: throw IOException(steps.joinToString("；").ifEmpty { "未能获取分类" })
+        ensureLoggedIn()
+        BUILT_IN_TAGS
     }
 
-    /** Books under a tag (first page). WebView, then Cronet, then OkHttp mirrors. */
+    /** Books under a tag (first page). 需登录；快路径 → WebView → Cronet → OkHttp mirrors。 */
     suspend fun tagBooks(tag: String): List<HomeBook> = withContext(Dispatchers.IO) {
+        ensureLoggedIn()
         val query = URLEncoder.encode(tag, "GBK")
-        fetchWithBypass(
+        tryDirect(
+            urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1" },
+            parse = { html -> Parsers.parseBookList(html).takeIf { it.isNotEmpty() } },
+            ttlMs = TTL_TAG_BOOKS,
+        ) ?: fetchWithBypass(
             urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1" },
             parse = { html -> Parsers.parseBookList(html).takeIf { it.isNotEmpty() } },
         ) ?: emptyList()
@@ -362,9 +578,30 @@ class Wenku8Client(context: Context) {
             html.contains("cf_chl") || html.contains("cf-chl")
 
     /**
+     * 快路径（参考 LightNovelReader 的 cookie-first 思路）：直接用 OkHttp 携带
+     * 持久化的 cf_clearance 与绑定 UA 直连各镜像；已有有效令牌时一次通过，无需跑 WebView。
+     * [ttlMs] > 0 时启用磁盘缓存（见 getHtmlCached），避免二次加载。
+     * 返回 null 表示全部镜像直连均无有效内容（此时才升级到三级绕过栈）。
+     */
+    private suspend fun <T> tryDirect(
+        urlFor: (String) -> String,
+        parse: (String) -> T?,
+        ttlMs: Long = 0L,
+    ): T? {
+        for (h in mirrors) {
+            val ua = uaFor(urlFor(h))
+            val parsed = runCatching {
+                parse(getHtmlCached(urlFor(h), ttlMs, retries = 1, ua = ua))
+            }.getOrNull()
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
+    /**
      * Cloudflare 三级绕过抓取（与 tags/tagBooks 同栈）：
-     * WebView（真浏览器跑 CF JS 挑战）→ Cronet（TLS 指纹）→ OkHttp 随机 Android UA，
-     * 逐镜像尝试。[parse] 返回 null 表示该响应无有效内容，进入下一层/下一镜像。
+     * WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）→ Cronet（TLS 指纹）
+     * → OkHttp 随机 Android UA，逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
      * [steps] 可选，收集各层诊断信息供错误提示。返回 null 表示全部失败。
      */
     private suspend fun <T> fetchWithBypass(
@@ -372,7 +609,7 @@ class Wenku8Client(context: Context) {
         parse: (String) -> T?,
         steps: MutableList<String>? = null,
     ): T? {
-        for (h in MIRRORS) {
+        for (h in mirrors) {
             val html = webViewGet(urlFor(h))
             if (html != null) {
                 val parsed = parse(html)
@@ -384,7 +621,7 @@ class Wenku8Client(context: Context) {
         }
         val engine = cronetEngine
         if (engine != null) {
-            for (h in MIRRORS) {
+            for (h in mirrors) {
                 val html = cronetGet(engine, urlFor(h))
                 if (html != null) {
                     val parsed = parse(html)
@@ -397,9 +634,11 @@ class Wenku8Client(context: Context) {
         } else {
             steps?.add("Cronet 初始化失败")
         }
-        for (h in MIRRORS) {
+        for (h in mirrors) {
+            // 若该主机已有 cf_clearance（WebView 解出后持久化），复用其绑定 UA 直接通过
+            val ua = uaFor(urlFor(h))
             val parsed = runCatching {
-                parse(getHtml(urlFor(h), retries = 1, ua = randomAndroidUa()))
+                parse(getHtml(urlFor(h), retries = 1, ua = ua))
             }.getOrNull()
             if (parsed != null) return parsed
             steps?.add("OkHttp $h 无有效内容")
@@ -473,7 +712,7 @@ class Wenku8Client(context: Context) {
 
         val builder = engine.newUrlRequestBuilder(url, callback, cronetExecutor)
             .setHttpMethod("GET")
-            .addHeader("User-Agent", randomAndroidUa())
+            .addHeader("User-Agent", uaFor(url))
             .addHeader(
                 "Accept",
                 "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
@@ -498,6 +737,11 @@ class Wenku8Client(context: Context) {
     /**
      * Loads the page in a hidden WebView so Cloudflare's JS challenge runs like in a
      * real browser, then reads back the rendered DOM. Carries the app's session cookies.
+     *
+     * 挑战通过后会做两件事（参考 LightNovelReader 的 cf_clearance 思路）：
+     * 1. 记录本次使用的 UA（cf_clearance 与该 UA 绑定，后续复用需一致）；
+     * 2. 把 WebView 写入的 Cookie（含 cf_clearance / __cf_bm）持久化到 CookieStore，
+     *    之后 OkHttp/Cronet 直接带令牌请求，无需每次重跑 WebView。
      */
     private suspend fun webViewGet(url: String): String? = withTimeoutOrNull(15000) {
         withContext(Dispatchers.Main) {
@@ -507,10 +751,12 @@ class Wenku8Client(context: Context) {
                     if (cont.isActive) cont.resume(null)
                     return@suspendCancellableCoroutine
                 }
+                val usedUa = randomAndroidUa()
+                val host = runCatching { url.toHttpUrl().host }.getOrNull()
                 runCatching {
                     webView.settings.javaScriptEnabled = true
                     webView.settings.domStorageEnabled = true
-                    webView.settings.userAgentString = randomAndroidUa()
+                    webView.settings.userAgentString = usedUa
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
                     runCatching {
@@ -535,6 +781,18 @@ class Wenku8Client(context: Context) {
                                         attempts++
                                         // Skip challenge pages and wait for Cloudflare's auto-redirect.
                                         if (decoded != null && (!isChallenge(decoded) || attempts >= 3)) {
+                                            // 挑战已通过：记录 UA 并持久化 cf_clearance 等 Cookie
+                                            if (host != null) challengeUa[host] = usedUa
+                                            val finishedUrl = url
+                                            if (finishedUrl != null) {
+                                                runCatching {
+                                                    val wvCookies = CookieManager.getInstance()
+                                                        .getCookie(finishedUrl)
+                                                    if (!wvCookies.isNullOrBlank()) {
+                                                        cookieStore.saveRaw(finishedUrl.toHttpUrl(), wvCookies)
+                                                    }
+                                                }
+                                            }
                                             runCatching { webView.destroy() }
                                             if (cont.isActive) cont.resume(decoded)
                                         }
@@ -564,4 +822,31 @@ class Wenku8Client(context: Context) {
     /** type: "txt"(GBK) | "utf8" | "big5" */
     suspend fun downloadFullTxt(id: Int, type: String): ByteArray =
         getBytes("$DL/down.php?type=$type&node=1&id=$id")
+}
+
+/**
+ * 简单 TTL 内存缓存（参考 LightNovelReader 的 Cache）。
+ * 只缓存成功结果；超时后下次访问自动重取。
+ */
+private class TimedCache(private val ttlMs: Long) {
+    private val map = ConcurrentHashMap<String, Pair<Long, Any>>()
+
+    @Suppress("UNCHECKED_CAST")
+    @Synchronized
+    fun <T> get(key: String): T? {
+        val entry = map[key] ?: return null
+        if (System.currentTimeMillis() - entry.first > ttlMs) {
+            map.remove(key)
+            return null
+        }
+        return entry.second as T
+    }
+
+    @Synchronized
+    fun put(key: String, value: Any) {
+        map[key] = System.currentTimeMillis() to value
+    }
+
+    @Synchronized
+    fun clear() = map.clear()
 }

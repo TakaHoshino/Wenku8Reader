@@ -1,0 +1,139 @@
+# 自动化版本发布（详见 VERSIONING.md）
+# - 触发：push 到 main/master，或手动 workflow_dispatch
+# - 版本：解析 Conventional Commits 自动升级（feat→minor，fix→patch，BREAKING→major）
+# - versionCode：使用 github.run_number（每次运行唯一且递增）
+# - 产出：打 git tag vX.Y.Z + GitHub Release（含 APK 与自动生成更新日志）
+name: Release
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout（完整历史，供提交解析与打标签）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---- 语义化版本升级：解析最近一次 tag 之后的 Conventional Commits ----
+      - name: 解析版本升级
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # 上一个 vX.Y.Z 标签；无标签则从 0.0.0 起算
+          LAST_TAG="$(git tag --list 'v*' | sort -V | tail -n 1 || true)"
+          BASE="${LAST_TAG#v}"
+          BASE="${BASE:-0.0.0}"
+          RANGE="HEAD"
+          if [ -n "$LAST_TAG" ]; then RANGE="${LAST_TAG}..HEAD"; fi
+
+          # 升级类型判断（优先级：breaking > feat > fix）
+          if git log "$RANGE" --format=%B | grep -qE '^BREAKING CHANGE|!(:|\s)'; then
+            BUMP="major"
+          elif git log "$RANGE" --format=%s | grep -qE '^feat(\([^)]*\))?!?:'; then
+            BUMP="minor"
+          elif git log "$RANGE" --format=%s | grep -qE '^fix(\([^)]*\))?!?:'; then
+            BUMP="patch"
+          else
+            BUMP="none"
+          fi
+
+          if [ "$BUMP" = "none" ]; then
+            echo "本次提交无 feat/fix/breaking 变更，跳过发布"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          IFS='.' read -r BM BA BP <<< "$BASE"
+          case "$BUMP" in
+            major) NM=$((BM + 1)); NA=0; NP=0 ;;
+            minor) NM=$BM;        NA=$((BA + 1)); NP=0 ;;
+            patch) NM=$BM;        NA=$BA;         NP=$((BP + 1)) ;;
+          esac
+          NEXT="${NM}.${NA}.${NP}"
+
+          echo "skip=false"        >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT}"   >> "$GITHUB_OUTPUT"
+          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "上一版本=${BASE:-无}  本次升级=${BUMP}  新版本=${NEXT}"
+
+      - name: 跳过发布（无版本相关提交）
+        if: steps.version.outputs.skip == 'true'
+        run: echo "本次推送不包含 feat/fix/breaking 提交，不触发版本发布。"
+
+      - name: 设置 JDK 17
+        if: steps.version.outputs.skip != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ---- 正式签名：Secrets 中配置 KEYSTORE_BASE64 后自动启用；否则回退 debug 签名 ----
+      # Secrets 只能存文本，keystore 需先 Base64 编码后存入 KEYSTORE_BASE64，
+      # 此步骤在运行器上还原为文件并导出 KEYSTORE_* 环境变量供 Gradle 读取。
+      - name: 准备正式签名（还原 keystore）
+        if: steps.version.outputs.skip != 'true' && secrets.KEYSTORE_BASE64 != ''
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+
+      # ---- 构建：versionName 由语义解析注入，versionCode = github.run_number ----
+      - name: 构建 Release APK
+        if: steps.version.outputs.skip != 'true'
+        env:
+          APP_VERSION_NAME: ${{ steps.version.outputs.version }}
+          APP_VERSION_CODE: ${{ github.run_number }}
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: 创建并推送 Git 标签
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: 生成更新日志（自上次标签）
+        id: changelog
+        if: steps.version.outputs.skip != 'true'
+        shell: bash
+        run: |
+          RANGE="HEAD"
+          if [ -n "${{ steps.version.outputs.last_tag }}" ]; then
+            RANGE="${{ steps.version.outputs.last_tag }}..HEAD"
+          fi
+          {
+            echo "### 新增"
+            git log "$RANGE" --format=%s | grep -E '^feat' \
+              | sed -E 's/^feat(\([^)]*\))?!?:? ?//' | sed 's/^/- /' || true
+            echo ""
+            echo "### 修复"
+            git log "$RANGE" --format=%s | grep -E '^fix' \
+              | sed -E 's/^fix(\([^)]*\))?!?:? ?//' | sed 's/^/- /' || true
+          } > /tmp/changelog.md
+          if ! grep -qE '^- ' /tmp/changelog.md; then
+            echo "- 详见提交记录" >> /tmp/changelog.md
+          fi
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/changelog.md >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: 发布 GitHub Release
+        if: steps.version.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body: ${{ steps.changelog.outputs.body }}
+          files: |
+            app/build/outputs/apk/release/*.apk
