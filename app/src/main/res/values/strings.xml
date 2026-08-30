@@ -59,7 +59,7 @@
     <!-- 书架 -->
     <string name="bookcase_title">我的书架</string>
     <string name="bookcase_empty_local">本地书架为空，可在书籍详情页收藏</string>
-    <string name="bookcase_progress">已读 %1$d / %2$d 章</string>
+    <string name="bookcase_read_chapters">已读 %1$d / %2$d 章</string>
     <string name="bookcase_sort">排序</string>
     <string name="bookcase_sort_default">默认</string>
     <string name="bookcase_sort_latest">最近更新</string>

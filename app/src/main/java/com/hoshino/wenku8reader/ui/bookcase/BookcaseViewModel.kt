@@ -38,10 +38,13 @@ data class BookcaseEntry(
     val addedAt: Long = 0L,
     val progressPos: Int = 0,
     val progressTotal: Int = 0,
+    /** 已读章节数：目录页标记"已读"的章节（finishedChapters）数量。 */
+    val readCount: Int = 0,
 ) {
+    /** 已读进度 = 已读章节数 / 总章节数（基于目录"已读"标记，非阅读位置）。 */
     val progress: Float
         get() = if (progressTotal > 0) {
-            ((progressPos + 1).toFloat() / progressTotal).coerceIn(0f, 1f)
+            (readCount.toFloat() / progressTotal).coerceIn(0f, 1f)
         } else {
             0f
         }
@@ -88,6 +91,7 @@ class BookcaseViewModel(
                         addedAt = lb.addedAt,
                         progressPos = pos,
                         progressTotal = total,
+                        readCount = preferences.finishedChapters(lb.book.id).size,
                     )
                 }
             _ui.update { it.copy(isLoading = false, error = null) }

@@ -261,8 +261,8 @@ private fun BookcaseCard(
                     Spacer(Modifier.height(2.dp))
                     Text(
                         stringResource(
-                            R.string.bookcase_progress,
-                            entry.progressPos + 1,
+                            R.string.bookcase_read_chapters,
+                            entry.readCount,
                             entry.progressTotal,
                         ),
                         style = MaterialTheme.typography.labelSmall,
