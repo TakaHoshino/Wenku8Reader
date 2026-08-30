@@ -48,7 +48,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          LAST_TAG="$(git tag --list 'v*' | sort -V | tail -n 1 || true)"
+          # 上一个正式版 vX.Y.Z 标签；无标签则从 0.0.0 起算。
+          # 必须排除 prerelease 标签（vX.Y.Z-dev.N，含 "-"）——否则 dev 测试版 tag 会
+          # 被当作基准，版本号随每次构建虚高（0.2.0 → 0.3.0-dev → 0.4.0-dev）。
+          LAST_TAG="$(git tag --list 'v*' | grep -v -- '-' | sort -V | tail -n 1 || true)"
           BASE="${LAST_TAG#v}"
           BASE="${BASE:-0.0.0}"
           RANGE="HEAD"

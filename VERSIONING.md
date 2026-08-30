@@ -159,6 +159,7 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 **与 release 工作流的关系**：版本解析逻辑**相同（各自内联）**，versionName 规则完全一致——dev 与 master 共享 git tag 历史，同一时刻解析出的版本号相同（如 master 合并 dev 后发布 0.2.0，dev 分支在此之前构建的包也是 0.2.0）。两者独立触发、互不干扰；versionCode 均为时间基准，天然错开。
 
 > ⚠️ 经验教训：版本解析必须用**内联 `run` 步骤**写 `$GITHUB_OUTPUT`——曾尝试抽成 composite action 复用，但其输出在本环境不生效，导致 release 打了空 tag `v`、versionName 为空（`fix(ci)` 已改回内联）。
+> ⚠️ 版本基准**必须排除 prerelease 标签**（`vX.Y.Z-dev.N`，含 `-`）：否则测试版 tag 会被当作基准，版本号随每次 dev 构建虚高（v0.2.0 之后曾错误地出现 v0.4.0-dev）。解析脚本用 `git tag --list 'v*' | grep -v -- '-' | sort -V | tail -n 1` 取基准；测试版应保持 `v<下一个版本>-dev.<N>`，直到对应正式版发布后再前进。
 
 **注意事项**：
 - dev 包与 release 包 versionCode 都随时间递增，**互相可覆盖安装的前提是签名一致**：dev 默认回退 debug 签名、release 用正式签名（若已配置），两者签名不同时无法互相覆盖（需卸载）；若希望互通，让 dev 也使用正式签名（配置同一组 Secrets 即可）。
