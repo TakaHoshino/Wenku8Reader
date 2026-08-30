@@ -26,6 +26,7 @@ class SettingsViewModel(
     fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)
     fun setUpdateChannel(channel: String) = readerSettings.setUpdateChannel(channel)
     fun setUpdateSource(source: String) = readerSettings.setUpdateSource(source)
+    fun setAppLanguage(language: String) = readerSettings.setAppLanguage(language)
 
     /** 切换主站镜像：清空旧域 Cookie 与 cf_clearance，并用内置账号在新主域重新登录。 */
     fun setPrimaryMirror(url: String) {

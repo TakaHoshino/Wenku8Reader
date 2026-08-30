@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">輕小說文庫</string>
+
+    <!-- 通用 -->
+    <string name="action_refresh">重新整理</string>
+    <string name="action_retry">重試</string>
+    <string name="action_back">返回</string>
+    <string name="action_close">關閉</string>
+    <string name="action_search">搜尋</string>
+    <string name="action_account">帳號</string>
+    <string name="action_downloads">下載管理</string>
+    <string name="action_stats">閱讀統計</string>
+    <string name="error_unknown">操作失敗，請重試</string>
+
+    <!-- 閱讀熱力圖 -->
+    <string name="stats_title">閱讀熱力圖</string>
+    <string name="stats_week">本週</string>
+    <string name="stats_month">本月</string>
+    <string name="stats_year">今年</string>
+    <string name="stats_all">全部</string>
+    <string name="stats_empty">尚無閱讀記錄，先去讀幾頁吧～</string>
+    <string name="stats_books_title">書籍閱讀時長</string>
+    <string name="stats_minutes">%1$d 分鐘</string>
+    <string name="stats_summary_total">累計分鐘</string>
+    <string name="stats_summary_week">本週分鐘</string>
+    <string name="stats_summary_streak">連續天數</string>
+    <string name="stats_summary_avg">日均分鐘</string>
+    <string name="stats_legend_less">少</string>
+    <string name="stats_legend_more">多</string>
+    <string name="stats_legend_weekday">平日</string>
+    <string name="stats_legend_weekend">週末</string>
+    <string name="stats_day_total">當日共 %1$d 分鐘</string>
+    <string name="stats_no_records">當日尚無閱讀記錄</string>
+
+    <!-- 更新檢查 -->
+    <string name="settings_section_update">更新</string>
+    <string name="settings_check_on_startup">啟動時檢查更新</string>
+    <string name="settings_check_on_startup_summary">啟動應用程式時自動檢查 GitHub Releases 新版本</string>
+    <string name="settings_update_channel">更新通道</string>
+    <string name="settings_update_channel_summary">正式版：發佈 Release；測試版：Actions 自動建置</string>
+    <string name="settings_update_channel_stable">正式版</string>
+    <string name="settings_update_channel_beta">測試版</string>
+    <string name="settings_update_source">更新來源</string>
+    <string name="settings_update_source_summary">下載更新套件的網路來源</string>
+    <string name="settings_update_source_github">GitHub 直連</string>
+    <string name="settings_update_source_ghproxy">鏡像來源（gh-proxy）</string>
+    <string name="settings_check_update">檢查更新</string>
+    <string name="update_title">發現新版本 v%1$s</string>
+    <string name="update_message">偵測到新版本 v%1$s（目前 v%2$s），是否立即更新？</string>
+    <string name="update_now">立即更新</string>
+    <string name="update_later">稍後提醒</string>
+    <string name="update_skip">略過此版本</string>
+    <string name="update_downloading">正在下載 %1$d%%…</string>
+    <string name="update_download_failed">下載失敗：%1$s</string>
+    <string name="update_up_to_date">已是最新版本</string>
+    <string name="update_none">暫無可用更新</string>
+    <string name="update_skipped">已略過 v%1$s，如需更新請到設定中關閉略過</string>
+    <string name="update_check_failed">檢查更新失敗：%1$s</string>
+
+    <!-- 底部導覽 -->
+    <string name="tab_explore">探索</string>
+    <string name="tab_bookcase">書架</string>
+    <string name="tab_settings">設定</string>
+
+    <!-- 探索頁 -->
+    <string name="search_press_to_search">輸入書名或作者後點選搜尋</string>
+    <string name="explore_tab_recommend">推薦</string>
+    <string name="explore_tab_tags">標籤</string>
+    <string name="explore_tags">分類</string>
+    <string name="explore_tag_all">查看全部</string>
+    <string name="explore_tags_empty">暫無分類</string>
+    <string name="tag_books_load_more">載入更多（已顯示 %1$d 本）</string>
+    <string name="explore_tags_blocked">無法取得分類，可能被網站阻擋，請重試</string>
+
+    <!-- 首頁 -->
+    <string name="home_subtitle">今日書庫</string>
+    <string name="home_empty">暫無內容</string>
+    <string name="home_error">載入失敗：%1$s</string>
+
+    <!-- 搜尋 -->
+    <string name="search_hint">書名或作者…</string>
+    <string name="search_by_author">作者</string>
+    <string name="search_result_id">ID：%1$d</string>
+
+    <!-- 書架 -->
+    <string name="bookcase_title">我的書架</string>
+    <string name="bookcase_empty_local">本地書架為空，可在書籍詳情頁收藏</string>
+    <string name="bookcase_read_chapters">已讀 %1$d / %2$d 章</string>
+    <string name="bookcase_sort">排序</string>
+    <string name="bookcase_sort_default">預設</string>
+    <string name="bookcase_sort_latest">最近更新</string>
+    <string name="bookcase_sort_name">書名</string>
+    <string name="bookcase_sort_word_count">字數</string>
+    <string name="bookcase_sort_reverse">倒序</string>
+
+    <!-- 詳情 · 收藏 -->
+    <string name="detail_favorite">收藏</string>
+    <string name="detail_fav_local_done">已收藏至本地書架</string>
+    <string name="detail_fav_local_removed">已從本地書架移除</string>
+
+    <!-- 詳情 · 目錄 / 作者 / 標籤 -->
+    <string name="detail_toc">目錄</string>
+    <string name="toc_title">目錄</string>
+    <string name="toc_empty">暫無章節目錄</string>
+    <string name="toc_read_mark">已讀</string>
+    <string name="toc_unnamed_volume">未分組</string>
+    <string name="toc_expand_collapse_all">全部展開/摺疊</string>
+    <string name="author_books_title">%1$s 的作品</string>
+    <string name="author_books_count">共 %1$d 本</string>
+    <string name="author_books_empty">未找到該作者的書籍</string>
+
+    <!-- 詳情 -->
+    <string name="detail_title_default">書籍詳情</string>
+    <string name="detail_cover">封面</string>
+    <string name="detail_author">作者：%1$s</string>
+    <string name="detail_category">分類：%1$s</string>
+    <string name="detail_status">狀態：%1$s</string>
+    <string name="detail_word_count">字數：%1$s</string>
+    <string name="detail_tags">標籤：%1$s</string>
+    <string name="detail_start_reading">開始閱讀</string>
+    <string name="detail_continue_reading">繼續閱讀</string>
+    <string name="detail_offline_download">離線下載</string>
+    <string name="detail_format_txt">TXT</string>
+    <string name="detail_format_epub">EPUB</string>
+    <string name="detail_downloading">下載中 %1$d%%</string>
+    <string name="detail_queued">排隊中…</string>
+    <string name="detail_saved">已儲存：%1$s</string>
+    <string name="detail_failed">失敗：%1$s</string>
+    <string name="detail_cancelled">已取消</string>
+    <string name="detail_description">內容簡介</string>
+    <string name="detail_no_description">無</string>
+
+    <!-- 下載管理 -->
+    <string name="downloads_title">下載任務</string>
+    <string name="downloads_empty">暫無下載任務</string>
+    <string name="downloads_running">下載中…</string>
+    <string name="downloads_done">已完成 → %1$s</string>
+    <string name="downloads_failed">失敗：%1$s</string>
+    <string name="downloads_cancelled">已取消</string>
+
+    <!-- 閱讀器 -->
+    <string name="reader_font_size">字號</string>
+    <string name="reader_toc">目錄</string>
+    <string name="reader_prev_chapter">上一章</string>
+    <string name="reader_next_chapter">下一章</string>
+    <string name="reader_chapter_position">第 %1$d / %2$d 章</string>
+    <string name="reader_current">目前</string>
+    <string name="reader_no_content">（本章無內文）</string>
+    <string name="reader_illustration">插圖</string>
+    <string name="reader_toc_empty">目錄為空</string>
+    <string name="reader_font_size_sp">%1$dsp</string>
+    <string name="reader_settings">閱讀器設定</string>
+    <string name="reader_turn_mode">翻頁方式</string>
+    <string name="reader_mode_page">側滑翻頁</string>
+    <string name="reader_mode_scroll">滾動翻頁</string>
+    <string name="reader_volume_turn">音量鍵翻頁（上鍵上一頁，下鍵下一頁）</string>
+    <string name="reader_auto_next">自動切換下一章</string>
+    <string name="reader_turn_direction">翻頁方向</string>
+    <string name="reader_turn_left">向左翻</string>
+    <string name="reader_turn_right">向右翻</string>
+    <string name="reader_auto_interval">自動翻頁間隔（秒）</string>
+    <string name="reader_auto_turn">自動翻頁</string>
+    <string name="reader_progress_percent">%1$d%%</string>
+    <string name="reader_battery">%1$d%%</string>
+    <string name="reader_settings_appearance">外觀</string>
+    <string name="reader_settings_action">操作</string>
+    <string name="reader_settings_margin">邊距</string>
+    <string name="reader_click_turn">點按翻頁</string>
+    <string name="reader_auto_margin">自動邊距</string>
+    <string name="reader_margin_top">上邊距</string>
+    <string name="reader_margin_bottom">下邊距</string>
+    <string name="reader_margin_left">左邊距</string>
+    <string name="reader_margin_right">右邊距</string>
+
+    <!-- 錯誤提示 -->
+    <string name="error_home_load">載入失敗：%1$s</string>
+    <string name="error_book_info">書籍資訊載入失敗，請重試</string>
+    <string name="error_chapter_index">章節目錄載入失敗，請重試</string>
+    <string name="error_chapter_load">章節載入失敗，請重試</string>
+    <string name="error_rate_limited">網站限流（HTTP %1$d），請稍後重試</string>
+    <string name="error_cancelled">已取消</string>
+
+    <!-- 設定 -->
+    <string name="settings_section_account">帳號</string>
+    <string name="settings_builtin_account">內建帳戶</string>
+    <string name="settings_builtin_account_hint">使用內建帳戶存取內容</string>
+    <string name="settings_section_appearance">外觀</string>
+    <string name="settings_section_reading">閱讀設定</string>
+    <string name="settings_section_about">關於</string>
+    <string name="settings_default_font_size">預設字號</string>
+    <string name="settings_version">版本 %1$s</string>
+    <string name="settings_dark_mode_summary">切換應用程式的深色 / 淺色主題</string>
+    <string name="settings_amoled">純黑模式</string>
+    <string name="settings_amoled_summary">深色模式下使用純黑背景，OLED 螢幕更省電</string>
+    <string name="settings_haptics">觸覺回饋</string>
+    <string name="settings_haptics_summary">點擊控制項時震動回饋</string>
+    <string name="settings_haptics_strength_title">震動強度</string>
+    <string name="settings_haptics_strength">強度</string>
+    <string name="settings_dynamic_color_summary">跟隨系統桌布產生主題色（Android 12+）</string>
+    <string name="settings_section_network">網路</string>
+    <string name="settings_primary_mirror">主站網域</string>
+    <string name="settings_primary_mirror_summary">被 Cloudflare 阻擋時可切換鏡像，其餘網域自動備援</string>
+
+    <!-- 語言 -->
+    <string name="settings_language">語言</string>
+    <string name="settings_language_summary">介面顯示語言</string>
+    <string name="settings_language_system">跟隨系統</string>
+    <string name="settings_language_simplified">簡體中文</string>
+    <string name="settings_language_traditional">繁體中文</string>
+
+    <!-- 設定 · 自訂 -->
+    <string name="settings_custom">自訂</string>
+    <string name="settings_custom_desc">主題與紙張 · 簡繁轉換 · 字型設定</string>
+    <string name="settings_theme_paper">主題與紙張</string>
+    <string name="settings_dark_mode">深色主題</string>
+    <string name="settings_dark_system">跟隨系統</string>
+    <string name="settings_dark_light">淺色</string>
+    <string name="settings_dark_dark">深色</string>
+    <string name="settings_dynamic_color">動態取色</string>
+    <string name="settings_manual_color">手動取色</string>
+    <string name="settings_reader_background">閱讀器背景</string>
+    <string name="settings_background_color">背景顏色</string>
+    <string name="settings_background_image">背景圖片</string>
+    <string name="settings_pick_image">選擇圖片</string>
+    <string name="settings_clear_image">清除圖片</string>
+    <string name="settings_text_color">字型顏色</string>
+    <string name="settings_mode_light">淺色模式</string>
+    <string name="settings_mode_dark">深色模式</string>
+    <string name="settings_font">字型</string>
+    <string name="settings_font_default">系統預設</string>
+    <string name="settings_font_sans">無襯線</string>
+    <string name="settings_font_serif">襯線</string>
+    <string name="settings_font_mono">等寬</string>
+    <string name="settings_font_size">字型大小</string>
+    <string name="settings_font_weight">字重</string>
+    <string name="settings_line_spacing">行距</string>
+    <string name="settings_preview">預覽</string>
+    <string name="settings_preview_text">輕小說文庫 · 閱讀預覽\n人生若只如初見，何事秋風悲畫扇。\nAa Bb 123 · 繁體字</string>
+    <string name="settings_simplified_traditional">簡繁轉換</string>
+    <string name="settings_simplified_traditional_desc">開啟後閱讀器內文字自動轉為繁體中文</string>
+    <string name="settings_font_size_value">%1$dsp</string>
+    <string name="settings_font_weight_value">%1$d</string>
+    <string name="settings_line_spacing_value">%1$.1f</string>
+
+    <!-- 關於頁 -->
+    <string name="about_title">關於</string>
+    <string name="about_version">版本 %1$s</string>
+    <string name="about_links">連結</string>
+    <string name="about_repo_title">GitHub 儲存庫</string>
+    <string name="about_repo_url">https://github.com/TakaHoshino/Wenku8Reader</string>
+    <string name="about_qq_group">QQ 交流群</string>
+    <string name="about_qq_group_desc">加入群聊 · 回饋與交流</string>
+    <string name="about_qq_group_url">https://qm.qq.com/q/PeFKgwevG6</string>
+    <string name="about_support_title">請作者喝杯咖啡</string>
+    <string name="about_support_desc">愛發電 · 支持開發</string>
+    <string name="about_support_url">https://www.ifdian.net/a/wenku8reader</string>
+    <string name="about_intro_title">關於本應用</string>
+    <string name="about_intro_body">輕小說文庫（Wenku8Reader）—— 基於 wenku8.net 的 Android 輕小說閱讀客戶端。原生 Kotlin + Jetpack Compose + Material Design 3 建置，支援沉浸式閱讀、書架收藏、離線下載（TXT/EPUB）、簡繁轉換與個人化外觀自訂。</string>
+    <string name="about_disclaimer">本應用僅供個人學習與交流，網站內容版權歸原作者及 wenku8.net 所有，請支持正版。</string>
+</resources>

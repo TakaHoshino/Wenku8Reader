@@ -1,5 +1,6 @@
 package com.hoshino.wenku8reader
 
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
@@ -17,6 +18,29 @@ import com.hoshino.wenku8reader.ui.reader.VolumeKeyTurn
 import com.hoshino.wenku8reader.ui.theme.Wenku8ReaderTheme
 
 class MainActivity : ComponentActivity() {
+
+    /**
+     * 应用内语言切换：在 Activity 附着前按设置覆盖资源语言环境。
+     * 切换语言后由设置页触发 `recreate()`，此方法即生效。
+     */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(applyAppLocale(newBase))
+    }
+
+    private fun applyAppLocale(context: Context): Context {
+        val language = (application as? Wenku8Application)
+            ?.container?.readerSettings?.flow?.value?.appLanguage
+            ?: "system"
+        val locale = when (language) {
+            "zh-TW" -> java.util.Locale.TRADITIONAL_CHINESE
+            "zh-CN" -> java.util.Locale.SIMPLIFIED_CHINESE
+            else -> return context // 跟随系统：不覆盖
+        }
+        return context.createConfigurationContext(
+            android.content.res.Configuration(context.resources.configuration)
+                .apply { setLocale(locale) },
+        )
+    }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (VolumeKeyTurn.enabled) {

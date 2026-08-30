@@ -198,6 +198,11 @@
     <string name="settings_haptics_strength_title">振动强度</string>
     <string name="settings_haptics_strength">强度</string>
     <string name="settings_dynamic_color_summary">跟随系统壁纸生成主题色（Android 12+）</string>
+    <string name="settings_language">语言</string>
+    <string name="settings_language_summary">界面显示语言</string>
+    <string name="settings_language_system">跟随系统</string>
+    <string name="settings_language_simplified">简体中文</string>
+    <string name="settings_language_traditional">繁体中文</string>
     <string name="settings_section_network">网络</string>
     <string name="settings_primary_mirror">主站域名</string>
     <string name="settings_primary_mirror_summary">被 Cloudflare 拦截时可切换镜像，其余域名自动兜底</string>

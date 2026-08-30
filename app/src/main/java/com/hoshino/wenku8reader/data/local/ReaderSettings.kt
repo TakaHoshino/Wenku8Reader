@@ -40,6 +40,7 @@ data class ReaderSettingsState(
     val checkUpdatesOnStartup: Boolean = true, // 启动时自动检查更新
     val updateChannel: String = "stable",      // 更新通道："stable"（正式版）| "beta"（测试版）
     val updateSource: String = "github",       // 更新源："github" | "gh_proxy"（镜像）
+    val appLanguage: String = "system",        // 界面语言："system" | "zh-CN" | "zh-TW"
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -103,6 +104,7 @@ class ReaderSettings(context: Context) {
         checkUpdatesOnStartup = prefs.getBoolean("check_updates_on_startup", true),
         updateChannel = prefs.getString("update_channel", "stable") ?: "stable",
         updateSource = prefs.getString("update_source", "github") ?: "github",
+        appLanguage = prefs.getString("app_language", "system") ?: "system",
         autoPadding = prefs.getBoolean("auto_padding", true),
         topPadding = prefs.getInt("pad_top", 24),
         bottomPadding = prefs.getInt("pad_bottom", 16),
@@ -141,6 +143,7 @@ class ReaderSettings(context: Context) {
             .putBoolean("check_updates_on_startup", next.checkUpdatesOnStartup)
             .putString("update_channel", next.updateChannel)
             .putString("update_source", next.updateSource)
+            .putString("app_language", next.appLanguage)
             .putBoolean("auto_padding", next.autoPadding)
             .putInt("pad_top", next.topPadding)
             .putInt("pad_bottom", next.bottomPadding)
@@ -179,6 +182,7 @@ class ReaderSettings(context: Context) {
     fun setCheckUpdatesOnStartup(enabled: Boolean) = emit { it.copy(checkUpdatesOnStartup = enabled) }
     fun setUpdateChannel(channel: String) = emit { it.copy(updateChannel = channel) }
     fun setUpdateSource(source: String) = emit { it.copy(updateSource = source) }
+    fun setAppLanguage(language: String) = emit { it.copy(appLanguage = language) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
@@ -127,10 +128,33 @@ fun SettingsPage(
                 "dark" to R.string.settings_dark_dark,
             )
             val darkModeLabels = darkModeOptions.map { (_, res) -> stringResource(res) }
+            // 界面语言（切换后重建 Activity 使 attachBaseContext 生效）
+            val languageOptions = listOf(
+                "system" to R.string.settings_language_system,
+                "zh-CN" to R.string.settings_language_simplified,
+                "zh-TW" to R.string.settings_language_traditional,
+            )
             SegmentedColumn(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
                 title = stringResource(R.string.settings_section_appearance),
                 items = listOf(
+                    {
+                        SegmentedDropdownItem(
+                            icon = Icons.Filled.Language,
+                            title = stringResource(R.string.settings_language),
+                            summary = stringResource(R.string.settings_language_summary),
+                            items = languageOptions.map { (_, res) -> stringResource(res) },
+                            selectedIndex = languageOptions.indexOfFirst { it.first == rs.appLanguage }
+                                .coerceAtLeast(0),
+                            onItemSelected = { index ->
+                                val lang = languageOptions[index].first
+                                if (lang != rs.appLanguage) {
+                                    vm.setAppLanguage(lang)
+                                    (context as? android.app.Activity)?.recreate()
+                                }
+                            },
+                        )
+                    },
                     {
                         SegmentedDropdownItem(
                             icon = Icons.Filled.DarkMode,
