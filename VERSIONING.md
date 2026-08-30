@@ -144,20 +144,21 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 
 ## 8. dev 分支：只构建不发布
 
-**场景**：dev 分支的开发包需要可安装验证，但不参与正式版本号递增、不打 tag、不发布 Release。
+**场景**：dev 分支的开发包需要可安装验证；**versionName 与 master 保持一致**（同一套语义版本系统），但不打 tag、不发布 Release。
 
-**已部署**：`.github/workflows/dev.yml`（push 到 `dev` 分支或手动触发）。
+**已部署**：`.github/workflows/dev.yml`（push 到 `dev` 分支或手动触发），版本解析逻辑复用 `.github/actions/parse-version`。
 
 | 项 | 行为 |
 |---|---|
 | 触发 | push `dev` 分支 / 手动 `workflow_dispatch` |
-| versionName | **不变**：不设 `APP_VERSION_NAME`，用 `gradle.properties` 的 `VERSION_NAME`（默认 `1.0.0`），提交内容不影响它 |
+| versionName | **与 master 同一套语义系统**：复用 `.github/actions/parse-version` 解析最近 tag 之后的 Conventional Commits（feat→minor / fix→patch / BREAKING→major），两边规则与结果一致 |
 | versionCode | **递增**：时间基准 `yyyymmddHH`（如 `2026082914`），必然大于任何历史已装版本，覆盖安装不降级 |
 | 发布 | **不发布**：无 git tag、无 GitHub Release；APK 以 **Actions Artifact** 形式产出（Actions 页 → 本次运行 → Artifacts 下载） |
 | 签名 | 配置了 `KEYSTORE_BASE64` 等 Secrets 则正式签名，否则回退 debug 签名（可安装） |
 
-**与 release 工作流的关系**：两者完全独立——`release.yml` 只监听 `main/master`，`dev.yml` 只监听 `dev`，互不触发；版本号互不影响（versionCode 均为时间基准，天然错开）。
+**与 release 工作流的关系**：版本解析逻辑**共用同一个 composite action**，versionName 规则完全一致——dev 与 master 共享 git tag 历史，同一时刻解析出的版本号相同（如 master 合并 dev 后发布 0.2.0，dev 分支在此之前构建的包也是 0.2.0）。两者独立触发、互不干扰；versionCode 均为时间基准，天然错开。
 
 **注意事项**：
 - dev 包与 release 包 versionCode 都随时间递增，**互相可覆盖安装的前提是签名一致**：dev 默认回退 debug 签名、release 用正式签名（若已配置），两者签名不同时无法互相覆盖（需卸载）；若希望互通，让 dev 也使用正式签名（配置同一组 Secrets 即可）。
 - 同一小时内构建的多个包 versionCode 相同，覆盖安装会被拒绝——重新触发一次构建（下一小时）即可，或手动加一。
+- dev 构建**不创建 tag**：因此 dev 多次构建会解析出同一个「下一个版本」（直到 master 发布并打 tag 后才会前进），这是预期行为。

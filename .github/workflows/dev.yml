@@ -1,8 +1,9 @@
 # 开发分支（dev）构建工作流
 # - 触发：push 到 dev 分支，或手动 workflow_dispatch
-# - 行为：仅构建 Release APK 并作为 Actions Artifact 上传
-#   · versionCode  = github.run_number（每次运行唯一且递增）
-#   · versionName  = gradle.properties 默认值（不解析提交、不递增）
+# - 行为：构建 Release APK 并作为 Actions Artifact 上传，不发布 Release
+#   · versionName = 与 master 同一套语义版本系统（解析 Conventional Commits，
+#     复用 ./.github/actions/parse-version，两边一致）
+#   · versionCode = 时间基准 yyyymmddHH（跨工作流单调递增，必然大于历史已装版本）
 #   · 不打 git tag、不创建 GitHub Release
 # - 产物下载：Actions 页面 → 选中本次运行 → Artifacts（右上角）
 name: Dev Build
@@ -24,12 +25,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 完整历史，供语义版本解析使用
 
       - name: 设置 JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+
+      # ---- 语义版本号：与 master 同一套规则（解析最近 tag 之后的 Conventional Commits）----
+      - name: 解析下一个版本
+        id: version
+        uses: ./.github/actions/parse-version
 
       # ---- 正式签名（可选）：配置了 KEYSTORE_BASE64 才启用，否则回退 debug 签名 ----
       - name: 准备正式签名（还原 keystore）
@@ -42,16 +50,16 @@ jobs:
           echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
 
       # ---- 构建 ----
-      # 不设置 APP_VERSION_NAME → 使用 gradle.properties 默认版本名（不递增）；
-      # versionCode 用「时间基准」yyyymmddHH：跨工作流单调递增、必然大于任何历史已装版本，
-      # 避免按 run_number（各工作流独立计数，从 1 开始）导致的降级安装失败。
+      # versionName 用语义解析结果（与 master 一致）；versionCode 用时间基准 yyyymmddHH，
+      # 跨工作流单调递增、必然大于任何历史已装版本（避免 run_number 从 1 开始导致的降级安装失败）。
       - name: 计算递增 versionCode（时间基准）
-        id: version
+        id: vcode
         run: echo "version_code=$(date +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
 
       - name: 构建 Release APK
         env:
-          APP_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          APP_VERSION_NAME: ${{ steps.version.outputs.version }}
+          APP_VERSION_CODE: ${{ steps.vcode.outputs.version_code }}
         run: |
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew

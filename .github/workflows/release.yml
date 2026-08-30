@@ -26,48 +26,10 @@ jobs:
           fetch-depth: 0
 
       # ---- 语义化版本升级：解析最近一次 tag 之后的 Conventional Commits ----
-      - name: 解析版本升级
+      # 复用 ./.github/actions/parse-version（dev 分支同一套规则，保证 versionName 一致）
+      - name: 解析下一个版本
         id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # 上一个 vX.Y.Z 标签；无标签则从 0.0.0 起算
-          LAST_TAG="$(git tag --list 'v*' | sort -V | tail -n 1 || true)"
-          BASE="${LAST_TAG#v}"
-          BASE="${BASE:-0.0.0}"
-          RANGE="HEAD"
-          if [ -n "$LAST_TAG" ]; then RANGE="${LAST_TAG}..HEAD"; fi
-
-          # 升级类型判断（优先级：breaking > feat > fix）
-          if git log "$RANGE" --format=%B | grep -qE '^BREAKING CHANGE|!(:|\s)'; then
-            BUMP="major"
-          elif git log "$RANGE" --format=%s | grep -qE '^feat(\([^)]*\))?!?:'; then
-            BUMP="minor"
-          elif git log "$RANGE" --format=%s | grep -qE '^fix(\([^)]*\))?!?:'; then
-            BUMP="patch"
-          else
-            BUMP="none"
-          fi
-
-          if [ "$BUMP" = "none" ]; then
-            echo "本次提交无 feat/fix/breaking 变更，跳过发布"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          IFS='.' read -r BM BA BP <<< "$BASE"
-          case "$BUMP" in
-            major) NM=$((BM + 1)); NA=0; NP=0 ;;
-            minor) NM=$BM;        NA=$((BA + 1)); NP=0 ;;
-            patch) NM=$BM;        NA=$BA;         NP=$((BP + 1)) ;;
-          esac
-          NEXT="${NM}.${NA}.${NP}"
-
-          echo "skip=false"        >> "$GITHUB_OUTPUT"
-          echo "version=${NEXT}"   >> "$GITHUB_OUTPUT"
-          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
-          echo "上一版本=${BASE:-无}  本次升级=${BUMP}  新版本=${NEXT}"
+        uses: ./.github/actions/parse-version
 
       - name: 跳过发布（无版本相关提交）
         if: steps.version.outputs.skip == 'true'
