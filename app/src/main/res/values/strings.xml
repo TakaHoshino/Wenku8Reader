@@ -37,6 +37,10 @@
     <string name="settings_section_update">更新</string>
     <string name="settings_check_on_startup">启动时检查更新</string>
     <string name="settings_check_on_startup_summary">启动应用时自动检查 GitHub Releases 新版本</string>
+    <string name="settings_update_channel">更新通道</string>
+    <string name="settings_update_channel_summary">正式版：发布 Release；测试版：Actions 自动构建</string>
+    <string name="settings_update_channel_stable">正式版</string>
+    <string name="settings_update_channel_beta">测试版</string>
     <string name="settings_update_source">更新源</string>
     <string name="settings_update_source_summary">下载更新包的网络来源</string>
     <string name="settings_update_source_github">GitHub 直连</string>

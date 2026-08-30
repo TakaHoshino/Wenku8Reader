@@ -57,19 +57,21 @@ class UpdateCenter(
     /**
      * 查询最新版。[manual] = true 时（用户主动点「检查更新」），把
      * 「已是最新 / 无可用更新 / 检查失败」通过 [notices] 提示；启动检查不打扰。
+     * 通道（正式版/测试版）与更新源读取自 [ReaderSettings]。
      */
     fun check(manual: Boolean = false) {
         if (_state.value.checking) return
+        val stable = settings.flow.value.updateChannel != "beta"
         _state.update { it.copy(checking = true) }
         scope.launch {
-            val result = checker.fetchLatest()
+            val result = checker.fetchLatest(stable)
             _state.update { it.copy(checking = false) }
             result.fold(
                 onSuccess = { release ->
                     when {
                         release == null ->
                             if (manual) _notices.tryEmit(context.getString(R.string.update_none))
-                        !checker.isNewer(release.versionName, currentVersionName) ->
+                        !checker.isNewer(release.versionName, currentVersionName, allowEqual = !stable) ->
                             if (manual) _notices.tryEmit(context.getString(R.string.update_up_to_date))
                         release.tag == preferences.skippedUpdateVersion -> {
                             // 用户跳过过该版本：静默

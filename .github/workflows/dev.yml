@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # 发布测试版 Prerelease 需要
 
 jobs:
   build:
@@ -111,10 +111,26 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon
 
-      # ---- 上传产物（仅 Artifact，不发布 Release）----
+      # ---- 上传产物（Artifact + GitHub Prerelease）----
+      # Artifact 供仓库内下载；Prerelease 供应用「测试版」通道检查更新
+      #（Actions Artifact 无法匿名下载，测试版更新必须走 Release 资产）。
       - name: 上传 APK（Actions Artifacts）
         uses: actions/upload-artifact@v4
         with:
           name: app-dev-${{ github.run_number }}
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+      - name: 发布测试版 Prerelease
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}-dev.${{ github.run_number }}
+          name: v${{ steps.version.outputs.version }}-dev.${{ github.run_number }}（测试版）
+          body: |
+            自动构建的测试版（Actions）。
+            请在应用「设置 → 更新 → 更新通道」选择「测试版」后检查更新。
+          prerelease: true
+          files: |
+            app/build/outputs/apk/release/app-release.apk

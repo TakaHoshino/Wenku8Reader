@@ -38,6 +38,7 @@ data class ReaderSettingsState(
     val hapticsEnabled: Boolean = true,        // 控件点击振动反馈（全局 Indication 注入）
     val hapticsStrength: Int = 50,             // 点击振动强度 0-100（映射到 VibrationEffect 幅度 1-255）
     val checkUpdatesOnStartup: Boolean = true, // 启动时自动检查更新
+    val updateChannel: String = "stable",      // 更新通道："stable"（正式版）| "beta"（测试版）
     val updateSource: String = "github",       // 更新源："github" | "gh_proxy"（镜像）
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
@@ -100,6 +101,7 @@ class ReaderSettings(context: Context) {
         hapticsEnabled = prefs.getBoolean("haptics_enabled", true),
         hapticsStrength = prefs.getInt("haptics_strength", 50).coerceIn(0, 100),
         checkUpdatesOnStartup = prefs.getBoolean("check_updates_on_startup", true),
+        updateChannel = prefs.getString("update_channel", "stable") ?: "stable",
         updateSource = prefs.getString("update_source", "github") ?: "github",
         autoPadding = prefs.getBoolean("auto_padding", true),
         topPadding = prefs.getInt("pad_top", 24),
@@ -137,6 +139,7 @@ class ReaderSettings(context: Context) {
             .putBoolean("haptics_enabled", next.hapticsEnabled)
             .putInt("haptics_strength", next.hapticsStrength)
             .putBoolean("check_updates_on_startup", next.checkUpdatesOnStartup)
+            .putString("update_channel", next.updateChannel)
             .putString("update_source", next.updateSource)
             .putBoolean("auto_padding", next.autoPadding)
             .putInt("pad_top", next.topPadding)
@@ -174,6 +177,7 @@ class ReaderSettings(context: Context) {
     fun setHapticsStrength(value: Int) =
         emit { it.copy(hapticsStrength = value.coerceIn(0, 100)) }
     fun setCheckUpdatesOnStartup(enabled: Boolean) = emit { it.copy(checkUpdatesOnStartup = enabled) }
+    fun setUpdateChannel(channel: String) = emit { it.copy(updateChannel = channel) }
     fun setUpdateSource(source: String) = emit { it.copy(updateSource = source) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }

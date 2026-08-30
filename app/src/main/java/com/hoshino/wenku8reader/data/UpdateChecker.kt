@@ -30,28 +30,50 @@ class UpdateChecker {
     companion object {
         private const val REPO = "TakaHoshino/Wenku8Reader"
         private const val API_LATEST = "https://api.github.com/repos/$REPO/releases/latest"
+        private const val API_LIST = "https://api.github.com/repos/$REPO/releases?per_page=20"
         private const val UA = "Wenku8Reader-Android"
         /** gh-proxy 镜像前缀（更新源选择用），后接原始下载地址。 */
         const val GH_PROXY_PREFIX = "https://gh-proxy.com/"
     }
 
-    /** 查询最新 Release；无任何 Release 时返回 null（404）。 */
-    suspend fun fetchLatest(): Result<ReleaseInfo?> = withContext(Dispatchers.IO) {
+    /**
+     * 查询最新 Release：
+     * - [stable] = true（正式版）：`releases/latest`（排除 prerelease）；
+     * - [stable] = false（测试版）：`releases?per_page=20` 中取最新一个 prerelease
+     *   （由 dev 工作流发布，tag 形如 `v0.2.0-dev.<run_number>`）。
+     * 无可用 Release 时返回 null（404 / 无 prerelease）。
+     */
+    suspend fun fetchLatest(stable: Boolean): Result<ReleaseInfo?> = withContext(Dispatchers.IO) {
         runCatching {
+            val url = if (stable) API_LATEST else API_LIST
             val req = Request.Builder()
-                .url(API_LATEST)
+                .url(url)
                 .header("User-Agent", UA)
                 .header("Accept", "application/vnd.github+json")
                 .build()
             client.newCall(req).execute().use { resp ->
                 if (resp.code == 404) return@runCatching null
                 check(resp.isSuccessful) { "检查更新失败（HTTP ${resp.code}）" }
-                val json = JSONObject(resp.body!!.string())
+                val text = resp.body!!.string()
+                val json = if (stable) {
+                    JSONObject(text)
+                } else {
+                    val arr = org.json.JSONArray(text)
+                    var found: JSONObject? = null
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        if (o.optBoolean("prerelease", false)) {
+                            found = o
+                            break
+                        }
+                    }
+                    found ?: return@runCatching null
+                }
                 val tag = json.optString("tag_name", "")
                 val name = json.optString("name", "")
                 var apkUrl: String? = null
-                val assets = json.optJSONArray("assets") ?: JSONObject.NULL
-                if (assets is org.json.JSONArray) {
+                val assets = json.optJSONArray("assets")
+                if (assets != null) {
                     for (i in 0 until assets.length()) {
                         val a = assets.getJSONObject(i)
                         if (a.optString("name").endsWith(".apk")) {
@@ -114,15 +136,17 @@ class UpdateChecker {
         runCatching { context.startActivity(intent) }
     }
 
-    /** 语义化比较：release 版本是否高于当前版本。 */
-    fun isNewer(releaseVersion: String, currentVersion: String): Boolean {
-        val a = releaseVersion.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
+    /** 语义化比较：release 是否比当前版本新。
+     *  tag 可能带 prerelease 后缀（如 v0.2.0-dev.3），比较时取 `X.Y.Z` 基础段。
+     *  [allowEqual] = true（测试版通道）：基础版本相等也算有更新（同基础版本的最新测试版）。 */
+    fun isNewer(releaseTag: String, currentVersion: String, allowEqual: Boolean = false): Boolean {
+        val a = releaseTag.removePrefix("v").substringBefore("-").split(".").mapNotNull { it.toIntOrNull() }
         val b = currentVersion.split(".").mapNotNull { it.toIntOrNull() }
         for (i in 0 until maxOf(a.size, b.size)) {
             val x = a.getOrElse(i) { 0 }
             val y = b.getOrElse(i) { 0 }
             if (x != y) return x > y
         }
-        return false
+        return allowEqual
     }
 }

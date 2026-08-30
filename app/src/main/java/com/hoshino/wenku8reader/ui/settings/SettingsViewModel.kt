@@ -24,6 +24,7 @@ class SettingsViewModel(
     fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
     fun setHapticsStrength(value: Int) = readerSettings.setHapticsStrength(value)
     fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)
+    fun setUpdateChannel(channel: String) = readerSettings.setUpdateChannel(channel)
     fun setUpdateSource(source: String) = readerSettings.setUpdateSource(source)
 
     /** 切换主站镜像：清空旧域 Cookie 与 cf_clearance，并用内置账号在新主域重新登录。 */

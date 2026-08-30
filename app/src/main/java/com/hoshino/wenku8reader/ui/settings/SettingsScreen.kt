@@ -255,6 +255,10 @@ fun SettingsPage(
             )
 
             // 更新
+            val updateChannelOptions = listOf(
+                "stable" to R.string.settings_update_channel_stable,
+                "beta" to R.string.settings_update_channel_beta,
+            )
             val updateSourceOptions = listOf(
                 "github" to R.string.settings_update_source_github,
                 "gh_proxy" to R.string.settings_update_source_ghproxy,
@@ -270,6 +274,17 @@ fun SettingsPage(
                             summary = stringResource(R.string.settings_check_on_startup_summary),
                             checked = rs.checkUpdatesOnStartup,
                             onCheckedChange = vm::setCheckUpdatesOnStartup,
+                        )
+                    },
+                    {
+                        SegmentedDropdownItem(
+                            icon = Icons.Filled.Tune,
+                            title = stringResource(R.string.settings_update_channel),
+                            summary = stringResource(R.string.settings_update_channel_summary),
+                            items = updateChannelOptions.map { (_, res) -> stringResource(res) },
+                            selectedIndex = updateChannelOptions.indexOfFirst { it.first == rs.updateChannel }
+                                .coerceAtLeast(0),
+                            onItemSelected = { index -> vm.setUpdateChannel(updateChannelOptions[index].first) },
                         )
                     },
                     {
