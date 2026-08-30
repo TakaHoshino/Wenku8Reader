@@ -7,14 +7,16 @@ plugins {
 // ---- 版本号来源（自动化版本管理，详见根目录 VERSIONING.md）----
 // 优先级：
 // 1) CI 环境变量（GitHub Actions）：APP_VERSION_NAME（Conventional Commits 语义解析）
-//    与 APP_VERSION_CODE（= github.run_number，唯一且递增）
+//    与 APP_VERSION_CODE（时间基准 yyyymmddHH，唯一且递增）
 // 2) 本地构建回退：gradle.properties 的 VERSION_NAME / VERSION_CODE（手动维护）
+// 注意：空字符串（""）按未设置处理——System.getenv 对空变量返回 "" 而非 null，
+// 若不处理会导致 versionName 为空、安装器不显示版本。
 val releaseVersionName: String =
-    System.getenv("APP_VERSION_NAME")
+    System.getenv("APP_VERSION_NAME")?.takeIf { it.isNotBlank() }
         ?: (project.findProperty("VERSION_NAME") as String?)
         ?: "1.0.0"
 val releaseVersionCode: Int =
-    (System.getenv("APP_VERSION_CODE")
+    (System.getenv("APP_VERSION_CODE")?.takeIf { it.isNotBlank() }
         ?: (project.findProperty("VERSION_CODE") as String?)
         ?: "10000").toIntOrNull() ?: 10000
 

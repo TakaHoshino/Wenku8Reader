@@ -58,9 +58,11 @@ jobs:
 
       - name: 构建 Release APK
         env:
-          APP_VERSION_NAME: ${{ steps.version.outputs.version }}
+          # 解析结果为空时回退 1.0.0（防止 versionName 为空导致安装器不显示版本）
+          APP_VERSION_NAME: ${{ steps.version.outputs.version != '' && steps.version.outputs.version || '1.0.0' }}
           APP_VERSION_CODE: ${{ steps.vcode.outputs.version_code }}
         run: |
+          echo "构建版本 → name=${APP_VERSION_NAME:-<空>} code=${APP_VERSION_CODE:-<空>}"
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon
