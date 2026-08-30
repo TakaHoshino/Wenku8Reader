@@ -44,6 +44,7 @@
     <string name="explore_tags">分类</string>
     <string name="explore_tag_all">查看全部</string>
     <string name="explore_tags_empty">暂无分类</string>
+    <string name="tag_books_load_more">加载更多（已显示 %1$d 本）</string>
     <string name="explore_tags_blocked">未能获取分类，可能被站点拦截，请重试</string>
 
     <!-- 首页 -->

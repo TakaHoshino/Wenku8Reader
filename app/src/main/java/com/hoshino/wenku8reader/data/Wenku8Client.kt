@@ -552,16 +552,17 @@ class Wenku8Client(
         BUILT_IN_TAGS
     }
 
-    /** Books under a tag (first page). 需登录；快路径 → WebView → Cronet → OkHttp mirrors。 */
-    suspend fun tagBooks(tag: String): List<HomeBook> = withContext(Dispatchers.IO) {
+    /** Books under a tag. 需登录；快路径 → WebView → Cronet → OkHttp mirrors。分页：page>=2 追加 &page=N。 */
+    suspend fun tagBooks(tag: String, page: Int = 1): List<HomeBook> = withContext(Dispatchers.IO) {
         ensureLoggedIn()
         val query = URLEncoder.encode(tag, "GBK")
+        val pageParam = if (page > 1) "&page=$page" else ""
         tryDirect(
-            urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1" },
+            urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1$pageParam" },
             parse = { html -> Parsers.parseBookList(html).takeIf { it.isNotEmpty() } },
             ttlMs = TTL_TAG_BOOKS,
         ) ?: fetchWithBypass(
-            urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1" },
+            urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1$pageParam" },
             parse = { html -> Parsers.parseBookList(html).takeIf { it.isNotEmpty() } },
         ) ?: emptyList()
     }

@@ -45,8 +45,8 @@ class Wenku8Repository(private val client: Wenku8Client) {
     suspend fun tags(): Result<List<String>> =
         runCatching { client.tags() }
 
-    suspend fun tagBooks(tag: String): Result<List<HomeBook>> =
-        runCatching { client.tagBooks(tag) }
+    suspend fun tagBooks(tag: String, page: Int = 1): Result<List<HomeBook>> =
+        runCatching { client.tagBooks(tag, page) }
 
     suspend fun downloadFullTxt(id: Int, type: String): Result<ByteArray> =
         runCatching { client.downloadFullTxt(id, type) }
