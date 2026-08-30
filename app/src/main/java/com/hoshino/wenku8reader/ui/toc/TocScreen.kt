@@ -157,7 +157,7 @@ private fun VolumeSection(
             Spacer(Modifier.width(8.dp))
             Text(
                 volume.name.ifBlank { stringResource(R.string.toc_unnamed_volume) },
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.W600,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -182,13 +182,13 @@ private fun VolumeSection(
                         Modifier
                             .fillMaxWidth()
                             .clickable { onOpenChapter(chapter.cid) }
-                            .padding(start = 40.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                            .padding(start = 40.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             chapter.name,
                             modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyLarge,
                             color = textColor,
                             fontWeight = if (isCurrent) FontWeight.W600 else FontWeight.Normal,
                             maxLines = 1,
@@ -198,7 +198,7 @@ private fun VolumeSection(
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 stringResource(R.string.toc_read_mark),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline,
                             )
                         }

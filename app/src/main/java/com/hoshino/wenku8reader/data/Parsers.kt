@@ -24,7 +24,10 @@ object Parsers {
     )
     private val DESC_SPLIT = Regex("<br\\s*/?>|</p>", RegexOption.IGNORE_CASE)
     private val BOOK_COVER = Pattern.compile("<img[^>]+src=\"([^\"]+s\\.jpg)\"")
-    private val BOOK_TAGS = Pattern.compile("作品Tags：</b>(.*?)</span>", Pattern.DOTALL)
+    private val BOOK_TAGS = Pattern.compile(
+        "作品Tags：\\s*(?:</b>)?\\s*(.*?)(?:</b>|<br|</span>|<b\\s)",
+        Pattern.DOTALL
+    )
     private val GID_FROM_INDEX = Pattern.compile("href=\"/novel/(\\d+)/\\d+/index\\.htm\"")
     private val GID_FROM_CHAPTER = Pattern.compile("href=\"/novel/(\\d+)/\\d+/\\d+\\.htm\"")
 
@@ -144,7 +147,9 @@ object Parsers {
         val tags = mutableListOf<String>()
         val tm2 = BOOK_TAGS.matcher(html)
         if (tm2.find()) {
-            tm2.group(1).split(WHITESPACE).map { it.trim() }
+            // 捕获组可能含 <a> 等标签（如 <a href="tags.php?t=穿越">穿越</a>），先剥离再按空白拆分
+            ANY_TAG.replace(tm2.group(1), " ").split(WHITESPACE)
+                .map { it.trim() }
                 .filter { it.isNotEmpty() }.forEach { tags.add(it) }
         }
 
