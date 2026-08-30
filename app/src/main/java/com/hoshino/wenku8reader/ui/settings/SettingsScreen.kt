@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -143,6 +144,15 @@ fun SettingsPage(
                             summary = stringResource(R.string.settings_dynamic_color_summary),
                             checked = rs.dynamicColor,
                             onCheckedChange = vm::setDynamicColor,
+                        )
+                    },
+                    {
+                        SegmentedSwitchItem(
+                            icon = Icons.Filled.Vibration,
+                            title = stringResource(R.string.settings_haptics),
+                            summary = stringResource(R.string.settings_haptics_summary),
+                            checked = rs.hapticsEnabled,
+                            onCheckedChange = vm::setHapticsEnabled,
                         )
                     },
                 ),

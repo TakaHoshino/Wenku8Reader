@@ -35,6 +35,7 @@ data class ReaderSettingsState(
     val pageTurnDirection: Boolean = true,     // true=向左翻(默认), false=向右翻
     val autoTurnInterval: Int = 10,            // seconds
     val clickTurnPage: Boolean = true,         // 侧滑翻页时点按左右翻页
+    val hapticsEnabled: Boolean = true,        // 控件点击振动反馈（全局 Indication 注入）
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -93,6 +94,7 @@ class ReaderSettings(context: Context) {
         pageTurnDirection = prefs.getBoolean("turn_direction", true),
         autoTurnInterval = prefs.getInt("auto_interval", 10),
         clickTurnPage = prefs.getBoolean("click_turn", true),
+        hapticsEnabled = prefs.getBoolean("haptics_enabled", true),
         autoPadding = prefs.getBoolean("auto_padding", true),
         topPadding = prefs.getInt("pad_top", 24),
         bottomPadding = prefs.getInt("pad_bottom", 16),
@@ -126,6 +128,7 @@ class ReaderSettings(context: Context) {
             .putBoolean("turn_direction", next.pageTurnDirection)
             .putInt("auto_interval", next.autoTurnInterval)
             .putBoolean("click_turn", next.clickTurnPage)
+            .putBoolean("haptics_enabled", next.hapticsEnabled)
             .putBoolean("auto_padding", next.autoPadding)
             .putInt("pad_top", next.topPadding)
             .putInt("pad_bottom", next.bottomPadding)
@@ -158,6 +161,7 @@ class ReaderSettings(context: Context) {
     fun setPageTurnDirection(leftToRight: Boolean) = emit { it.copy(pageTurnDirection = leftToRight) }
     fun setAutoTurnInterval(seconds: Int) = emit { it.copy(autoTurnInterval = seconds) }
     fun setClickTurnPage(enabled: Boolean) = emit { it.copy(clickTurnPage = enabled) }
+    fun setHapticsEnabled(enabled: Boolean) = emit { it.copy(hapticsEnabled = enabled) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }

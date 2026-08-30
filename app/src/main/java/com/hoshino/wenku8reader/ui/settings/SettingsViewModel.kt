@@ -21,6 +21,7 @@ class SettingsViewModel(
     fun setDynamicColor(enabled: Boolean) = readerSettings.setDynamicColor(enabled)
     fun setSeedColor(color: Long) = readerSettings.setSeedColor(color)
     fun setAmoled(enabled: Boolean) = readerSettings.setAmoled(enabled)
+    fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
 
     /** 切换主站镜像：清空旧域 Cookie 与 cf_clearance，并用内置账号在新主域重新登录。 */
     fun setPrimaryMirror(url: String) {

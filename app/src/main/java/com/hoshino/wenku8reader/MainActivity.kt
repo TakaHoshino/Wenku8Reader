@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hoshino.wenku8reader.ui.MainScaffold
 import com.hoshino.wenku8reader.data.local.isDarkTheme
+import com.hoshino.wenku8reader.ui.components.HapticScope
 import com.hoshino.wenku8reader.ui.reader.VolumeKeyTurn
 import com.hoshino.wenku8reader.ui.theme.Wenku8ReaderTheme
 
@@ -48,7 +49,10 @@ class MainActivity : ComponentActivity() {
                 seedColor = Color(settings.seedColor),
                 amoled = settings.amoled,
             ) {
-                MainScaffold()
+                // 全局点击振动（设置开关控制）
+                HapticScope(enabled = settings.hapticsEnabled) {
+                    MainScaffold()
+                }
             }
         }
     }
