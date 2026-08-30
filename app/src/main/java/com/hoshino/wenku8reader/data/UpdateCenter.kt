@@ -73,8 +73,8 @@ class UpdateCenter(
                             if (manual) _notices.tryEmit(context.getString(R.string.update_none))
                         !checker.isNewer(release.versionName, currentVersionName, allowEqual = !stable) ->
                             if (manual) _notices.tryEmit(context.getString(R.string.update_up_to_date))
-                        release.tag == preferences.skippedUpdateVersion -> {
-                            // 用户跳过过该版本：静默
+                        isSkipped(release) -> {
+                            // 用户跳过过该基础版本线（自动与手动均不再弹窗）
                             if (manual) _notices.tryEmit(
                                 context.getString(R.string.update_skipped, release.versionName)
                             )
@@ -91,6 +91,12 @@ class UpdateCenter(
                 },
             )
         }
+    }
+
+    /** 是否被跳过：按基础版本（X.Y.Z，忽略 -dev.N 后缀）比较，同基础版本线全部跳过。 */
+    private fun isSkipped(release: ReleaseInfo): Boolean {
+        val skipped = preferences.skippedUpdateVersion ?: return false
+        return release.tag.removePrefix("v").substringBefore("-") == skipped
     }
 
     fun download() {
@@ -127,10 +133,13 @@ class UpdateCenter(
         _state.update { it.copy(latest = null, downloadError = null) }
     }
 
-    /** 跳过该版本：记住 tag，关闭弹窗。 */
+    /** 跳过该基础版本线：记住基础版本（如 0.3.0），同基础的测试构建不再提示（自动+手动），
+     *  更高基础版本发布后才恢复提示。 */
     fun skip() {
         val tag = _state.value.latest?.tag
-        if (tag != null) preferences.skippedUpdateVersion = tag
+        if (tag != null) {
+            preferences.skippedUpdateVersion = tag.removePrefix("v").substringBefore("-")
+        }
         _state.update { it.copy(latest = null, downloadError = null) }
     }
 }

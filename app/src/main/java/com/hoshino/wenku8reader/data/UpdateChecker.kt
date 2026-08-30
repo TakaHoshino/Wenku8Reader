@@ -141,10 +141,12 @@ class UpdateChecker {
         v.removePrefix("v").substringBefore("-").split(".").mapNotNull { it.toIntOrNull() }
 
     /** 语义化比较：release 是否比当前版本新。
-     *  标签与当前版本都可能带 prerelease 后缀（如 v0.3.0-dev.16 / 0.3.0-dev.16），
+     *  标签与当前版本都可能带 prerelease 后缀（如 v0.3.0-dev.19 / 0.3.0-dev.19），
      *  比较时取 `X.Y.Z` 基础段。
-     *  [allowEqual] = true（测试版通道）：基础版本相等也算有更新（同基础版本的最新测试版）。 */
+     *  ① 完整版本（含后缀）完全相同 → 绝不视为更新（避免「当前=最新还弹窗」）；
+     *  ② [allowEqual] = true（测试版通道）：基础版本相等但完整版本不同（同基础的更新测试版）→ 有更新。 */
     fun isNewer(releaseTag: String, currentVersion: String, allowEqual: Boolean = false): Boolean {
+        if (releaseTag.removePrefix("v") == currentVersion) return false
         val a = parseVersion(releaseTag)
         val b = parseVersion(currentVersion)
         for (i in 0 until maxOf(a.size, b.size)) {
