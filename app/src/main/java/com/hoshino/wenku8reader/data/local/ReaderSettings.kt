@@ -36,6 +36,7 @@ data class ReaderSettingsState(
     val autoTurnInterval: Int = 10,            // seconds
     val clickTurnPage: Boolean = true,         // 侧滑翻页时点按左右翻页
     val hapticsEnabled: Boolean = true,        // 控件点击振动反馈（全局 Indication 注入）
+    val hapticsStrength: Int = 50,             // 点击振动强度 0-100（映射到 VibrationEffect 幅度 1-255）
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -95,6 +96,7 @@ class ReaderSettings(context: Context) {
         autoTurnInterval = prefs.getInt("auto_interval", 10),
         clickTurnPage = prefs.getBoolean("click_turn", true),
         hapticsEnabled = prefs.getBoolean("haptics_enabled", true),
+        hapticsStrength = prefs.getInt("haptics_strength", 50).coerceIn(0, 100),
         autoPadding = prefs.getBoolean("auto_padding", true),
         topPadding = prefs.getInt("pad_top", 24),
         bottomPadding = prefs.getInt("pad_bottom", 16),
@@ -129,6 +131,7 @@ class ReaderSettings(context: Context) {
             .putInt("auto_interval", next.autoTurnInterval)
             .putBoolean("click_turn", next.clickTurnPage)
             .putBoolean("haptics_enabled", next.hapticsEnabled)
+            .putInt("haptics_strength", next.hapticsStrength)
             .putBoolean("auto_padding", next.autoPadding)
             .putInt("pad_top", next.topPadding)
             .putInt("pad_bottom", next.bottomPadding)
@@ -162,6 +165,8 @@ class ReaderSettings(context: Context) {
     fun setAutoTurnInterval(seconds: Int) = emit { it.copy(autoTurnInterval = seconds) }
     fun setClickTurnPage(enabled: Boolean) = emit { it.copy(clickTurnPage = enabled) }
     fun setHapticsEnabled(enabled: Boolean) = emit { it.copy(hapticsEnabled = enabled) }
+    fun setHapticsStrength(value: Int) =
+        emit { it.copy(hapticsStrength = value.coerceIn(0, 100)) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }

@@ -168,6 +168,8 @@
     <string name="settings_amoled_summary">深色模式下使用纯黑背景，OLED 屏幕更省电</string>
     <string name="settings_haptics">触觉反馈</string>
     <string name="settings_haptics_summary">点击控件时振动反馈</string>
+    <string name="settings_haptics_strength_title">振动强度</string>
+    <string name="settings_haptics_strength">强度</string>
     <string name="settings_dynamic_color_summary">跟随系统壁纸生成主题色（Android 12+）</string>
     <string name="settings_section_network">网络</string>
     <string name="settings_primary_mirror">主站域名</string>

@@ -49,8 +49,11 @@ class MainActivity : ComponentActivity() {
                 seedColor = Color(settings.seedColor),
                 amoled = settings.amoled,
             ) {
-                // 全局点击振动（设置开关控制）
-                HapticScope(enabled = settings.hapticsEnabled) {
+                // 全局点击振动（设置开关 + 强度控制）
+                HapticScope(
+                    enabled = settings.hapticsEnabled,
+                    strength = settings.hapticsStrength,
+                ) {
                     MainScaffold()
                 }
             }
