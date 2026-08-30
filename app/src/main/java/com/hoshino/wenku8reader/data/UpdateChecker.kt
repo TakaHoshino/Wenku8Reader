@@ -38,10 +38,10 @@ class UpdateChecker {
 
     /**
      * 查询最新 Release：
-     * - [stable] = true（正式版）：`releases/latest`（排除 prerelease）；
-     * - [stable] = false（测试版）：`releases?per_page=20` 中取最新一个 prerelease
-     *   （由 dev 工作流发布，tag 形如 `v0.2.0-dev.<run_number>`）。
-     * 无可用 Release 时返回 null（404 / 无 prerelease）。
+     * - [stable] = true（正式版）：`releases/latest`（最新正式版，排除 prerelease）；
+     * - [stable] = false（测试版）：`releases?per_page=20` 中取**最新发布**（按发布时间倒序，
+     *   不论是否 prerelease，第一个带 APK 的）——测试版通道也能检到最新正式版。
+     * 无可用 Release 时返回 null（404 / 无带 APK 的候选）。
      */
     suspend fun fetchLatest(stable: Boolean): Result<ReleaseInfo?> = withContext(Dispatchers.IO) {
         runCatching {
@@ -59,33 +59,32 @@ class UpdateChecker {
                     JSONObject(text)
                 } else {
                     val arr = org.json.JSONArray(text)
-                    var found: JSONObject? = null
+                    var best: JSONObject? = null
                     for (i in 0 until arr.length()) {
                         val o = arr.getJSONObject(i)
-                        if (o.optBoolean("prerelease", false)) {
-                            found = o
+                        if (apkUrlOf(o) != null) {
+                            best = o
                             break
                         }
                     }
-                    found ?: return@runCatching null
+                    best ?: return@runCatching null
                 }
                 val tag = json.optString("tag_name", "")
-                val name = json.optString("name", "")
-                var apkUrl: String? = null
-                val assets = json.optJSONArray("assets")
-                if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val a = assets.getJSONObject(i)
-                        if (a.optString("name").endsWith(".apk")) {
-                            apkUrl = a.optString("browser_download_url")
-                            break
-                        }
-                    }
-                }
-                if (tag.isBlank() || apkUrl.isNullOrBlank()) null
-                else ReleaseInfo(tag, tag.removePrefix("v"), apkUrl, name)
+                val apkUrl = apkUrlOf(json)
+                if (tag.isBlank() || apkUrl == null) null
+                else ReleaseInfo(tag, tag.removePrefix("v"), apkUrl, json.optString("name", ""))
             }
         }
+    }
+
+    /** 取 release JSON 中第一个 APK 资产的下载地址（无则 null）。 */
+    private fun apkUrlOf(json: JSONObject): String? {
+        val assets = json.optJSONArray("assets") ?: return null
+        for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            if (a.optString("name").endsWith(".apk")) return a.optString("browser_download_url")
+        }
+        return null
     }
 
     /** 按更新源拼 APK 下载地址（github 直连 / gh-proxy 镜像前缀）。 */
@@ -141,10 +140,11 @@ class UpdateChecker {
         v.removePrefix("v").substringBefore("-").split(".").mapNotNull { it.toIntOrNull() }
 
     /** 语义化比较：release 是否比当前版本新。
-     *  标签与当前版本都可能带 prerelease 后缀（如 v0.3.0-dev.19 / 0.3.0-dev.19），
+     *  标签与当前版本都可能带 prerelease 后缀（如 v0.3.0-dev.21 / 0.3.0-dev.21），
      *  比较时取 `X.Y.Z` 基础段。
-     *  ① 完整版本（含后缀）完全相同 → 绝不视为更新（避免「当前=最新还弹窗」）；
-     *  ② [allowEqual] = true（测试版通道）：基础版本相等但完整版本不同（同基础的更新测试版）→ 有更新。 */
+     *  ① 完整版本（含后缀）完全相同 → 绝不视为更新；
+     *  ② 基础版本相等时，**同基础「测试版 → 正式版」视为更新**（如当前 0.3.0-dev.21 → 正式版 v0.3.0，
+     *     正式版通道也能检出）；[allowEqual]（测试版通道）额外允许同基础的不同测试构建视为更新。 */
     fun isNewer(releaseTag: String, currentVersion: String, allowEqual: Boolean = false): Boolean {
         if (releaseTag.removePrefix("v") == currentVersion) return false
         val a = parseVersion(releaseTag)
@@ -154,6 +154,8 @@ class UpdateChecker {
             val y = b.getOrElse(i) { 0 }
             if (x != y) return x > y
         }
+        // 基础版本相等：
+        if ('-' !in releaseTag && '-' in currentVersion) return true // 测试版 → 正式版（同基础）
         return allowEqual
     }
 }
