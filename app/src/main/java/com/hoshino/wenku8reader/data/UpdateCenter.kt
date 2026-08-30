@@ -48,11 +48,23 @@ class UpdateCenter(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 2)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
-    /** 当前应用版本名（packageManager），用于新旧比较。 */
+    /** 当前应用版本名（packageManager），用于旧发布（无 versionCode 字段）回退比较。 */
     val currentVersionName: String =
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrDefault("1.0.0")
+
+    /** 当前应用 versionCode（packageManager），更新检查的主依据（严格单调递增）。 */
+    val currentVersionCode: Long =
+        runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                info.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                info.versionCode.toLong()
+            }
+        }.getOrDefault(0L)
 
     /**
      * 查询最新版。[manual] = true 时（用户主动点「检查更新」），把
@@ -78,11 +90,22 @@ class UpdateCenter(
                     when {
                         release == null ->
                             if (manual) _notices.tryEmit(context.getString(R.string.update_none))
-                        !checker.isNewer(release.versionName, currentVersionName, allowEqual = !stable) ->
-                            if (manual) _notices.tryEmit(context.getString(R.string.update_up_to_date))
-                        // 跳过标记仅在自动检查时生效：被跳过 → 静默；手动检查忽略跳过（仍可弹窗）
-                        !manual && release.tag == preferences.skippedUpdateVersion -> {}
-                        else -> _state.update { it.copy(latest = release) }
+                        else -> {
+                            // 更新判定：优先按 versionCode（严格单调，无版本号后缀解析歧义）；
+                            // 旧发布无 versionCode 字段时回退 versionName 比较。
+                            val newer = if (release.versionCode != null && currentVersionCode > 0) {
+                                release.versionCode > currentVersionCode
+                            } else {
+                                checker.isNewer(release.versionName, currentVersionName, allowEqual = !stable)
+                            }
+                            when {
+                                !newer ->
+                                    if (manual) _notices.tryEmit(context.getString(R.string.update_up_to_date))
+                                // 跳过标记仅在自动检查时生效：被跳过 → 静默；手动检查忽略跳过（仍可弹窗）
+                                !manual && release.tag == preferences.skippedUpdateVersion -> {}
+                                else -> _state.update { it.copy(latest = release) }
+                            }
+                        }
                     }
                 },
                 onFailure = { e ->

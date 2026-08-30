@@ -133,6 +133,8 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}-dev.${{ github.run_number }}
           name: v${{ steps.version.outputs.version }}-dev.${{ github.run_number }}（测试版）
           body: |
+            versionCode: ${{ steps.vcode.outputs.version_code }}
+
             自动构建的测试版（Actions）。
             请在应用「设置 → 更新 → 更新通道」选择「测试版」后检查更新。
           prerelease: true

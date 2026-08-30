@@ -17,6 +17,8 @@ data class ReleaseInfo(
     val versionName: String,  // 如 "0.2.0"
     val apkDownloadUrl: String, // 原始 github 下载地址
     val releaseName: String = "",
+    /** 由 Release 描述首行的 `versionCode: <N>` 解析而来（null = 旧发布无此字段）。 */
+    val versionCode: Long? = null,
 )
 
 /**
@@ -34,6 +36,9 @@ class UpdateChecker {
         private const val UA = "Wenku8Reader-Android"
         /** gh-proxy 镜像前缀（更新源选择用），后接原始下载地址。 */
         const val GH_PROXY_PREFIX = "https://gh-proxy.com/"
+
+        /** 从 Release 描述首行解析 `versionCode: <N>`。 */
+        private val VERSION_CODE_IN_BODY = Regex("versionCode:\\s*(\\d+)")
     }
 
     /**
@@ -72,7 +77,16 @@ class UpdateChecker {
                 val tag = json.optString("tag_name", "")
                 val apkUrl = apkUrlOf(json)
                 if (tag.isBlank() || apkUrl == null) null
-                else ReleaseInfo(tag, tag.removePrefix("v"), apkUrl, json.optString("name", ""))
+                else ReleaseInfo(
+                    tag = tag,
+                    versionName = tag.removePrefix("v"),
+                    apkDownloadUrl = apkUrl,
+                    releaseName = json.optString("name", ""),
+                    // 由发布描述首行 `versionCode: <N>` 解析（新发布均带；旧发布为 null → 回退 versionName 比较）
+                    versionCode = VERSION_CODE_IN_BODY
+                        .find(json.optString("body", ""))
+                        ?.groupValues?.get(1)?.toLongOrNull(),
+                )
             }
         }
     }
