@@ -44,7 +44,7 @@
 由 `.github/workflows/release.yml` 在**推送 main**（或手动触发）时自动完成，无需手工改版本号：
 
 1. **语义解析**：读取最近 `vX.Y.Z` 标签之后的提交，按 Conventional Commits 决定升级——
-   `feat:` → 次版本 +1；`fix:` → 修订号 +1；`BREAKING CHANGE` / `!` → 主版本 +1；无相关提交则跳过发布。
+   `feat:` → 次版本 +1；`fix:` / `perf:` → 修订号 +1；`BREAKING CHANGE` / `!` → 主版本 +1；无相关提交则跳过发布。
 2. **versionCode = `yyyymmddHH`**（时间基准）：每次构建必然大于历史所有已装版本（含本地调试包与 dev 包），保证覆盖安装不降级。
 3. **构建注入**：`build.gradle.kts` 优先读环境变量 `APP_VERSION_NAME` / `APP_VERSION_CODE`；本地构建回退 `gradle.properties` 的 `VERSION_NAME` / `VERSION_CODE`。
 4. **产出**：打 `vX.Y.Z` 标签 → 生成更新日志（自上次标签的 feat/fix 提交）→ GitHub Release 附 APK。

@@ -61,7 +61,7 @@ jobs:
             BUMP="major"
           elif git log "$RANGE" --format=%s | grep -qE '^feat(\([^)]*\))?!?:'; then
             BUMP="minor"
-          elif git log "$RANGE" --format=%s | grep -qE '^fix(\([^)]*\))?!?:'; then
+          elif git log "$RANGE" --format=%s | grep -qE '^(fix|perf)(\([^)]*\))?!?:'; then
             BUMP="patch"
           else
             BUMP="none"

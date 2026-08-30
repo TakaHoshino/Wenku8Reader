@@ -49,12 +49,12 @@ jobs:
           RANGE="HEAD"
           if [ -n "$LAST_TAG" ]; then RANGE="${LAST_TAG}..HEAD"; fi
 
-          # 升级类型判断（优先级：breaking > feat > fix）
+          # 升级类型判断（优先级：breaking > feat > fix/perf）
           if git log "$RANGE" --format=%B | grep -qE '^BREAKING CHANGE|!(:|\s)'; then
             BUMP="major"
           elif git log "$RANGE" --format=%s | grep -qE '^feat(\([^)]*\))?!?:'; then
             BUMP="minor"
-          elif git log "$RANGE" --format=%s | grep -qE '^fix(\([^)]*\))?!?:'; then
+          elif git log "$RANGE" --format=%s | grep -qE '^(fix|perf)(\([^)]*\))?!?:'; then
             BUMP="patch"
           else
             BUMP="none"
