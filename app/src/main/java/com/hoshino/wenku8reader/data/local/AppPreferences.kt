@@ -104,4 +104,11 @@ class AppPreferences(context: Context) {
         set(value) {
             ui.edit().putString("skipped_update_version", value).apply()
         }
+
+    /** 上次启动自动检查更新的时间戳（毫秒）；用于节流，降低网络无线电功耗。 */
+    var lastUpdateCheckAt: Long
+        get() = ui.getLong("last_update_check_at", 0L)
+        set(value) {
+            ui.edit().putLong("last_update_check_at", value).apply()
+        }
 }

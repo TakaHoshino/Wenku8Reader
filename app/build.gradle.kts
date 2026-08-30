@@ -33,6 +33,12 @@ android {
         targetSdk = 34
         versionCode = releaseVersionCode
         versionName = releaseVersionName
+
+        // 体积优化：裁剪原生库 ABI——仅保留真机必需的 arm64-v8a / armeabi-v7a，
+        // 以及 x86_64（模拟器）。去掉 32 位 x86（已无真实设备，省约 5.5MB）。
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
     }
 
     signingConfigs {
@@ -51,7 +57,9 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
-            isMinifyEnabled = false
+            // 体积优化：R8 混淆 + 资源收缩（基线 32.9MB → 目标缩减 ≥20%）
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = if (useReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {

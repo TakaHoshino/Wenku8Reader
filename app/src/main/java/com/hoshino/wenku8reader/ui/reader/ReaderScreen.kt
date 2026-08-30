@@ -1136,11 +1136,13 @@ private fun ReadingTimeTracker(
     val lifecycleOwner = LocalLifecycleOwner.current
     var pendingSeconds by remember { mutableLongStateOf(0L) }
 
+    // 功耗优化：每 5s 计一次（每次累加 5s），较原 1s 滴答减少 5 倍 CPU 唤醒；
+    // 仍满足「分钟级 + 向上取整」的统计精度。
     LaunchedEffect(bookId) {
         while (true) {
-            delay(1000)
+            delay(5000)
             if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                pendingSeconds++
+                pendingSeconds += 5
                 if (pendingSeconds >= 60) {
                     store.addSeconds(bookId, bookName, pendingSeconds)
                     store.persist()

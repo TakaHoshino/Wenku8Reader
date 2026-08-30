@@ -62,6 +62,12 @@ class UpdateCenter(
      */
     fun check(manual: Boolean = false) {
         if (_state.value.checking) return
+        // 功耗优化：启动自动检查最多 24h 一次（减少网络无线电）；手动检查不受限
+        if (!manual) {
+            val now = System.currentTimeMillis()
+            if (now - preferences.lastUpdateCheckAt < 24L * 60 * 60 * 1000) return
+            preferences.lastUpdateCheckAt = now
+        }
         val stable = settings.flow.value.updateChannel != "beta"
         _state.update { it.copy(checking = true) }
         scope.launch {
