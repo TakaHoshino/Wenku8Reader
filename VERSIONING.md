@@ -146,17 +146,19 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 
 **场景**：dev 分支的开发包需要可安装验证；**versionName 与 master 保持一致**（同一套语义版本系统），但不打 tag、不发布 Release。
 
-**已部署**：`.github/workflows/dev.yml`（push 到 `dev` 分支或手动触发），版本解析逻辑复用 `.github/actions/parse-version`。
+**已部署**：`.github/workflows/dev.yml`（push 到 `dev` 分支或手动触发），版本解析用与 release 工作流相同的内联脚本（解析最近 tag 之后的 Conventional Commits）。
 
 | 项 | 行为 |
 |---|---|
 | 触发 | push `dev` 分支 / 手动 `workflow_dispatch` |
-| versionName | **与 master 同一套语义系统**：复用 `.github/actions/parse-version` 解析最近 tag 之后的 Conventional Commits（feat→minor / fix→patch / BREAKING→major），两边规则与结果一致 |
+| versionName | **与 master 同一套语义系统**：解析最近 tag 之后的 Conventional Commits（feat→minor / fix→patch / BREAKING→major），两边规则与结果一致 |
 | versionCode | **递增**：时间基准 `yyyymmddHH`（如 `2026082914`），必然大于任何历史已装版本，覆盖安装不降级 |
 | 发布 | **不发布**：无 git tag、无 GitHub Release；APK 以 **Actions Artifact** 形式产出（Actions 页 → 本次运行 → Artifacts 下载） |
 | 签名 | 配置了 `KEYSTORE_BASE64` 等 Secrets 则正式签名，否则回退 debug 签名（可安装） |
 
-**与 release 工作流的关系**：版本解析逻辑**共用同一个 composite action**，versionName 规则完全一致——dev 与 master 共享 git tag 历史，同一时刻解析出的版本号相同（如 master 合并 dev 后发布 0.2.0，dev 分支在此之前构建的包也是 0.2.0）。两者独立触发、互不干扰；versionCode 均为时间基准，天然错开。
+**与 release 工作流的关系**：版本解析逻辑**相同（各自内联）**，versionName 规则完全一致——dev 与 master 共享 git tag 历史，同一时刻解析出的版本号相同（如 master 合并 dev 后发布 0.2.0，dev 分支在此之前构建的包也是 0.2.0）。两者独立触发、互不干扰；versionCode 均为时间基准，天然错开。
+
+> ⚠️ 经验教训：版本解析必须用**内联 `run` 步骤**写 `$GITHUB_OUTPUT`——曾尝试抽成 composite action 复用，但其输出在本环境不生效，导致 release 打了空 tag `v`、versionName 为空（`fix(ci)` 已改回内联）。
 
 **注意事项**：
 - dev 包与 release 包 versionCode 都随时间递增，**互相可覆盖安装的前提是签名一致**：dev 默认回退 debug 签名、release 用正式签名（若已配置），两者签名不同时无法互相覆盖（需卸载）；若希望互通，让 dev 也使用正式签名（配置同一组 Secrets 即可）。

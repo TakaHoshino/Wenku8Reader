@@ -35,9 +35,48 @@ jobs:
           java-version: 17
 
       # ---- 语义版本号：与 master 同一套规则（解析最近 tag 之后的 Conventional Commits）----
+      # 注意：必须用内联 run 步骤写 $GITHUB_OUTPUT——composite action 的输出
+      # 在此环境不生效（曾导致 versionName 为空、release tag 变成 "v"）。
       - name: 解析下一个版本
         id: version
-        uses: ./.github/actions/parse-version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LAST_TAG="$(git tag --list 'v*' | sort -V | tail -n 1 || true)"
+          BASE="${LAST_TAG#v}"
+          BASE="${BASE:-0.0.0}"
+          RANGE="HEAD"
+          if [ -n "$LAST_TAG" ]; then RANGE="${LAST_TAG}..HEAD"; fi
+
+          if git log "$RANGE" --format=%B | grep -qE '^BREAKING CHANGE|!(:|\s)'; then
+            BUMP="major"
+          elif git log "$RANGE" --format=%s | grep -qE '^feat(\([^)]*\))?!?:'; then
+            BUMP="minor"
+          elif git log "$RANGE" --format=%s | grep -qE '^fix(\([^)]*\))?!?:'; then
+            BUMP="patch"
+          else
+            BUMP="none"
+          fi
+
+          if [ "$BUMP" = "none" ]; then
+            echo "skip=true"       >> "$GITHUB_OUTPUT"
+            echo "version=${BASE}" >> "$GITHUB_OUTPUT"
+            echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          IFS='.' read -r BM BA BP <<< "$BASE"
+          case "$BUMP" in
+            major) NM=$((BM + 1)); NA=0; NP=0 ;;
+            minor) NM=$BM;        NA=$((BA + 1)); NP=0 ;;
+            patch) NM=$BM;        NA=$BA;         NP=$((BP + 1)) ;;
+          esac
+          NEXT="${NM}.${NA}.${NP}"
+
+          echo "skip=false"       >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT}"  >> "$GITHUB_OUTPUT"
+          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
 
       # ---- 正式签名（可选）：配置了 KEYSTORE_BASE64 才启用，否则回退 debug 签名 ----
       - name: 准备正式签名（还原 keystore）
