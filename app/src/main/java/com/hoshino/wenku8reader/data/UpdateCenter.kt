@@ -57,6 +57,7 @@ class UpdateCenter(
     /**
      * 查询最新版。[manual] = true 时（用户主动点「检查更新」），把
      * 「已是最新 / 无可用更新 / 检查失败」通过 [notices] 提示；启动检查不打扰。
+     * 「跳过该版本」**仅影响自动检查**：手动检查始终按实际版本判定（仍可弹窗）。
      * 通道（正式版/测试版）与更新源读取自 [ReaderSettings]。
      */
     fun check(manual: Boolean = false) {
@@ -73,12 +74,8 @@ class UpdateCenter(
                             if (manual) _notices.tryEmit(context.getString(R.string.update_none))
                         !checker.isNewer(release.versionName, currentVersionName, allowEqual = !stable) ->
                             if (manual) _notices.tryEmit(context.getString(R.string.update_up_to_date))
-                        isSkipped(release) -> {
-                            // 用户跳过过该基础版本线（自动与手动均不再弹窗）
-                            if (manual) _notices.tryEmit(
-                                context.getString(R.string.update_skipped, release.versionName)
-                            )
-                        }
+                        // 跳过标记仅在自动检查时生效：被跳过 → 静默；手动检查忽略跳过（仍可弹窗）
+                        !manual && release.tag == preferences.skippedUpdateVersion -> {}
                         else -> _state.update { it.copy(latest = release) }
                     }
                 },
@@ -91,12 +88,6 @@ class UpdateCenter(
                 },
             )
         }
-    }
-
-    /** 是否被跳过：按基础版本（X.Y.Z，忽略 -dev.N 后缀）比较，同基础版本线全部跳过。 */
-    private fun isSkipped(release: ReleaseInfo): Boolean {
-        val skipped = preferences.skippedUpdateVersion ?: return false
-        return release.tag.removePrefix("v").substringBefore("-") == skipped
     }
 
     fun download() {
@@ -133,13 +124,10 @@ class UpdateCenter(
         _state.update { it.copy(latest = null, downloadError = null) }
     }
 
-    /** 跳过该基础版本线：记住基础版本（如 0.3.0），同基础的测试构建不再提示（自动+手动），
-     *  更高基础版本发布后才恢复提示。 */
+    /** 跳过该版本（仅自动检查生效）：记住完整 tag，关闭弹窗。 */
     fun skip() {
         val tag = _state.value.latest?.tag
-        if (tag != null) {
-            preferences.skippedUpdateVersion = tag.removePrefix("v").substringBefore("-")
-        }
+        if (tag != null) preferences.skippedUpdateVersion = tag
         _state.update { it.copy(latest = null, downloadError = null) }
     }
 }

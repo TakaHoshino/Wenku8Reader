@@ -28,8 +28,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyAppLocale(context: Context): Context {
-        val language = (application as? Wenku8Application)
-            ?.container?.readerSettings?.flow?.value?.appLanguage
+        // 注意：attachBaseContext 阶段 application 尚未赋值（Activity.attach 先调 attachBaseContext
+        // 再赋 mApplication），不能经 Application/container 读取设置；直接读 SharedPreferences。
+        val language = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+            .getString("app_language", "system")
             ?: "system"
         val locale = when (language) {
             "zh-TW" -> java.util.Locale.TRADITIONAL_CHINESE

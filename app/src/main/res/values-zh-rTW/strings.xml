@@ -55,7 +55,7 @@
     <string name="update_download_failed">下載失敗：%1$s</string>
     <string name="update_up_to_date">已是最新版本</string>
     <string name="update_none">暫無可用更新</string>
-    <string name="update_skipped">已略過 v%1$s 系列，更高基礎版本發佈後才會再次提示</string>
+    <string name="update_skipped">已略過 v%1$s，如需更新請到設定中關閉略過</string>
     <string name="update_check_failed">檢查更新失敗：%1$s</string>
 
     <!-- 底部導覽 -->
