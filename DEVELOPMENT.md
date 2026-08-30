@@ -102,7 +102,7 @@ Wenku8Reader/
 - **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net, www.wenku8.com]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
 - **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 OkHttp/Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
 - **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
-- **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks`，需登录）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
+- **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
 - **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp 随机 Android UA，逐镜像尝试。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
 - **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。
@@ -138,18 +138,19 @@ Wenku8Reader/
 - **聚合算法**：先按天/按书**分别累计秒数**，再统一 `ceil(秒/60)` 成分钟（不足 1 分钟按 1 分钟）——逐条 ceil 再求和会有累加误差（两条 30s 同日应计 1 分钟而非 2 分钟）；聚合在 `Dispatchers.Default` 执行。
 - **热力图**：GitHub 风格周列矩阵（列=周、行=周一..周日），尺度（本周/本月/本年/全部）由 ViewModel 的 `rangeOf` 定界，`buildWeeks` 铺格子（范围外/未来为 null），`buildLabels` 每月首列标 "M月"；**参考 LNR 优化**：① 汇总卡行（累计/本周/连续阅读天数/日均，日均=总分钟÷活跃天数）；② 色阶改 LNR 风格——工作日绿 `#329c32`、周末蓝 `#29538f`，按 alpha（0x44/0x8C/0xFF）递增区分 1~10/11~30/>30 分钟三档，0 分钟为中性灰；③ 图例（少→多，工作日/周末两行）；④ **点日期出当日详情卡**（当日总分钟 + 当日每本书明细，`dayTotalMinutes` 先累计秒再 ceil 一次避免逐条取整误差）；⑤ 触觉反馈。书籍列表按时长降序（点条目跳详情）。
 
-### 4.8 详情页增强（作者 / Tag / 独立目录页 / 重读重置）
+### 4.8 详情页增强（作者 / Tag / 独立目录页 / 重读重置 / 书架已读统计）
 - **作者**：详情页作者名强调色 + 可点击 → `author/{name}` 路由 → `AuthorBooksScreen`（复用 `repository.search(name, byAuthor=true)` 按作者搜索接口）。
-- **Tag**：`StatusTag` 增加可选 `onClick`；详情页 Tag 可点击 → 复用 `tag/{tag}` 路由（TagBooksScreen）。
+- **Tag**：`StatusTag` 增加可选 `onClick`；详情页 Tag 可点击 → 复用 `tag/{tag}` 路由（TagBooksScreen，**分页加载该标签下全部书籍**）。
 - **目录页**：`toc/{id}` 路由 → `TocScreen`（独立二级页）：分卷可折叠（`AnimatedVisibility`），**默认全部展开、全卷已读自动折叠**，顶栏可全部展开/折叠；已读章节灰色 + "已读"标记，当前章节主题色加粗；点章节 → `reader/{id}?cid=...`（阅读器新增可选 `cid` 起始章节参数）。
 - **章节完成状态**：`AppPreferences.finishedChapters(bookId)`（JSONArray）；阅读器读至章节 100%（页模式最后一页 / 滚动模式到底，`snapshotFlow` 检测）→ `markChapterFinished`；**重读重置**：`loadChapter` 进入已完成章节时立即 `resetChapterFinished`（回到未完成），再次读完才恢复"已读"。仅章节级，不影响书级统计。
+- **书架已读统计**：`BookcaseEntry.readCount = finishedChapters(bookId).size`（与目录页"已读"同源），进度条 = 已读/总数（原为阅读位置 `(pos+1)/total`，已改为基于目录已读标记）。
 
 ---
 
 ## 5. UI 层
 
 ### 5.1 入口与装配
-- `MainActivity`：`enableEdgeToEdge()`；`dispatchKeyEvent` 把音量键转发给 `VolumeKeyTurn`；`setContent` 中按 `ReaderSettings` 组装 `Wenku8ReaderTheme`。
+- `MainActivity`：`enableEdgeToEdge()`；`dispatchKeyEvent` 把音量键转发给 `VolumeKeyTurn`；`setContent` 中按 `ReaderSettings` 组装 `Wenku8ReaderTheme`，并用 **`HapticScope`** 注入全局点击振动（`LocalIndication` 委托 ripple + 按下时按 `hapticsStrength` 强度调用系统 `Vibrator`）。
 - **高刷新率适配**：`requestHighRefreshRate()` 在 API 30+ 用 `preferredDisplayModeId`、API 26-29 用 `preferredRefreshRate`，请求同分辨率下的最高刷新率（60Hz 设备无副作用）。
 - `Wenku8Application` + `AppContainer`：手动 DI，无框架。
 - `AppViewModelProvider`：手写 `ViewModelProvider.Factory`（从 `AppContainer` 取依赖注入 ViewModel）。
@@ -159,12 +160,12 @@ Wenku8Reader/
 - **弹簧动画**：底栏点击走 `MainPagerState.animateToPage()`（`ui/components/PagerNavigation.kt`，stiffness 322.2 / damping≈0.9），与 SukiSU-Ultra 一致；手动滑动由 `syncPage()` 同步选中态。
 - **底栏**：`NavigationBar`（containerColor = `surfaceContainer`），选中/未选中用 Filled/Outlined 图标对。
 - **返回键**：非首个 Tab 时 `BackHandler` 先回首页 Tab，再回退导航栈。
-- 子页路由（`detail/{id}`、`reader/{id}`、`tag/{tag}`、`downloads`、`settings/custom`、`about`）仍走 NavHost（淡入 + 侧滑过渡），自带折叠大顶栏、无底栏；阅读器自绘 chrome。
-- 每个 Tab 页自带 `ExpressiveScaffold` + `LargeTopAppBar`（`exitUntilCollapsedScrollBehavior` 折叠），顶栏右侧下载图标进 `downloads`。
+- 子页路由（`detail/{id}`、`reader/{id}?cid=`、`tag/{tag}`、`author/{name}`、`toc/{id}`、`stats`、`downloads`、`settings/custom`、`about`）走 NavHost（淡入 + 侧滑过渡），自带顶栏、无底栏；阅读器自绘 chrome。
+- 每个 Tab 页自带 `ExpressiveScaffold` + 顶栏（静态 64dp `TopAppBar`，探索/书架/设置主 Tab 已去掉折叠大顶栏以消除滚动逐帧布局级联；详情等子页仍为折叠 `LargeTopAppBar`），顶栏右侧下载图标进 `downloads`。
 
 ### 5.3 各页面（UI 重构后均为 SukiSU 风格：surfaceContainer 背景 + surfaceBright 卡片）
 - `ExplorePage/ViewModel`：折叠大顶栏「轻小说文库」+ 圆角搜索条（surfaceContainerHighest 药丸形）+ 推荐/标签 SegmentedButton；首页栏目封面轮播、文字榜单（surfaceBright 卡片）、标签入口。
-- `TagBooksScreen/ViewModel`：某标签下书籍列表（SegmentedColumn 卡片行）。
+- `TagBooksScreen/ViewModel`：某标签下书籍列表（SegmentedColumn 卡片行），**分页加载全部**（底部「加载更多」逐页追加）。
 - `DetailScreen/ViewModel`：封面+基本信息 TonalCard（标签用 StatusTag 药丸）、阅读按钮、离线下载 TonalCard（TXT/EPUB + 进度）、简介 TonalCard。
 - `BookcasePage/ViewModel`：书架 TonalCard 列表 + 排序（顶栏 DropdownMenu）+ 刷新。
 - `DownloadsScreen/ViewModel`：下载任务 TonalCard 列表（进度/取消/完成路径），自带返回键。
@@ -178,6 +179,7 @@ Wenku8Reader/
 - `TonalCard`：surfaceBright + `shapes.large`，可选 onClick/onLongClick。
 - `SegmentedColumn` / `SegmentedListItem` / `SegmentedSwitchItem` / `SegmentedDropdownItem` / `SegmentedRadioItem`：surfaceBright 分组卡片列表（首项大圆角、项间 2dp 缝隙）。**注意**：material3 1.3 没有可点击 `ListItem`，`SegmentedListItem` 为自定义 Row 实现（标题/次要文本/前导/尾随 + `pressClickable`）。
 - `StatusTag` / `WarningCard` / `ExpressiveSwitch`（✓/✕ 拇指图标）。
+- `HapticIndication`（`ui/components/HapticIndication.kt`）：**全局点击振动**——Compose 1.7 `IndicationNodeFactory` + `DelegatingNode` 实现，委托默认 ripple 保留水波纹，按下时调系统 `Vibrator`（`VibrationEffect.createOneShot(20ms, strength*255/100)`，可调强度）；`MainActivity` 根部 `HapticScope` 注入 `LocalIndication`，所有 clickable/按钮/开关自动生效。⚠️ 经验：foundation 1.7 已弃用旧 `Indication` API（`LocalIndication` 在 `androidx.compose.foundation` 包）；`IndicationNodeFactory.create` 返回 `DelegatableNode`，需 `as Modifier.Node` 后交给 `DelegatingNode.delegate()`。
 
 ---
 
@@ -230,7 +232,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - 插图页：`SubcomposeAsyncImage` + `ImageRequest` 带 `Referer: https://www.wenku8.net/`。
 
 ### 6.6 阅读器设置项（ReaderSettingsState，含默认值）
-`darkMode(system)/dynamicColor(true)/seedColor/amoled(false)/backgroundMode(color|image)/readerBackgroundLight(纯白)/readerTextColorLight(纯黑)/readerBackgroundDark(纯黑)/readerTextColorDark(纯白)/backgroundImagePath/fontFamily(default|sans|serif|mono)/fontSize(18)/fontWeight(400)/lineSpacing(1.8)/traditionalChinese(false)/scrollMode(false)/volumeKeyTurnPage(true)/autoNextChapter(false)/pageTurnDirection(true)/autoTurnInterval(10s)/clickTurnPage(true)/autoPadding(true)/topPadding(24)/bottomPadding(16)/leftPadding(20)/rightPadding(20)`。
+`darkMode(system)/dynamicColor(true)/seedColor/amoled(false)/backgroundMode(color|image)/readerBackgroundLight(纯白)/readerTextColorLight(纯黑)/readerBackgroundDark(纯黑)/readerTextColorDark(纯白)/backgroundImagePath/fontFamily(default|sans|serif|mono)/fontSize(18)/fontWeight(400)/lineSpacing(1.8)/traditionalChinese(false)/scrollMode(false)/volumeKeyTurnPage(true)/autoNextChapter(false)/pageTurnDirection(true)/autoTurnInterval(10s)/clickTurnPage(true)/hapticsEnabled(true)/hapticsStrength(50)/autoPadding(true)/topPadding(24)/bottomPadding(16)/leftPadding(20)/rightPadding(20)`。
 - 阅读器配色按主题模式分离：`ReaderScreen` 依 `darkMode`（含跟随系统）取 `*Light` 或 `*Dark` 两套背景/字体色；旧 prefs 键 `reader_bg`/`reader_text_color` 自动迁移为浅色模式值（`load()` 中兜底）。
 
 ---
@@ -283,15 +285,23 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - 分页目前用**估算**（宽/字号），可改用 Compose `TextMeasurer` 精确测量后切页（此前实现过基于 TextMeasurer 的 `getSlipStrings`，后为性能改回估算）。
 - **滚动模式长章节**：`ScrollContent` 用单个 `Text(chapter.text)` 一次性排版整章，超长章节打开时首帧排版偏慢；可改为按段落 `LazyColumn` 增量排版（注意保持阅读位置语义）。
 - 章节进度条在非沉浸时可能覆盖正文最后约 1~2 行（浮动层叠于文本之上），如需避免可调整其位置/透明度。
-- 无 git 提交历史（仓库尚无 commit），建议接手后先 `git init`/首次提交再开发。
 - 无自动化测试；分页算法 `paginateChapter` 是纯函数，适合补单测（当前无 test 源集）。
-- 未做：日/周排行榜、书单、多书架分组、阅读统计、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
+- 未做：日/周排行榜、书单、多书架分组、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
+
+### 7.7 2026-09 功能增强（dev 分支开发，fast-forward 合并回 master）
+- **阅读热力图**（`ui/stats/`，书架顶栏日历图标入口）：GitHub 风格周列矩阵 + 时间尺度切换（本周/本月/本年/全部）+ 汇总卡（累计/本周/连续天数/日均）+ 当日详情卡 + 工作日绿/周末蓝双色阶 + 图例（参考 LNR）。
+- **阅读时长埋点**（`ReadingStatsStore` + `ReaderScreen` 内 `ReadingTimeTracker`）：前台阅读每 60s 落盘、退出冲刷余量；按「书+日期」聚合秒数，先累计再 ceil 成分钟。
+- **详情页增强**（§4.8）：作者高亮跳转、Tag 跳转、独立目录页（分卷折叠 + 已读标记 + 重读重置）、书架已读统计。
+- **标签分页**：`tagBooks(tag, page)`，「查看全部」逐页加载该标签全部书籍（去重 + 空页停止）。
+- **全局点击振动**（§5.4 `HapticIndication`）：设置页「外观」新增「触觉反馈」开关 + 振动强度滑动条（0-100 → Vibrator 幅度 1-255）。
+- **CI**：dev 分支独立构建工作流（仅构建、不发布）；语义版本解析**必须用内联 run 步骤**（composite action 输出在本环境失效，曾导致 tag 变 `v`——见 VERSIONING.md §8 教训）；versionCode 时间基准 `yyyymmddHH`（跨工作流单调递增）。
 
 ---
 
 ## 8. 参考文档与版本管理
 
-- 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 规则、发布三件套）。
+- 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 时间基准 `yyyymmddHH`、发布三件套、dev 分支只构建不发布）。
+- **CI 经验**：`release.yml`（push main/master 触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（push dev 触发：仅构建上传 Artifact）。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
 
 `技术性文档(只读勿动)/`：
 - `wenku8-api.md` —— wenku8.net 全接口逆向文档（登录/搜索/详情/目录/正文/下载/书架、编码约定、限流策略）。**优先读它再改数据层。**
