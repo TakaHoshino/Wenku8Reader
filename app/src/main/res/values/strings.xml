@@ -72,6 +72,17 @@
     <string name="detail_fav_local_done">已收藏至本地书架</string>
     <string name="detail_fav_local_removed">已从本地书架移除</string>
 
+    <!-- 详情 · 目录 / 作者 / 标签 -->
+    <string name="detail_toc">目录</string>
+    <string name="toc_title">目录</string>
+    <string name="toc_empty">暂无章节目录</string>
+    <string name="toc_read_mark">已读</string>
+    <string name="toc_unnamed_volume">未分组</string>
+    <string name="toc_expand_collapse_all">全部展开/折叠</string>
+    <string name="author_books_title">%1$s 的作品</string>
+    <string name="author_books_count">共 %1$d 本</string>
+    <string name="author_books_empty">未找到该作者的书籍</string>
+
     <!-- 详情 -->
     <string name="detail_title_default">书籍详情</string>
     <string name="detail_cover">封面</string>

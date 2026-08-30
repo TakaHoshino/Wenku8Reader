@@ -7,6 +7,7 @@ package com.hoshino.wenku8reader.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -171,9 +172,11 @@ fun StatusTag(
     backgroundColor: Color,
     contentColor: Color,
     shape: Shape = RoundedCornerShape(6.dp),
+    onClick: (() -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(color = backgroundColor, shape = shape)
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {

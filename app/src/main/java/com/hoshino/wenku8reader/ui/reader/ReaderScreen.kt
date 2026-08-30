@@ -120,6 +120,7 @@ import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -453,6 +454,21 @@ fun ReaderScreen(
                         Modifier.align(Alignment.Center),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+
+                // 章节读完检测：翻到最后一页（页模式）或滚动到底（滚动模式）→ 标记"已读"
+                LaunchedEffect(ui.currentCid) {
+                    val finishCid = ui.currentCid ?: return@LaunchedEffect
+                    snapshotFlow {
+                        if (pageMode) {
+                            if (pagedChapters.isEmpty()) 0
+                            else (pagerState.currentPage + 1) * 100 / pagedChapters.size
+                        } else {
+                            if (scrollState.maxValue > 0) scrollState.value * 100 / scrollState.maxValue else 0
+                        }
+                    }.distinctUntilChanged().collect { percent ->
+                        if (percent >= 100) vm.markChapterFinished(finishCid)
+                    }
                 }
 
                 // status indicator: shown only in immersive, at the very bottom

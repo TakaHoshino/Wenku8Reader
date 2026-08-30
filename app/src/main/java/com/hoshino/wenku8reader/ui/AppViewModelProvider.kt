@@ -6,6 +6,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.hoshino.wenku8reader.Wenku8Application
+import com.hoshino.wenku8reader.ui.author.AuthorBooksViewModel
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseViewModel
 import com.hoshino.wenku8reader.ui.detail.DetailViewModel
 import com.hoshino.wenku8reader.ui.downloads.DownloadsViewModel
@@ -14,6 +15,7 @@ import com.hoshino.wenku8reader.ui.explore.TagBooksViewModel
 import com.hoshino.wenku8reader.ui.reader.ReaderViewModel
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsViewModel
+import com.hoshino.wenku8reader.ui.toc.TocViewModel
 
 /**
  * Central factory wiring every ViewModel to the app container. Screen-scoped
@@ -61,6 +63,19 @@ object AppViewModelProvider {
             )
         }
         initializer { ReadingStatsViewModel(application().container.readingStats) }
+        initializer {
+            AuthorBooksViewModel(
+                createSavedStateHandle(),
+                application().container.repository,
+            )
+        }
+        initializer {
+            TocViewModel(
+                createSavedStateHandle(),
+                application().container.repository,
+                application().container.preferences,
+            )
+        }
     }
 
     private fun CreationExtras.application(): Wenku8Application =

@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -78,6 +80,9 @@ import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
 fun DetailScreen(
     onBack: () -> Unit,
     onRead: (Int) -> Unit,
+    onOpenAuthor: (String) -> Unit,
+    onOpenTag: (String) -> Unit,
+    onOpenToc: (Int) -> Unit,
     vm: DetailViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -198,7 +203,12 @@ fun DetailScreen(
                                 Column(Modifier.weight(1f)) {
                                     Text(info.title, style = MaterialTheme.typography.titleLarge)
                                     Spacer(Modifier.height(6.dp))
-                                    InfoLine(stringResource(R.string.detail_author, info.author.ifEmpty { "-" }))
+                                    // 作者：强调色 + 可点击（跳转作者书籍列表）
+                                    AuthorLine(
+                                        author = info.author.ifEmpty { "-" },
+                                        enabled = info.author.isNotBlank(),
+                                        onClick = { onOpenAuthor(info.author) },
+                                    )
                                     InfoLine(stringResource(R.string.detail_category, info.category.ifEmpty { "-" }))
                                     InfoLine(stringResource(R.string.detail_status, info.status.ifEmpty { "-" }))
                                     InfoLine(stringResource(R.string.detail_word_count, info.wordCount.ifEmpty { "-" }))
@@ -214,6 +224,7 @@ fun DetailScreen(
                                             label = tag,
                                             backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
                                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            onClick = { onOpenTag(tag) },
                                         )
                                     }
                                 }
@@ -231,6 +242,16 @@ fun DetailScreen(
                                 if (vm.hasProgress()) R.string.detail_continue_reading
                                 else R.string.detail_start_reading
                             ))
+                        }
+
+                        // 目录按钮（进入独立目录页）
+                        OutlinedButton(
+                            onClick = { onOpenToc(vm.bookId) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.detail_toc))
                         }
 
                         // 离线下载
@@ -325,5 +346,21 @@ private fun InfoLine(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/** 作者行：强调色显示，可点击跳转作者书籍列表。 */
+@Composable
+private fun AuthorLine(author: String, enabled: Boolean, onClick: () -> Unit) {
+    Text(
+        text = stringResource(R.string.detail_author, author),
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (enabled) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .let { if (enabled) it.clickable(onClick = onClick) else it }
+            .padding(vertical = 2.dp),
     )
 }

@@ -49,6 +49,42 @@ class AppPreferences(context: Context) {
             .apply()
     }
 
+    // ------------------------------------------------------------------ //
+    // 章节完成状态（目录页"已读"标记 / 重读重置）
+    // 存储：reading 中 "finished_$bookId" = JSONArray(cid, ...)
+    // ------------------------------------------------------------------ //
+
+    /** 某书所有已完成章节的 cid 集合。 */
+    fun finishedChapters(bookId: Int): Set<String> {
+        val raw = reading.getString("finished_$bookId", null) ?: return emptySet()
+        return runCatching {
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).mapTo(mutableSetOf()) { arr.getString(it) }
+        }.getOrDefault(emptySet())
+    }
+
+    fun isChapterFinished(bookId: Int, cid: String): Boolean =
+        cid in finishedChapters(bookId)
+
+    /** 标记章节完成（幂等）。 */
+    fun markChapterFinished(bookId: Int, cid: String) {
+        val set = finishedChapters(bookId).toMutableSet()
+        if (!set.add(cid)) return
+        saveFinished(bookId, set)
+    }
+
+    /** 重读重置：从完成集合移除该章节（进度回到未完成）。 */
+    fun resetChapterFinished(bookId: Int, cid: String) {
+        val set = finishedChapters(bookId).toMutableSet()
+        if (set.remove(cid)) saveFinished(bookId, set)
+    }
+
+    private fun saveFinished(bookId: Int, set: Set<String>) {
+        val arr = org.json.JSONArray()
+        set.forEach { arr.put(it) }
+        reading.edit().putString("finished_$bookId", arr.toString()).apply()
+    }
+
     var bookcaseSortType: String
         get() = ui.getString("bookcase_sort", "default") ?: "default"
         set(value) {

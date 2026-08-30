@@ -44,6 +44,9 @@ class ReaderViewModel(
 
     val bookId: Int = savedStateHandle["id"] ?: 0
 
+    /** 目录页跳转指定章节时传入；为空则继续上次阅读位置。 */
+    private val startCid: String? = savedStateHandle["cid"]
+
     private val _ui = MutableStateFlow(ReaderUiState())
     val ui: StateFlow<ReaderUiState> = _ui.asStateFlow()
 
@@ -55,6 +58,11 @@ class ReaderViewModel(
     fun setFontFamily(key: String) = readerSettings.setFontFamily(key)
     fun setFontWeight(weight: Int) = readerSettings.setFontWeight(weight)
     fun setLineSpacing(spacing: Float) = readerSettings.setLineSpacing(spacing)
+
+    /** 章节读完（进度 100%）时标记为"已读"（目录页显示灰色 + 已读）。 */
+    fun markChapterFinished(cid: String) {
+        preferences.markChapterFinished(bookId, cid)
+    }
 
     fun setScrollMode(enabled: Boolean) = readerSettings.setScrollMode(enabled)
     fun setVolumeKeyTurnPage(enabled: Boolean) = readerSettings.setVolumeKeyTurnPage(enabled)
@@ -121,7 +129,8 @@ class ReaderViewModel(
                 )
             }
             val resume = preferences.resumeCid(bookId)
-            val target = flat.firstOrNull { it.cid == resume && it.name != "插图" }
+            val target = startCid?.let { c -> flat.firstOrNull { it.cid == c } }
+                ?: flat.firstOrNull { it.cid == resume && it.name != "插图" }
                 ?: flat.firstOrNull { it.name != "插图" }
                 ?: flat.firstOrNull()
             target?.let { loadChapter(it.cid) }
@@ -156,6 +165,10 @@ class ReaderViewModel(
             val idx = _ui.value.flatChapters.indexOfFirst { it.cid == cid }
             if (idx >= 0) {
                 preferences.saveProgressPosition(bookId, idx, _ui.value.flatChapters.size)
+            }
+            // 重读机制：重复阅读已完成的章节 → 立即重置为未完成，直到再次读完才恢复"已读"
+            if (preferences.isChapterFinished(bookId, cid)) {
+                preferences.resetChapterFinished(bookId, cid)
             }
             val display = if (readerSettings.flow.value.traditionalChinese) {
                 withContext(Dispatchers.Default) {

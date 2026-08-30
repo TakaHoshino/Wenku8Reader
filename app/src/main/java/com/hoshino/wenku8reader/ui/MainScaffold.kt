@@ -44,6 +44,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.about.AboutScreen
+import com.hoshino.wenku8reader.ui.author.AuthorBooksScreen
 import com.hoshino.wenku8reader.ui.bookcase.BookcasePage
 import com.hoshino.wenku8reader.ui.components.MainPagerState
 import com.hoshino.wenku8reader.ui.components.rememberMainPagerState
@@ -56,6 +57,7 @@ import com.hoshino.wenku8reader.ui.reader.ReaderScreen
 import com.hoshino.wenku8reader.ui.settings.CustomizationScreen
 import com.hoshino.wenku8reader.ui.settings.SettingsPage
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
+import com.hoshino.wenku8reader.ui.toc.TocScreen
 
 private data class TabDest(
     val labelRes: Int,
@@ -154,17 +156,45 @@ fun MainScaffold() {
                 DownloadsScreen(onBack = { nav.popBackStack() })
             }
             composable(
+                Routes.AUTHOR,
+                arguments = listOf(navArgument("name") { type = NavType.StringType }),
+            ) { entry ->
+                val name = android.net.Uri.decode(entry.arguments?.getString("name") ?: "")
+                AuthorBooksScreen(
+                    authorName = name,
+                    onBack = { nav.popBackStack() },
+                    onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                )
+            }
+            composable(
+                Routes.TOC,
+                arguments = listOf(navArgument("id") { type = NavType.IntType }),
+            ) { entry ->
+                val id = entry.arguments?.getInt("id") ?: 0
+                TocScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenChapter = { bookId, cid -> nav.navigate(Routes.reader(bookId, cid)) },
+                )
+            }
+            composable(
                 Routes.DETAIL,
                 arguments = listOf(navArgument("id") { type = NavType.IntType }),
-            ) {
+            ) { entry ->
+                val id = entry.arguments?.getInt("id") ?: 0
                 DetailScreen(
                     onBack = { nav.popBackStack() },
-                    onRead = { id -> nav.navigate(Routes.reader(id)) },
+                    onRead = { bookId -> nav.navigate(Routes.reader(bookId)) },
+                    onOpenAuthor = { name -> nav.navigate(Routes.author(name)) },
+                    onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
+                    onOpenToc = { bookId -> nav.navigate(Routes.toc(bookId)) },
                 )
             }
             composable(
                 Routes.READER,
-                arguments = listOf(navArgument("id") { type = NavType.IntType }),
+                arguments = listOf(
+                    navArgument("id") { type = NavType.IntType },
+                    navArgument("cid") { type = NavType.StringType; nullable = true; defaultValue = null },
+                ),
             ) {
                 ReaderScreen(onBack = { nav.popBackStack() })
             }

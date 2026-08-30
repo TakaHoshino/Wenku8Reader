@@ -11,10 +11,15 @@ object Routes {
     const val DOWNLOADS = "downloads"
     const val STATS = "stats"
     const val DETAIL = "detail/{id}"
-    const val READER = "reader/{id}"
+    const val READER = "reader/{id}?cid={cid}"
     const val TAG = "tag/{tag}"
+    const val AUTHOR = "author/{name}"
+    const val TOC = "toc/{id}"
 
     fun detail(id: Int) = "detail/$id"
-    fun reader(id: Int) = "reader/$id"
+    fun reader(id: Int, cid: String? = null) =
+        if (cid == null) "reader/$id" else "reader/$id?cid=${Uri.encode(cid)}"
     fun tag(tag: String) = "tag/${Uri.encode(tag)}"
+    fun author(name: String) = "author/${Uri.encode(name)}"
+    fun toc(id: Int) = "toc/$id"
 }

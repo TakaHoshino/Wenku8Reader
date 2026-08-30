@@ -126,7 +126,7 @@ Wenku8Reader/
 - `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。
 
 ### 4.6 本地存储
-- `AppPreferences`（prefs：`account`/`reading`/`ui`）：账号明文凭据；每书 `progress_{bookId}` = 当前 cid；`progress_pos_/progress_total_` = 章节位置；书柜排序。
+- `AppPreferences`（prefs：`account`/`reading`/`ui`）：账号明文凭据；每书 `progress_{bookId}` = 当前 cid；`progress_pos_/progress_total_` = 章节位置；书柜排序；**章节完成状态** `finished_{bookId}` = JSONArray(cid)（目录页"已读"标记 + 重读重置）。
 - `ReaderSettings`（prefs：`settings`）：**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题与阅读器。所有 setter 均先更新内存 StateFlow 再写 SharedPreferences（`emit()`）。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
 - `LocalLibraryStore`（prefs：`library`）：本地书架快照（JSONArray 序列化 `LibraryBook`）。
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
@@ -137,6 +137,12 @@ Wenku8Reader/
 - **存储**：按「书 + 日期」聚合秒数（一书一天一条），SharedPreferences JSON；`persist()` 后 `version` 流 +1，UI 据此重算。
 - **聚合算法**：先按天/按书**分别累计秒数**，再统一 `ceil(秒/60)` 成分钟（不足 1 分钟按 1 分钟）——逐条 ceil 再求和会有累加误差（两条 30s 同日应计 1 分钟而非 2 分钟）；聚合在 `Dispatchers.Default` 执行。
 - **热力图**：GitHub 风格周列矩阵（列=周、行=周一..周日），尺度（本周/本月/本年/全部）由 ViewModel 的 `rangeOf` 定界，`buildWeeks` 铺格子（范围外/未来为 null），`buildLabels` 每月首列标 "M月"；**参考 LNR 优化**：① 汇总卡行（累计/本周/连续阅读天数/日均，日均=总分钟÷活跃天数）；② 色阶改 LNR 风格——工作日绿 `#329c32`、周末蓝 `#29538f`，按 alpha（0x44/0x8C/0xFF）递增区分 1~10/11~30/>30 分钟三档，0 分钟为中性灰；③ 图例（少→多，工作日/周末两行）；④ **点日期出当日详情卡**（当日总分钟 + 当日每本书明细，`dayTotalMinutes` 先累计秒再 ceil 一次避免逐条取整误差）；⑤ 触觉反馈。书籍列表按时长降序（点条目跳详情）。
+
+### 4.8 详情页增强（作者 / Tag / 独立目录页 / 重读重置）
+- **作者**：详情页作者名强调色 + 可点击 → `author/{name}` 路由 → `AuthorBooksScreen`（复用 `repository.search(name, byAuthor=true)` 按作者搜索接口）。
+- **Tag**：`StatusTag` 增加可选 `onClick`；详情页 Tag 可点击 → 复用 `tag/{tag}` 路由（TagBooksScreen）。
+- **目录页**：`toc/{id}` 路由 → `TocScreen`（独立二级页）：分卷可折叠（`AnimatedVisibility`），**默认全部展开、全卷已读自动折叠**，顶栏可全部展开/折叠；已读章节灰色 + "已读"标记，当前章节主题色加粗；点章节 → `reader/{id}?cid=...`（阅读器新增可选 `cid` 起始章节参数）。
+- **章节完成状态**：`AppPreferences.finishedChapters(bookId)`（JSONArray）；阅读器读至章节 100%（页模式最后一页 / 滚动模式到底，`snapshotFlow` 检测）→ `markChapterFinished`；**重读重置**：`loadChapter` 进入已完成章节时立即 `resetChapterFinished`（回到未完成），再次读完才恢复"已读"。仅章节级，不影响书级统计。
 
 ---
 
