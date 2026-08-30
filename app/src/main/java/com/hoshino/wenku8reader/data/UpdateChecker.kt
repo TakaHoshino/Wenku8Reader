@@ -136,12 +136,17 @@ class UpdateChecker {
         runCatching { context.startActivity(intent) }
     }
 
+    /** 解析版本号基础段：剥离 `v` 前缀与 prerelease 后缀（如 v0.3.0-dev.16 → [0,3,0]）。 */
+    private fun parseVersion(v: String): List<Int> =
+        v.removePrefix("v").substringBefore("-").split(".").mapNotNull { it.toIntOrNull() }
+
     /** 语义化比较：release 是否比当前版本新。
-     *  tag 可能带 prerelease 后缀（如 v0.2.0-dev.3），比较时取 `X.Y.Z` 基础段。
+     *  标签与当前版本都可能带 prerelease 后缀（如 v0.3.0-dev.16 / 0.3.0-dev.16），
+     *  比较时取 `X.Y.Z` 基础段。
      *  [allowEqual] = true（测试版通道）：基础版本相等也算有更新（同基础版本的最新测试版）。 */
     fun isNewer(releaseTag: String, currentVersion: String, allowEqual: Boolean = false): Boolean {
-        val a = releaseTag.removePrefix("v").substringBefore("-").split(".").mapNotNull { it.toIntOrNull() }
-        val b = currentVersion.split(".").mapNotNull { it.toIntOrNull() }
+        val a = parseVersion(releaseTag)
+        val b = parseVersion(currentVersion)
         for (i in 0 until maxOf(a.size, b.size)) {
             val x = a.getOrElse(i) { 0 }
             val y = b.getOrElse(i) { 0 }

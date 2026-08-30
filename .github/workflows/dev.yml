@@ -102,8 +102,9 @@ jobs:
 
       - name: 构建 Release APK
         env:
-          # 解析结果为空时回退 1.0.0（防止 versionName 为空导致安装器不显示版本）
-          APP_VERSION_NAME: ${{ steps.version.outputs.version != '' && steps.version.outputs.version || '1.0.0' }}
+          # versionName 带 -dev.<run_number> 后缀，与下面发布的 Prerelease 标签（vX.Y.Z-dev.N）一致，
+          # 避免「装了测试版却显示正式版号 0.3.0」的无效更新混淆；解析结果为空时回退 1.0.0-dev.N
+          APP_VERSION_NAME: ${{ steps.version.outputs.version != '' && format('{0}-dev.{1}', steps.version.outputs.version, github.run_number) || format('1.0.0-dev.{0}', github.run_number) }}
           APP_VERSION_CODE: ${{ steps.vcode.outputs.version_code }}
         run: |
           echo "构建版本 → name=${APP_VERSION_NAME:-<空>} code=${APP_VERSION_CODE:-<空>}"
