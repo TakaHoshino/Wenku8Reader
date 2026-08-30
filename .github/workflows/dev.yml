@@ -1,8 +1,7 @@
 # 开发分支（dev）构建工作流
-# - 触发：push 到 dev 分支，或手动 workflow_dispatch
+# - 触发：push 到 dev 分支，或手动 workflow_dispatch；纯文档/图标改动不触发
 # - 行为：构建 Release APK 并作为 Actions Artifact 上传，不发布 Release
-#   · versionName = 与 master 同一套语义版本系统（解析 Conventional Commits，
-#     复用 ./.github/actions/parse-version，两边一致）
+#   · versionName = 与 master 同一套语义版本系统（内联解析 Conventional Commits）
 #   · versionCode = 时间基准 yyyymmddHH（跨工作流单调递增，必然大于历史已装版本）
 #   · 不打 git tag、不创建 GitHub Release
 # - 产物下载：Actions 页面 → 选中本次运行 → Artifacts（右上角）
@@ -11,6 +10,12 @@ name: Dev Build
 on:
   push:
     branches: [dev]
+    # 纯文档/图标等不影响产物的改动不触发构建
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'app_icon*.png'
   workflow_dispatch:
 
 permissions:

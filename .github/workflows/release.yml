@@ -8,6 +8,12 @@ name: Release
 on:
   push:
     branches: [main, master]
+    # 纯文档/图标等不影响产物的改动不触发工作流（否则即使自我跳过也会空跑一次）
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'app_icon*.png'
   workflow_dispatch:
 
 permissions:
