@@ -23,6 +23,8 @@ class SettingsViewModel(
     fun setAmoled(enabled: Boolean) = readerSettings.setAmoled(enabled)
     fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
     fun setHapticsStrength(value: Int) = readerSettings.setHapticsStrength(value)
+    fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)
+    fun setUpdateSource(source: String) = readerSettings.setUpdateSource(source)
 
     /** 切换主站镜像：清空旧域 Cookie 与 cf_clearance，并用内置账号在新主域重新登录。 */
     fun setPrimaryMirror(url: String) {

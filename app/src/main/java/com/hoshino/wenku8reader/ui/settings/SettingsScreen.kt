@@ -23,11 +23,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -58,6 +62,7 @@ import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.SegmentedSwitchItem
 import com.hoshino.wenku8reader.ui.theme.seedColorOptions
+import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 
 /**
  * 设置页（主 Tab 之一）。参考 SukiSU-Ultra 的 SettingsMaterial：
@@ -77,6 +82,16 @@ fun SettingsPage(
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull()
+    }
+
+    // 更新检查（应用级单例）
+    val updateCenter = remember(context) {
+        (context.applicationContext as com.hoshino.wenku8reader.Wenku8Application)
+            .container.updateCenter
+    }
+    val updateState by updateCenter.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        updateCenter.notices.collect { msg -> android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show() }
     }
 
     // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
@@ -239,6 +254,48 @@ fun SettingsPage(
                 },
             )
 
+            // 更新
+            val updateSourceOptions = listOf(
+                "github" to R.string.settings_update_source_github,
+                "gh_proxy" to R.string.settings_update_source_ghproxy,
+            )
+            SegmentedColumn(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+                title = stringResource(R.string.settings_section_update),
+                items = listOf(
+                    {
+                        SegmentedSwitchItem(
+                            icon = Icons.Filled.SystemUpdate,
+                            title = stringResource(R.string.settings_check_on_startup),
+                            summary = stringResource(R.string.settings_check_on_startup_summary),
+                            checked = rs.checkUpdatesOnStartup,
+                            onCheckedChange = vm::setCheckUpdatesOnStartup,
+                        )
+                    },
+                    {
+                        SegmentedDropdownItem(
+                            icon = Icons.Filled.CloudDownload,
+                            title = stringResource(R.string.settings_update_source),
+                            summary = stringResource(R.string.settings_update_source_summary),
+                            items = updateSourceOptions.map { (_, res) -> stringResource(res) },
+                            selectedIndex = updateSourceOptions.indexOfFirst { it.first == rs.updateSource }
+                                .coerceAtLeast(0),
+                            onItemSelected = { index -> vm.setUpdateSource(updateSourceOptions[index].first) },
+                        )
+                    },
+                    {
+                        SegmentedListItem(
+                            leadingContent = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                            headlineContent = { Text(stringResource(R.string.settings_check_update)) },
+                            supportingContent = {
+                                Text(stringResource(R.string.settings_version, version ?: "-"))
+                            },
+                            onClick = { updateCenter.check(manual = true) },
+                        )
+                    },
+                ),
+            )
+
             // 阅读器自定义
             SegmentedColumn(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
@@ -276,6 +333,15 @@ fun SettingsPage(
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    // 更新对话框（立即更新 / 稍后提醒 / 跳过该版本）
+    UpdateDialogHost(
+        state = updateState,
+        currentVersionName = updateCenter.currentVersionName,
+        onUpdate = updateCenter::download,
+        onLater = updateCenter::later,
+        onSkip = updateCenter::skip,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

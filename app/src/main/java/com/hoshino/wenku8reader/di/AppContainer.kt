@@ -2,6 +2,8 @@ package com.hoshino.wenku8reader.di
 
 import android.content.Context
 import com.hoshino.wenku8reader.data.DownloadEngine
+import com.hoshino.wenku8reader.data.UpdateCenter
+import com.hoshino.wenku8reader.data.UpdateChecker
 import com.hoshino.wenku8reader.data.Wenku8Client
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.DefaultAccount
@@ -33,6 +35,10 @@ class AppContainer(context: Context) {
 
     /** 阅读时长聚合存储（按书+日期，热力图数据源）。 */
     val readingStats: ReadingStatsStore = ReadingStatsStore(context)
+
+    /** 更新检查与安装（GitHub Releases 源）。 */
+    val updateChecker: UpdateChecker = UpdateChecker()
+    val updateCenter: UpdateCenter = UpdateCenter(context, updateChecker, preferences, readerSettings)
 
     val downloadEngine: DownloadEngine = DownloadEngine(context, client)
 }

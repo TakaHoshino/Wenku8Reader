@@ -6,6 +6,7 @@
     <string name="action_refresh">刷新</string>
     <string name="action_retry">重试</string>
     <string name="action_back">返回</string>
+    <string name="action_close">关闭</string>
     <string name="action_search">搜索</string>
     <string name="action_account">账号</string>
     <string name="action_downloads">下载管理</string>
@@ -31,6 +32,27 @@
     <string name="stats_legend_weekend">周末</string>
     <string name="stats_day_total">当日共 %1$d 分钟</string>
     <string name="stats_no_records">当日暂无阅读记录</string>
+
+    <!-- 更新检查 -->
+    <string name="settings_section_update">更新</string>
+    <string name="settings_check_on_startup">启动时检查更新</string>
+    <string name="settings_check_on_startup_summary">启动应用时自动检查 GitHub Releases 新版本</string>
+    <string name="settings_update_source">更新源</string>
+    <string name="settings_update_source_summary">下载更新包的网络来源</string>
+    <string name="settings_update_source_github">GitHub 直连</string>
+    <string name="settings_update_source_ghproxy">镜像源（gh-proxy）</string>
+    <string name="settings_check_update">检查更新</string>
+    <string name="update_title">发现新版本 v%1$s</string>
+    <string name="update_message">检测到新版本 v%1$s（当前 v%2$s），是否立即更新？</string>
+    <string name="update_now">立即更新</string>
+    <string name="update_later">稍后提醒</string>
+    <string name="update_skip">跳过该版本</string>
+    <string name="update_downloading">正在下载 %1$d%%…</string>
+    <string name="update_download_failed">下载失败：%1$s</string>
+    <string name="update_up_to_date">已是最新版本</string>
+    <string name="update_none">暂无可用更新</string>
+    <string name="update_skipped">已跳过 v%1$s，如需更新请到设置中关闭跳过</string>
+    <string name="update_check_failed">检查更新失败：%1$s</string>
 
     <!-- 底部导航 -->
     <string name="tab_explore">探索</string>

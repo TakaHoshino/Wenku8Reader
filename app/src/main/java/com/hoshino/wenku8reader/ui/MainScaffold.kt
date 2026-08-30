@@ -34,8 +34,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -43,6 +45,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.Wenku8Application
 import com.hoshino.wenku8reader.ui.about.AboutScreen
 import com.hoshino.wenku8reader.ui.author.AuthorBooksScreen
 import com.hoshino.wenku8reader.ui.bookcase.BookcasePage
@@ -58,6 +61,8 @@ import com.hoshino.wenku8reader.ui.settings.CustomizationScreen
 import com.hoshino.wenku8reader.ui.settings.SettingsPage
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 import com.hoshino.wenku8reader.ui.toc.TocScreen
+import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
+import kotlinx.coroutines.delay
 
 private data class TabDest(
     val labelRes: Int,
@@ -90,6 +95,25 @@ fun MainScaffold() {
     LaunchedEffect(pagerState.currentPage) {
         mainPagerState.syncPage()
     }
+
+    // 启动时按设置检查更新（静默，有新版本才弹窗）
+    val appContext = LocalContext.current.applicationContext as Wenku8Application
+    val container = appContext.container
+    val settings by container.readerSettings.flow.collectAsStateWithLifecycle()
+    val updateState by container.updateCenter.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        delay(4000) // 等首屏稳定后再检查，避免与启动竞争
+        if (settings.checkUpdatesOnStartup) {
+            container.updateCenter.check(manual = false)
+        }
+    }
+    UpdateDialogHost(
+        state = updateState,
+        currentVersionName = container.updateCenter.currentVersionName,
+        onUpdate = container.updateCenter::download,
+        onLater = container.updateCenter::later,
+        onSkip = container.updateCenter::skip,
+    )
 
     BackHandler(enabled = isMain && pagerState.currentPage != 0) {
         mainPagerState.animateToPage(0)

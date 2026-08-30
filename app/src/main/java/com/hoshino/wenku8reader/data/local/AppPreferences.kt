@@ -96,4 +96,12 @@ class AppPreferences(context: Context) {
         set(value) {
             ui.edit().putBoolean("bookcase_sort_reversed", value).apply()
         }
+
+    // ---- 更新检查 ----
+    /** 用户选择「跳过该版本」的 release tag（如 v0.2.0）；启动/手动检查时不再提示。 */
+    var skippedUpdateVersion: String?
+        get() = ui.getString("skipped_update_version", null)
+        set(value) {
+            ui.edit().putString("skipped_update_version", value).apply()
+        }
 }

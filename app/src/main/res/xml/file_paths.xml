@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 更新安装包缓存目录（UpdateCenter 下载到 cacheDir/updates/） -->
+    <cache-path name="updates" path="updates/" />
+</paths>
