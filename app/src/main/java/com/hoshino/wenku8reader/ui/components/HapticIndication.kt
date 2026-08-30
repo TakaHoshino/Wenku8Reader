@@ -1,6 +1,5 @@
 package com.hoshino.wenku8reader.ui.components
 
-import android.content.Context
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.compose.foundation.Indication
@@ -91,9 +90,8 @@ fun HapticScope(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val vibrator = remember(context) {
-        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-    }
+    // 类型化 getSystemService(Class)（API 23+），避免 Context.VIBRATOR_SERVICE 弃用
+    val vibrator = remember(context) { context.getSystemService(Vibrator::class.java) }
     val delegate = LocalIndication.current
     val enabledState = rememberUpdatedState(enabled)
     val strengthState = rememberUpdatedState(strength)

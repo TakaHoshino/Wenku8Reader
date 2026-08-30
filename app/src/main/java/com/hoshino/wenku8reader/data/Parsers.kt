@@ -1,5 +1,6 @@
 package com.hoshino.wenku8reader.data
 
+import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 /** HTML parsing helpers ported from the Python tool (wenku8/jieqi CMS). */
@@ -7,6 +8,12 @@ object Parsers {
 
     private val WHITESPACE = Regex("\\s+")
     private val ANY_TAG = Regex("<[^>]+>")
+
+    /**
+     * Java `Matcher.group(n)` 是平台类型，Kotlin 推断为 `String?`；
+     * 统一非空提取（null → ""），消除 `matcher(CharSequence)` / `clean(String)` 处的空值告警。
+     */
+    private fun Matcher.groupOrEmpty(n: Int): String = group(n) ?: ""
 
     private val SEARCH_CAPTION = Pattern.compile(
         "<caption>.*?结果.*?</caption>\\s*<tr>(.*?)</table>", Pattern.DOTALL
@@ -83,11 +90,11 @@ object Parsers {
         val seen = mutableSetOf<Int>()
         val m = SEARCH_CAPTION.matcher(html)
         if (!m.find()) return results
-        val scope = m.group(1)
+        val scope = m.groupOrEmpty(1)
         val bm = SEARCH_BOOK_LINK.matcher(scope)
         while (bm.find()) {
-            val id = bm.group(1).toIntOrNull() ?: continue
-            val name = clean(bm.group(2))
+            val id = bm.groupOrEmpty(1).toIntOrNull() ?: continue
+            val name = clean(bm.groupOrEmpty(2))
             if (name.isEmpty() || name == "我要阅读") continue
             if (!seen.add(id)) continue
             results.add(SearchResult(id, name))
@@ -100,7 +107,7 @@ object Parsers {
         var title = ""
         val tm = BOOK_TITLE.matcher(html)
         if (tm.find()) {
-            val parts = clean(tm.group(1)).split(" - ")
+            val parts = clean(tm.groupOrEmpty(1)).split(" - ")
             if (parts.isNotEmpty()) title = parts[0]
         }
 
@@ -111,9 +118,9 @@ object Parsers {
         var wordCount = ""
         val rm = TABLE_ROW.matcher(html)
         while (rm.find()) {
-            val cm = TABLE_CELL.matcher(rm.group(1))
+            val cm = TABLE_CELL.matcher(rm.groupOrEmpty(1))
             while (cm.find()) {
-                val cell = clean(stripTags(cm.group(1)))
+                val cell = clean(stripTags(cm.groupOrEmpty(1)))
                 when {
                     cell.startsWith("文库分类") && category.isEmpty() ->
                         category = cell.substringAfter("：", "")
@@ -132,7 +139,7 @@ object Parsers {
         var desc = ""
         val dm = BOOK_DESC.matcher(html)
         if (dm.find()) {
-            val parts = dm.group(1).split(DESC_SPLIT)
+            val parts = dm.groupOrEmpty(1).split(DESC_SPLIT)
             val paras = parts.mapNotNull { p ->
                 val t = clean(stripTags(p))
                 t.ifEmpty { null }
@@ -148,17 +155,17 @@ object Parsers {
         val tm2 = BOOK_TAGS.matcher(html)
         if (tm2.find()) {
             // 捕获组可能含 <a> 等标签（如 <a href="tags.php?t=穿越">穿越</a>），先剥离再按空白拆分
-            ANY_TAG.replace(tm2.group(1), " ").split(WHITESPACE)
+            ANY_TAG.replace(tm2.groupOrEmpty(1), " ").split(WHITESPACE)
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }.forEach { tags.add(it) }
         }
 
         var gid: Int? = null
         val gm = GID_FROM_INDEX.matcher(html)
-        if (gm.find()) gid = gm.group(1).toIntOrNull()
+        if (gm.find()) gid = gm.groupOrEmpty(1).toIntOrNull()
         if (gid == null) {
             val g2 = GID_FROM_CHAPTER.matcher(html)
-            if (g2.find()) gid = g2.group(1).toIntOrNull()
+            if (g2.find()) gid = g2.groupOrEmpty(1).toIntOrNull()
         }
 
         return BookInfo(id, title, author, category, status, lastUpdate,
@@ -174,7 +181,7 @@ object Parsers {
         for (part in parts) {
             val tm = HOME_BLOCKTITLE.matcher(part)
             if (!tm.find()) continue
-            val title = clean(stripTags(tm.group(1)))
+            val title = clean(stripTags(tm.groupOrEmpty(1)))
                 .substringBefore('(')
                 .substringBefore('（')
                 .trim()
@@ -184,13 +191,13 @@ object Parsers {
             val seen = mutableSetOf<Int>()
             val bm = HOME_BOOK_LINK.matcher(part)
             while (bm.find()) {
-                val whole = bm.group(0)
-                val id = bm.group(1).toIntOrNull() ?: continue
+                val whole = bm.groupOrEmpty(0)
+                val id = bm.groupOrEmpty(1).toIntOrNull() ?: continue
                 if (!seen.add(id)) continue
-                val titleAttr = LINK_TITLE.matcher(whole).let { if (it.find()) it.group(1) else null }
+                val titleAttr = LINK_TITLE.matcher(whole).let { if (it.find()) it.groupOrEmpty(1) else null }
                 val name = if (titleAttr != null) clean(titleAttr)
-                else clean(stripTags(bm.group(2)))
-                val cover = IMG_SRC.matcher(whole).let { if (it.find()) it.group(1) else null }
+                else clean(stripTags(bm.groupOrEmpty(2)))
+                val cover = IMG_SRC.matcher(whole).let { if (it.find()) it.groupOrEmpty(1) else null }
                 if (name.isNotEmpty()) books.add(HomeBook(id, name, cover))
             }
             if (books.isEmpty()) continue
@@ -205,7 +212,7 @@ object Parsers {
         val seen = LinkedHashSet<String>()
         val m = TAG_LINK.matcher(html)
         while (m.find()) {
-            val name = clean(stripTags(m.group(1)))
+            val name = clean(stripTags(m.groupOrEmpty(1)))
                 .substringBefore('(')
                 .substringBefore('（')
                 .trim()
@@ -219,14 +226,14 @@ object Parsers {
         val map = LinkedHashMap<Int, HomeBook>()
         val bm = HOME_BOOK_LINK.matcher(html)
         while (bm.find()) {
-            val whole = bm.group(0)
-            val id = bm.group(1).toIntOrNull() ?: continue
+            val whole = bm.groupOrEmpty(0)
+            val id = bm.groupOrEmpty(1).toIntOrNull() ?: continue
             val titleAttr = LINK_TITLE.matcher(whole)
-                .let { if (it.find()) it.group(1) else null }
+                .let { if (it.find()) it.groupOrEmpty(1) else null }
             val cover = IMG_SRC.matcher(whole)
-                .let { if (it.find()) it.group(1) else null }
+                .let { if (it.find()) it.groupOrEmpty(1) else null }
             val name = if (titleAttr != null) clean(titleAttr)
-            else clean(stripTags(bm.group(2)))
+            else clean(stripTags(bm.groupOrEmpty(2)))
             if (name.isEmpty()) continue
             val existing = map[id]
             if (existing == null) {
@@ -255,8 +262,8 @@ object Parsers {
 
         val m = TOC_VOLUME_OR_CHAPTER.matcher(html)
         while (m.find()) {
-            val cls = m.group(1)
-            val content = m.group(2)
+            val cls = m.groupOrEmpty(1)
+            val content = m.groupOrEmpty(2)
             if (cls == "vcss") {
                 flush()
                 currentName = clean(stripTags(content))
@@ -265,8 +272,8 @@ object Parsers {
             }
             val am = TOC_CHAPTER_LINK.matcher(content)
             if (am.find()) {
-                val cid = CHAPTER_ID.find(am.group(1))?.groupValues?.get(1) ?: continue
-                currentChapters.add(Chapter(cid, clean(am.group(2))))
+                val cid = CHAPTER_ID.find(am.groupOrEmpty(1))?.groupValues?.get(1) ?: continue
+                currentChapters.add(Chapter(cid, clean(am.groupOrEmpty(2))))
             }
         }
         flush()
@@ -277,7 +284,7 @@ object Parsers {
     fun parseChapter(html: String): ChapterContent {
         var title = ""
         val tm = CHAPTER_TITLE.matcher(html)
-        if (tm.find()) title = clean(tm.group(1))
+        if (tm.find()) title = clean(tm.groupOrEmpty(1))
 
         // Locate the #content region by index. This is robust against nested
         // <div> elements (e.g. <div class="divimage">…</div> for illustrations).
@@ -298,7 +305,7 @@ object Parsers {
         // illustration image urls
         val images = mutableListOf<String>()
         val im = CHAPTER_IMG.matcher(raw)
-        while (im.find()) images.add(im.group(1))
+        while (im.find()) images.add(im.groupOrEmpty(1))
 
         var body = raw.replace(CONTENT_WATERMARK, "")
         body = body.replace(LINE_BREAK, "\n")
@@ -321,8 +328,8 @@ object Parsers {
         val rows = LinkedHashMap<String, Row>()
         val m = BOOKCASE_LINK.matcher(html)
         while (m.find()) {
-            val href = m.group(1)
-            val text = clean(m.group(2))
+            val href = m.groupOrEmpty(1)
+            val text = clean(m.groupOrEmpty(2))
             val qs = href.substringAfter("?", "")
             val params = qs.split("&")
                 .mapNotNull { kv ->

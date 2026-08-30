@@ -8,10 +8,8 @@
     <string name="action_back">返回</string>
     <string name="action_close">關閉</string>
     <string name="action_search">搜尋</string>
-    <string name="action_account">帳號</string>
     <string name="action_downloads">下載管理</string>
     <string name="action_stats">閱讀統計</string>
-    <string name="error_unknown">操作失敗，請重試</string>
 
     <!-- 閱讀熱力圖 -->
     <string name="stats_title">閱讀熱力圖</string>
@@ -29,7 +27,6 @@
     <string name="stats_legend_less">少</string>
     <string name="stats_legend_more">多</string>
     <string name="stats_legend_weekday">平日</string>
-    <string name="stats_legend_weekend">週末</string>
     <string name="stats_day_total">當日共 %1$d 分鐘</string>
     <string name="stats_no_records">當日尚無閱讀記錄</string>
 
@@ -55,7 +52,6 @@
     <string name="update_download_failed">下載失敗：%1$s</string>
     <string name="update_up_to_date">已是最新版本</string>
     <string name="update_none">暫無可用更新</string>
-    <string name="update_skipped">已略過 v%1$s，如需更新請到設定中關閉略過</string>
     <string name="update_check_failed">檢查更新失敗：%1$s</string>
 
     <!-- 底部導覽 -->
@@ -67,7 +63,6 @@
     <string name="search_press_to_search">輸入書名或作者後點選搜尋</string>
     <string name="explore_tab_recommend">推薦</string>
     <string name="explore_tab_tags">標籤</string>
-    <string name="explore_tags">分類</string>
     <string name="explore_tag_all">查看全部</string>
     <string name="explore_tags_empty">暫無分類</string>
     <string name="tag_books_load_more">載入更多（已顯示 %1$d 本）</string>
@@ -117,7 +112,6 @@
     <string name="detail_category">分類：%1$s</string>
     <string name="detail_status">狀態：%1$s</string>
     <string name="detail_word_count">字數：%1$s</string>
-    <string name="detail_tags">標籤：%1$s</string>
     <string name="detail_start_reading">開始閱讀</string>
     <string name="detail_continue_reading">繼續閱讀</string>
     <string name="detail_offline_download">離線下載</string>
@@ -149,7 +143,6 @@
     <string name="reader_no_content">（本章無內文）</string>
     <string name="reader_illustration">插圖</string>
     <string name="reader_toc_empty">目錄為空</string>
-    <string name="reader_font_size_sp">%1$dsp</string>
     <string name="reader_settings">閱讀器設定</string>
     <string name="reader_turn_mode">翻頁方式</string>
     <string name="reader_mode_page">側滑翻頁</string>
@@ -174,12 +167,9 @@
     <string name="reader_margin_right">右邊距</string>
 
     <!-- 錯誤提示 -->
-    <string name="error_home_load">載入失敗：%1$s</string>
     <string name="error_book_info">書籍資訊載入失敗，請重試</string>
     <string name="error_chapter_index">章節目錄載入失敗，請重試</string>
     <string name="error_chapter_load">章節載入失敗，請重試</string>
-    <string name="error_rate_limited">網站限流（HTTP %1$d），請稍後重試</string>
-    <string name="error_cancelled">已取消</string>
 
     <!-- 設定 -->
     <string name="settings_section_account">帳號</string>
@@ -188,7 +178,6 @@
     <string name="settings_section_appearance">外觀</string>
     <string name="settings_section_reading">閱讀設定</string>
     <string name="settings_section_about">關於</string>
-    <string name="settings_default_font_size">預設字號</string>
     <string name="settings_version">版本 %1$s</string>
     <string name="settings_dark_mode_summary">切換應用程式的深色 / 淺色主題</string>
     <string name="settings_amoled">純黑模式</string>
@@ -219,7 +208,6 @@
     <string name="settings_dark_dark">深色</string>
     <string name="settings_dynamic_color">動態取色</string>
     <string name="settings_manual_color">手動取色</string>
-    <string name="settings_reader_background">閱讀器背景</string>
     <string name="settings_background_color">背景顏色</string>
     <string name="settings_background_image">背景圖片</string>
     <string name="settings_pick_image">選擇圖片</string>
