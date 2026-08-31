@@ -3,7 +3,14 @@
 
 > 一款面向轻小说爱好者的 Android 阅读客户端，数据来自 wenku8.net 轻小说文库。
 
-
+<p align="center">
+  <a href="https://qm.qq.com/q/PeFKgwevG6">
+    <img src="https://img.shields.io/badge/QQ%E4%BA%A4%E6%B5%81%E7%BE%A4-1106956143-12B7F5?style=flat-square&logo=tencentqq&logoColor=white" alt="QQ交流群" />
+  </a>
+  <a href="https://www.ifdian.net/a/wenku8reader">
+    <img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E7%BB%99%E4%BD%9C%E8%80%85%E4%B9%B0%E6%9D%AF%E5%92%96%E5%95%A1-946CE6?style=flat-square&logo=buymeacoffee&logoColor=white" alt="爱发电" />
+  </a>
+</p>
 
 
 ## 简介
