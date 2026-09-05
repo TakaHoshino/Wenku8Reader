@@ -4,7 +4,7 @@ import androidx.compose.runtime.Immutable
 
 /** Search result from /modules/article/search.php */
 @Immutable
-data class SearchResult(val id: Int, val name: String)
+data class SearchResult(val id: Int, val name: String, val coverUrl: String? = null)
 
 /** Book detail parsed from /book/{id}.htm */
 @Immutable

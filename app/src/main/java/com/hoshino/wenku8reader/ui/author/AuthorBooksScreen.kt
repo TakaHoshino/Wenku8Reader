@@ -37,6 +37,7 @@ import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
+import com.hoshino.wenku8reader.ui.common.CoverImage
 
 /** 作者书籍列表页：展示该作者全部作品，点击进入书籍详情。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -94,6 +95,15 @@ fun AuthorBooksScreen(
                             {
                                 SegmentedListItem(
                                     headlineContent = { Text(book.name, maxLines = 1) },
+                                    leadingContent = {
+                                        CoverImage(
+                                            url = book.coverUrl,
+                                            width = 48.dp,
+                                            height = 68.dp,
+                                            contentDescription = book.name,
+                                            cornerRadius = 8.dp,
+                                        )
+                                    },
                                     onClick = { onOpenBook(book.id) },
                                 )
                             }

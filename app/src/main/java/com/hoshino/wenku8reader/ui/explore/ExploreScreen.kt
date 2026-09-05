@@ -314,6 +314,15 @@ private fun SearchBody(ui: ExploreUiState, onOpenBook: (Int) -> Unit) {
                                 supportingContent = {
                                     Text(stringResource(R.string.search_result_id, r.id))
                                 },
+                                leadingContent = {
+                                    CoverImage(
+                                        url = r.coverUrl,
+                                        width = 48.dp,
+                                        height = 68.dp,
+                                        contentDescription = r.name,
+                                        cornerRadius = 8.dp,
+                                    )
+                                },
                                 onClick = { onOpenBook(r.id) },
                             )
                         }
