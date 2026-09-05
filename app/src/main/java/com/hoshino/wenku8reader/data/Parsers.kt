@@ -43,7 +43,8 @@ object Parsers {
     private val COVER_URL_IN_RESULT = Pattern.compile(
         "src=\"([^\"]+/image/\\d+/\\d+/\\d+s\\.jpg)\""
     )
-    private val IMAGE_GID_PATTERN = Pattern.compile("/image/(\\d+)/\\d+/\\d+s\\.jpg")
+    /** 从封面 URL 提取 bookId（路径第二段）：/image/{gid}/{bookId}/{bookId}s.jpg */
+    private val IMAGE_BOOKID_PATTERN = Pattern.compile("/image/\\d+/(\\d+)/\\d+s\\.jpg")
     private const val IMG_DOMAIN = "https://img.wenku8.com"
 
     private val HOME_BLOCKTITLE = Pattern.compile(
@@ -100,17 +101,17 @@ object Parsers {
         if (!m.find()) return results
         val scope = m.groupOrEmpty(1)
         // 提取封面：从每个搜索结果条目里匹配 <img src="...ids.jpg">（s.jpg 封面图），
-        // 以 gid 为 key 建立映射，附带到 SearchResult.coverUrl。
+        // 以 bookId（URL 路径第二段）为 key 建立映射——与下方 SEARCH_BOOK_LINK 的 bookId 对齐。
         val covers = mutableMapOf<Int, String>()
         val im = COVER_URL_IN_RESULT.matcher(scope)
         while (im.find()) {
             val url = im.groupOrEmpty(1)
             // 补全为绝对 URL：相对路径 /image/... → https://img.wenku8.com/image/...
             val full = if (url.startsWith("http")) url else IMG_DOMAIN + url
-            val gidMatcher = IMAGE_GID_PATTERN.matcher(full)
-            if (!gidMatcher.find()) continue
-            val gid = gidMatcher.groupOrEmpty(1).toIntOrNull() ?: continue
-            covers[gid] = full
+            val bookIdMatcher = IMAGE_BOOKID_PATTERN.matcher(full)
+            if (!bookIdMatcher.find()) continue
+            val bookId = bookIdMatcher.groupOrEmpty(1).toIntOrNull() ?: continue
+            covers[bookId] = full
         }
         val bm = SEARCH_BOOK_LINK.matcher(scope)
         while (bm.find()) {
