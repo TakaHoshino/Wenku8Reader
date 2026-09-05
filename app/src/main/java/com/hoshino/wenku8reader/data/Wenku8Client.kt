@@ -427,7 +427,8 @@ class Wenku8Client(
         if (m != null) {
             val id = m.groupValues[1].toIntOrNull() ?: return@withContext emptyList()
             val info = Parsers.parseBookInfo(html, id)
-            return@withContext listOf(SearchResult(id, info.title))
+            // 单结果重定向：从详情页带上封面 URL（与列表页一致展示封面）
+            return@withContext listOf(SearchResult(id, info.title, info.coverUrl))
         }
         Parsers.parseSearchResults(html)
     }
