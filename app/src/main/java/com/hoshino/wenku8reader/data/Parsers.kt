@@ -37,12 +37,14 @@ object Parsers {
     )
     private val GID_FROM_INDEX = Pattern.compile("href=\"/novel/(\\d+)/\\d+/index\\.htm\"")
     private val GID_FROM_CHAPTER = Pattern.compile("href=\"/novel/(\\d+)/\\d+/\\d+\\.htm\"")
-    /** 搜索结果内提取封面：匹配 src=".../image/{gid}/{id}/{id}s.jpg"，
-     *  group(1) = 完整 src（绝对或相对路径），group(2) = gid。
-     *  兼容 src="http://img.wenku8.com/image/4/4340/4340s.jpg" 与 src="/image/4/4340/4340s.jpg" */
-    private val COVER_IN_RESULT = Pattern.compile(
-        "src=\"([^\"]*?/image/(\\d+)/\\d+/\\d+s\\.jpg)\""
+        /** 搜索结果封面 URL：匹配 src="完整URL"，支持 http:// 和 https:// 开头。
+     * 解析后若 URL 缺少域名（仅 /image/...），补全为 https://img.wenku8.com/ 前缀。
+     */
+    private val COVER_URL_IN_RESULT = Pattern.compile(
+        "src=\"([^\"]+/image/\\d+/\\d+/\\d+s\\.jpg)\""
     )
+    private val IMAGE_GID_PATTERN = Pattern.compile("/image/(\\d+)/\\d+/\\d+s\\.jpg")
+    private const val IMG_DOMAIN = "https://img.wenku8.com"
 
     private val HOME_BLOCKTITLE = Pattern.compile(
         "<div class=\"blocktitle\"[^>]*>(.*?)</div>", Pattern.DOTALL
@@ -100,10 +102,15 @@ object Parsers {
         // 提取封面：从每个搜索结果条目里匹配 <img src="...ids.jpg">（s.jpg 封面图），
         // 以 gid 为 key 建立映射，附带到 SearchResult.coverUrl。
         val covers = mutableMapOf<Int, String>()
-        val im = COVER_IN_RESULT.matcher(scope)
+        val im = COVER_URL_IN_RESULT.matcher(scope)
         while (im.find()) {
-            val gid = im.groupOrEmpty(2).toIntOrNull() ?: continue
-            covers[gid] = im.groupOrEmpty(1)
+            val url = im.groupOrEmpty(1)
+            // 补全为绝对 URL：相对路径 /image/... → https://img.wenku8.com/image/...
+            val full = if (url.startsWith("http")) url else IMG_DOMAIN + url
+            val gidMatcher = IMAGE_GID_PATTERN.matcher(full)
+            if (!gidMatcher.find()) continue
+            val gid = gidMatcher.groupOrEmpty(1).toIntOrNull() ?: continue
+            covers[gid] = full
         }
         val bm = SEARCH_BOOK_LINK.matcher(scope)
         while (bm.find()) {
