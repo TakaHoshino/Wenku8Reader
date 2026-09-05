@@ -176,6 +176,7 @@
     <string name="settings_builtin_account">内置账户</string>
     <string name="settings_builtin_account_hint">使用内置账户访问内容</string>
     <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_general">通用</string>
     <string name="settings_section_reading">阅读设置</string>
     <string name="settings_section_about">关于</string>
     <string name="settings_version">版本 %1$s</string>
@@ -195,6 +196,22 @@
     <string name="settings_section_network">网络</string>
     <string name="settings_primary_mirror">主站域名</string>
     <string name="settings_primary_mirror_summary">被 Cloudflare 拦截时可切换镜像，其余域名自动兜底</string>
+
+    <!-- 设置 · 缓存管理 -->
+    <string name="settings_cache">缓存管理</string>
+    <string name="settings_cache_size">缓存大小</string>
+    <string name="settings_cache_size_summary">共 %1$s（上限 %2$d MB）</string>
+    <string name="settings_cache_home">首页缓存</string>
+    <string name="settings_cache_book">书籍缓存</string>
+    <string name="settings_cache_chapter">章节缓存</string>
+    <string name="settings_cache_tag">标签缓存</string>
+    <string name="settings_cache_other">其他缓存</string>
+    <string name="settings_cache_legacy">旧版缓存</string>
+    <string name="settings_cache_clear">清理</string>
+    <string name="settings_cache_clear_all">清理全部缓存</string>
+    <string name="settings_cache_clear_all_desc">同时清空内存缓存</string>
+    <string name="settings_cache_max">最大缓存</string>
+    <string name="settings_cache_max_summary">磁盘缓存大小上限，超出后自动清理最旧内容</string>
 
     <!-- 设置 · 自定义 -->
     <string name="settings_custom">自定义</string>

@@ -25,6 +25,7 @@ class AppContainer(context: Context) {
         context,
         { readerSettings.flow.value.primaryMirror },
         { DefaultAccount.USERNAME to DefaultAccount.PASSWORD },
+        { readerSettings.flow.value.cacheMaxMb },
     )
 
     val repository: Wenku8Repository = Wenku8Repository(client)

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
@@ -40,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -56,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
@@ -78,6 +81,7 @@ fun SettingsPage(
     vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val rs by vm.ui.collectAsStateWithLifecycle()
+    val cacheSizes by vm.cacheSizes.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val version = remember {
         runCatching {
@@ -94,6 +98,8 @@ fun SettingsPage(
     LaunchedEffect(Unit) {
         updateCenter.notices.collect { msg -> android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show() }
     }
+    // 进入设置页时刷新缓存大小统计
+    LaunchedEffect(Unit) { vm.refreshCacheSizes() }
 
     // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
@@ -186,6 +192,39 @@ fun SettingsPage(
                             onCheckedChange = vm::setDynamicColor,
                         )
                     },
+                ),
+            )
+            if (!rs.dynamicColor) {
+                SegmentedColumn(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+                    title = stringResource(R.string.settings_manual_color),
+                    items = listOf {
+                        SegmentedListItem(
+                            headlineContent = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    seedColorOptions.forEach { color ->
+                                        ColorDot(
+                                            color = Color(color),
+                                            selected = rs.seedColor == color,
+                                            onClick = { vm.setSeedColor(color) },
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    },
+                )
+            }
+
+            // 通用（触感反馈 + 缓存管理）
+            SegmentedColumn(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+                title = stringResource(R.string.settings_section_general),
+                items = listOf(
                     {
                         SegmentedSwitchItem(
                             icon = Icons.Filled.Vibration,
@@ -231,31 +270,7 @@ fun SettingsPage(
                     },
                 )
             }
-            if (!rs.dynamicColor) {
-                SegmentedColumn(
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-                    title = stringResource(R.string.settings_manual_color),
-                    items = listOf {
-                        SegmentedListItem(
-                            headlineContent = {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    seedColorOptions.forEach { color ->
-                                        ColorDot(
-                                            color = Color(color),
-                                            selected = rs.seedColor == color,
-                                            onClick = { vm.setSeedColor(color) },
-                                        )
-                                    }
-                                }
-                            },
-                        )
-                    },
-                )
-            }
+            CacheManagementSection(vm = vm, rs = rs)
 
             // 网络（主站镜像切换）
             val mirrorOptions = listOf(
@@ -403,6 +418,80 @@ private fun TopBar(
         ),
         windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
     )
+}
+
+/** 缓存管理分组：总大小 + 分类明细（可单项清理）+ 清理全部 + 上限设置。 */
+@Composable
+private fun CacheManagementSection(
+    vm: SettingsViewModel,
+    rs: ReaderSettingsState,
+) {
+    val cacheSizes by vm.cacheSizes.collectAsStateWithLifecycle()
+    val total = cacheSizes.values.sum()
+    // 分类顺序固定展示；缺失/为 0 的类别显示 0B
+    val categories = listOf(
+        "home" to R.string.settings_cache_home,
+        "book" to R.string.settings_cache_book,
+        "chapter" to R.string.settings_cache_chapter,
+        "tag" to R.string.settings_cache_tag,
+        "other" to R.string.settings_cache_other,
+        "legacy" to R.string.settings_cache_legacy,
+    )
+    // 上限选项：默认 30 含在其中，其余按常用档位
+    val maxOptions = listOf(30, 50, 100, 200, 500)
+    SegmentedColumn(
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+        title = stringResource(R.string.settings_cache),
+        items = buildList {
+            add {
+                SegmentedListItem(
+                    leadingContent = { Icon(Icons.Filled.Storage, contentDescription = null) },
+                    headlineContent = { Text(stringResource(R.string.settings_cache_size)) },
+                    supportingContent = {
+                        Text(stringResource(R.string.settings_cache_size_summary, formatSize(total), rs.cacheMaxMb))
+                    },
+                )
+            }
+            categories.forEach { (cat, labelRes) ->
+                add {
+                    SegmentedListItem(
+                        headlineContent = { Text(stringResource(labelRes)) },
+                        supportingContent = { Text(formatSize(cacheSizes[cat] ?: 0L)) },
+                        trailingContent = {
+                            TextButton(onClick = { vm.clearCache(cat) }) {
+                                Text(stringResource(R.string.settings_cache_clear))
+                            }
+                        },
+                    )
+                }
+            }
+            add {
+                SegmentedListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_cache_clear_all)) },
+                    supportingContent = { Text(stringResource(R.string.settings_cache_clear_all_desc)) },
+                    onClick = { vm.clearCache(null) },
+                )
+            }
+            add {
+                SegmentedDropdownItem(
+                    icon = Icons.Filled.Storage,
+                    title = stringResource(R.string.settings_cache_max),
+                    summary = stringResource(R.string.settings_cache_max_summary),
+                    items = maxOptions.map { "$it MB" },
+                    selectedIndex = maxOptions.indexOf(rs.cacheMaxMb).coerceAtLeast(0),
+                    onItemSelected = { index -> vm.setCacheMaxMb(maxOptions[index]) },
+                )
+            }
+        },
+    )
+}
+
+/** 人类可读的文件大小：B / KB / MB / GB。 */
+private fun formatSize(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 -> "%.1f GB".format(bytes / (1024f * 1024 * 1024))
+    bytes >= 1024L * 1024 -> "%.1f MB".format(bytes / (1024f * 1024))
+    bytes >= 1024L -> "%.0f KB".format(bytes / 1024f)
+    else -> "$bytes B"
 }
 
 @Composable

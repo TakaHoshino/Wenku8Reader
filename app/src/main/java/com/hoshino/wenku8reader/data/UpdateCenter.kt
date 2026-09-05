@@ -91,10 +91,20 @@ class UpdateCenter(
                         release == null ->
                             if (manual) _notices.tryEmit(context.getString(R.string.update_none))
                         else -> {
-                            // 更新判定：优先按 versionCode（严格单调，无版本号后缀解析歧义）；
+                            // 更新判定：优先按 versionCode（时间基准 yyyymmddHH，严格单调）。
                             // 旧发布无 versionCode 字段时回退 versionName 比较。
+                            // 边界：同一小时内构建的多个 dev 包 versionCode 相同（小时粒度），
+                            // 此时按 tag 的 `-dev.N` 序号兜底比较（dev.28 > dev.27 → 视为更新）。
                             val newer = if (release.versionCode != null && currentVersionCode > 0) {
-                                release.versionCode > currentVersionCode
+                                when {
+                                    release.versionCode > currentVersionCode -> true
+                                    release.versionCode < currentVersionCode -> false
+                                    else -> {
+                                        val rSeq = devSeq(release.versionName)
+                                        val cSeq = devSeq(currentVersionName)
+                                        rSeq != null && cSeq != null && rSeq > cSeq
+                                    }
+                                }
                             } else {
                                 checker.isNewer(release.versionName, currentVersionName, allowEqual = !stable)
                             }
@@ -158,5 +168,11 @@ class UpdateCenter(
         val tag = _state.value.latest?.tag
         if (tag != null) preferences.skippedUpdateVersion = tag
         _state.update { it.copy(latest = null, downloadError = null) }
+    }
+
+    /** 解析 versionName 末尾的 `-dev.N` 序号（如 `0.4.1-dev.28` → 28）；非 dev 构建返回 null。 */
+    private fun devSeq(versionName: String): Int? {
+        val m = Regex("-dev\\.(\\d+)$").find(versionName) ?: return null
+        return m.groupValues[1].toIntOrNull()
     }
 }

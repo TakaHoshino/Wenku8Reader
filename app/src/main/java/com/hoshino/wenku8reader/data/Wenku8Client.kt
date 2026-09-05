@@ -61,11 +61,13 @@ class Wenku8Client(
     private val primaryMirrorProvider: () -> String = { DEFAULT_BASE },
     /** 内置账号凭据（供需登录接口 ensureLoggedIn 静默登录用） */
     private val defaultCredentials: () -> Pair<String, String>? = { null },
+    /** 磁盘缓存上限（MB，设置页可调）；每次写入前同步，动态生效 */
+    private val cacheMaxMbProvider: () -> Int = { 30 },
 ) {
 
     private val appContext = context.applicationContext
     private val cookieStore = CookieStore(appContext)
-    private val htmlCache = HtmlDiskCache(appContext)
+    private val htmlCache = HtmlDiskCache(appContext, cacheMaxMbProvider().toLong() * 1024 * 1024)
     private val okHttp = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
@@ -285,19 +287,41 @@ class Wenku8Client(
     /**
      * 带本地磁盘缓存的抓取：命中且未过期直接返回（免二次加载）。
      * 仅缓存「非 CF 挑战页/非登录页」的有效内容，避免缓存到垃圾页。
+     * [category] 用于按内容类型分组管理（home/book/chapter/tag）。
      */
     private suspend fun getHtmlCached(
         url: String,
         ttlMs: Long,
+        category: String = "other",
         retries: Int = 3,
         ua: String = UA,
     ): String {
         htmlCache.get(url, ttlMs)?.let { return it }
         val html = getHtml(url, retries, ua)
         if (html.isNotBlank() && !isChallenge(html) && !html.contains("login.php")) {
-            htmlCache.put(url, html)
+            // 写入前同步用户配置的缓存上限（动态生效）
+            htmlCache.setMaxBytes(cacheMaxMbProvider().toLong() * 1024 * 1024)
+            htmlCache.put(url, html, category)
         }
         return html
+    }
+
+    // ---- 缓存管理（设置页入口）----
+
+    /** 各类型磁盘缓存大小（字节）。 */
+    fun cacheStats(): Map<String, Long> = htmlCache.sizeByCategory()
+
+    /** 磁盘缓存总大小（字节）。 */
+    fun cacheTotalSize(): Long = htmlCache.totalSize()
+
+    /** 清理磁盘缓存（[category] = null 清全部）；清全部时同时清空内存缓存。 */
+    fun clearCache(category: String? = null) {
+        htmlCache.clear(category)
+        if (category == null) {
+            infoCache.clear()
+            tocCache.clear()
+            chapterCache.clear()
+        }
     }
 
     private fun gbkForm(pairs: List<Pair<String, String>>): RequestBody {
@@ -412,7 +436,7 @@ class Wenku8Client(
         infoCache.get("info_$id") ?: run {
             // 网页优先（含磁盘缓存 + cf_clearance 快路径）；失败/空则走官方 App API（免 CF）
             val web = runCatching {
-                Parsers.parseBookInfo(getHtmlCached("$base/book/$id.htm", TTL_BOOK), id)
+                Parsers.parseBookInfo(getHtmlCached("$base/book/$id.htm", TTL_BOOK, "book"), id)
             }.getOrNull()
             val info = web?.takeIf { it.title.isNotBlank() }
                 ?: appApiBookInfo(id)
@@ -426,7 +450,7 @@ class Wenku8Client(
         tocCache.get("toc_$bookId") ?: run {
             val web = runCatching {
                 Parsers.parseChapterIndex(
-                    getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK)
+                    getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK, "book")
                 )
             }.getOrNull()
             val volumes = web?.takeIf { it.isNotEmpty() }
@@ -442,7 +466,7 @@ class Wenku8Client(
             chapterCache.get("chap_${bookId}_$cid") ?: run {
                 val web = runCatching {
                     Parsers.parseChapter(
-                        getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER)
+                        getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER, "chapter")
                     )
                 }.getOrNull()
                 val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
@@ -534,6 +558,7 @@ class Wenku8Client(
             urlFor = { h -> "$h/index.php" },
             parse = { html -> Parsers.parseHomepage(html).takeIf { it.isNotEmpty() } },
             ttlMs = TTL_HOME,
+            category = "home",
         )?.let { return@withContext it }
 
         val sections = fetchWithBypass(
@@ -561,6 +586,7 @@ class Wenku8Client(
             urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1$pageParam" },
             parse = { html -> Parsers.parseBookList(html).takeIf { it.isNotEmpty() } },
             ttlMs = TTL_TAG_BOOKS,
+            category = "tag",
         ) ?: fetchWithBypass(
             urlFor = { h -> "$h/modules/article/tags.php?t=$query&v=1$pageParam" },
             parse = { html -> Parsers.parseBookList(html).takeIf { it.isNotEmpty() } },
@@ -588,11 +614,12 @@ class Wenku8Client(
         urlFor: (String) -> String,
         parse: (String) -> T?,
         ttlMs: Long = 0L,
+        category: String = "other",
     ): T? {
         for (h in mirrors) {
             val ua = uaFor(urlFor(h))
             val parsed = runCatching {
-                parse(getHtmlCached(urlFor(h), ttlMs, retries = 1, ua = ua))
+                parse(getHtmlCached(urlFor(h), ttlMs, category, retries = 1, ua = ua))
             }.getOrNull()
             if (parsed != null) return parsed
         }
