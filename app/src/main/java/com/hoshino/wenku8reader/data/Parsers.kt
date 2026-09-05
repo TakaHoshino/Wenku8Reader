@@ -37,6 +37,10 @@ object Parsers {
     )
     private val GID_FROM_INDEX = Pattern.compile("href=\"/novel/(\\d+)/\\d+/index\\.htm\"")
     private val GID_FROM_CHAPTER = Pattern.compile("href=\"/novel/(\\d+)/\\d+/\\d+\\.htm\"")
+    /** 搜索结果内提取封面：匹配 gid + s.jpg 封面图 URL（如 /image/4/4340/4340s.jpg） */
+    private val COVER_IN_RESULT = Pattern.compile(
+        "/image/(\\d+)/\\d+/\\d+s\\.jpg"
+    )
 
     private val HOME_BLOCKTITLE = Pattern.compile(
         "<div class=\"blocktitle\"[^>]*>(.*?)</div>", Pattern.DOTALL
@@ -91,13 +95,21 @@ object Parsers {
         val m = SEARCH_CAPTION.matcher(html)
         if (!m.find()) return results
         val scope = m.groupOrEmpty(1)
+        // 提取封面：从每个搜索结果条目里匹配 <img src="...ids.jpg">（s.jpg 封面图），
+        // 以 gid 为 key 建立映射，附带到 SearchResult.coverUrl。
+        val covers = mutableMapOf<Int, String>()
+        val im = COVER_IN_RESULT.matcher(scope)
+        while (im.find()) {
+            val gid = im.groupOrEmpty(1).toIntOrNull() ?: continue
+            covers[gid] = im.groupOrEmpty(2)
+        }
         val bm = SEARCH_BOOK_LINK.matcher(scope)
         while (bm.find()) {
             val id = bm.groupOrEmpty(1).toIntOrNull() ?: continue
             val name = clean(bm.groupOrEmpty(2))
             if (name.isEmpty() || name == "我要阅读") continue
             if (!seen.add(id)) continue
-            results.add(SearchResult(id, name))
+            results.add(SearchResult(id, name, covers[id]))
         }
         return results
     }
