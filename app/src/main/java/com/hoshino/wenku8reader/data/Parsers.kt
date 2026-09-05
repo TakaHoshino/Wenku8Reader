@@ -37,9 +37,11 @@ object Parsers {
     )
     private val GID_FROM_INDEX = Pattern.compile("href=\"/novel/(\\d+)/\\d+/index\\.htm\"")
     private val GID_FROM_CHAPTER = Pattern.compile("href=\"/novel/(\\d+)/\\d+/\\d+\\.htm\"")
-    /** 搜索结果内提取封面：匹配 gid + s.jpg 封面图 URL（如 /image/4/4340/4340s.jpg） */
+    /** 搜索结果内提取封面：匹配 src=".../image/{gid}/{id}/{id}s.jpg"，
+     *  group(1) = 完整 src（绝对或相对路径），group(2) = gid。
+     *  兼容 src="http://img.wenku8.com/image/4/4340/4340s.jpg" 与 src="/image/4/4340/4340s.jpg" */
     private val COVER_IN_RESULT = Pattern.compile(
-        "/image/(\\d+)/\\d+/\\d+s\\.jpg"
+        "src=\"([^\"]*?/image/(\\d+)/\\d+/\\d+s\\.jpg)\""
     )
 
     private val HOME_BLOCKTITLE = Pattern.compile(
@@ -100,8 +102,8 @@ object Parsers {
         val covers = mutableMapOf<Int, String>()
         val im = COVER_IN_RESULT.matcher(scope)
         while (im.find()) {
-            val gid = im.groupOrEmpty(1).toIntOrNull() ?: continue
-            covers[gid] = im.groupOrEmpty(2)
+            val gid = im.groupOrEmpty(2).toIntOrNull() ?: continue
+            covers[gid] = im.groupOrEmpty(1)
         }
         val bm = SEARCH_BOOK_LINK.matcher(scope)
         while (bm.find()) {
