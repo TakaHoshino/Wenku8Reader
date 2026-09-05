@@ -7,7 +7,10 @@ import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(
@@ -16,6 +19,28 @@ class SettingsViewModel(
 ) : ViewModel() {
 
     val ui: StateFlow<ReaderSettingsState> = readerSettings.flow
+
+    // ---- 缓存管理 ----
+
+    private val _cacheSizes = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val cacheSizes: StateFlow<Map<String, Long>> = _cacheSizes.asStateFlow()
+
+    /** 刷新磁盘缓存分类大小（IO 线程读取，避免主线程遍历文件）。 */
+    fun refreshCacheSizes() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _cacheSizes.value = client.cacheStats()
+        }
+    }
+
+    /** 清理指定类型缓存（null = 全部）；完成后刷新大小统计。 */
+    fun clearCache(category: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            client.clearCache(category)
+            _cacheSizes.value = client.cacheStats()
+        }
+    }
+
+    fun setCacheMaxMb(mb: Int) = readerSettings.setCacheMaxMb(mb)
 
     fun setDarkMode(mode: String) = readerSettings.setDarkMode(mode)
     fun setDynamicColor(enabled: Boolean) = readerSettings.setDynamicColor(enabled)

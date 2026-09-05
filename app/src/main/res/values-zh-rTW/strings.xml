@@ -176,6 +176,7 @@
     <string name="settings_builtin_account">內建帳戶</string>
     <string name="settings_builtin_account_hint">使用內建帳戶存取內容</string>
     <string name="settings_section_appearance">外觀</string>
+    <string name="settings_section_general">一般</string>
     <string name="settings_section_reading">閱讀設定</string>
     <string name="settings_section_about">關於</string>
     <string name="settings_version">版本 %1$s</string>
@@ -190,6 +191,22 @@
     <string name="settings_section_network">網路</string>
     <string name="settings_primary_mirror">主站網域</string>
     <string name="settings_primary_mirror_summary">被 Cloudflare 阻擋時可切換鏡像，其餘網域自動備援</string>
+
+    <!-- 設定 · 快取管理 -->
+    <string name="settings_cache">快取管理</string>
+    <string name="settings_cache_size">快取大小</string>
+    <string name="settings_cache_size_summary">共 %1$s（上限 %2$d MB）</string>
+    <string name="settings_cache_home">首頁快取</string>
+    <string name="settings_cache_book">書籍快取</string>
+    <string name="settings_cache_chapter">章節快取</string>
+    <string name="settings_cache_tag">標籤快取</string>
+    <string name="settings_cache_other">其他快取</string>
+    <string name="settings_cache_legacy">舊版快取</string>
+    <string name="settings_cache_clear">清理</string>
+    <string name="settings_cache_clear_all">清理全部快取</string>
+    <string name="settings_cache_clear_all_desc">同時清空記憶體快取</string>
+    <string name="settings_cache_max">最大快取</string>
+    <string name="settings_cache_max_summary">磁碟快取大小上限，超出後自動清理最舊內容</string>
 
     <!-- 語言 -->
     <string name="settings_language">語言</string>
