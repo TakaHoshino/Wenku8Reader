@@ -54,6 +54,7 @@ import com.hoshino.wenku8reader.ui.components.rememberMainPagerState
 import com.hoshino.wenku8reader.ui.detail.DetailScreen
 import com.hoshino.wenku8reader.ui.downloads.DownloadsScreen
 import com.hoshino.wenku8reader.ui.explore.ExplorePage
+import com.hoshino.wenku8reader.ui.explore.SearchScreen
 import com.hoshino.wenku8reader.ui.explore.TagBooksScreen
 import com.hoshino.wenku8reader.ui.navigation.Routes
 import com.hoshino.wenku8reader.ui.reader.ReaderScreen
@@ -149,9 +150,36 @@ fun MainScaffold() {
                     onOpenDownloads = {
                         nav.navigate(Routes.DOWNLOADS) { launchSingleTop = true }
                     },
+                    onSearch = { keyword, byAuthor ->
+                        nav.navigate(Routes.search(keyword, byAuthor))
+                    },
                     onOpenStats = { nav.navigate(Routes.STATS) { launchSingleTop = true } },
                     onOpenCustom = { nav.navigate(Routes.SETTINGS_CUSTOM) },
                     onOpenAbout = { nav.navigate(Routes.ABOUT) },
+                )
+            }
+            composable(
+                Routes.SEARCH,
+                arguments = listOf(
+                    navArgument("keyword") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
+                    navArgument("byAuthor") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                ),
+            ) { entry ->
+                val keyword = android.net.Uri.decode(
+                    entry.arguments?.getString("keyword") ?: "",
+                )
+                val byAuthor = entry.arguments?.getBoolean("byAuthor") ?: false
+                SearchScreen(
+                    initialKeyword = keyword,
+                    initialByAuthor = byAuthor,
+                    onBack = { nav.popBackStack() },
+                    onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
                 )
             }
             composable(Routes.STATS) {
@@ -233,6 +261,7 @@ private fun MainPagerScreen(
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
     onOpenDownloads: () -> Unit,
+    onSearch: (String, Boolean) -> Unit,
     onOpenStats: () -> Unit,
     onOpenCustom: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -246,6 +275,7 @@ private fun MainPagerScreen(
                 onOpenBook = onOpenBook,
                 onOpenTag = onOpenTag,
                 onOpenDownloads = onOpenDownloads,
+                onSearch = onSearch,
             )
             1 -> BookcasePage(
                 onOpenBook = onOpenBook,

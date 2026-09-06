@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
@@ -87,11 +88,12 @@ fun ExplorePage(
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
     onOpenDownloads: () -> Unit,
+    onSearch: (String, Boolean) -> Unit,
     vm: ExploreViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     var keyword by rememberSaveable { mutableStateOf("") }
-    var byAuthor by remember { mutableStateOf(false) }
+    var byAuthor by rememberSaveable { mutableStateOf(false) }
     var mode by rememberSaveable { mutableStateOf(ExploreMode.RECOMMEND) }
 
     LaunchedEffect(Unit) { vm.loadHomeOnce() }
@@ -128,7 +130,9 @@ fun ExplorePage(
                 byAuthor = byAuthor,
                 onKeywordChange = { keyword = it },
                 onByAuthorChange = { byAuthor = it },
-                onSearch = { vm.search(keyword, byAuthor) },
+                onSearch = {
+                    if (keyword.isNotBlank()) onSearch(keyword, byAuthor)
+                },
             )
             ExploreTabRow(
                 mode = mode,
@@ -140,13 +144,11 @@ fun ExplorePage(
                     .fillMaxWidth(),
             ) {
                 when (mode) {
-                    ExploreMode.RECOMMEND -> {
-                        if (keyword.isNotBlank()) {
-                            SearchBody(ui, onOpenBook)
-                        } else {
-                            HomeBody(ui, onOpenBook, onRefresh = vm::refreshHome)
-                        }
-                    }
+                    ExploreMode.RECOMMEND -> HomeBody(
+                        ui,
+                        onOpenBook,
+                        onRefresh = vm::refreshHome,
+                    )
                     ExploreMode.TAGS -> TagsBody(
                         ui,
                         onOpenBook,
@@ -198,7 +200,9 @@ private fun SearchRow(
                         .padding(horizontal = 10.dp, vertical = 12.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                    textStyle = MaterialTheme.typography.bodyLarge,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
                     decorationBox = { inner ->
                         if (keyword.isEmpty()) {
                             Text(
@@ -288,22 +292,90 @@ private fun TagsBody(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchBody(ui: ExploreUiState, onOpenBook: (Int) -> Unit) {
+fun SearchScreen(
+    initialKeyword: String,
+    initialByAuthor: Boolean,
+    onBack: () -> Unit,
+    onOpenBook: (Int) -> Unit,
+    vm: ExploreViewModel = viewModel(factory = AppViewModelProvider.Factory),
+) {
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    var keyword by rememberSaveable(initialKeyword) { mutableStateOf(initialKeyword) }
+    var byAuthor by rememberSaveable(initialByAuthor) { mutableStateOf(initialByAuthor) }
+
+    LaunchedEffect(initialKeyword, initialByAuthor) {
+        if (initialKeyword.isNotBlank()) vm.search(initialKeyword, initialByAuthor)
+    }
+
+    ExpressiveScaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.action_search)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+                windowInsets = WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                ),
+            )
+        },
+        contentWindowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+        ),
+    ) { inner ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(inner),
+        ) {
+            SearchRow(
+                keyword = keyword,
+                byAuthor = byAuthor,
+                onKeywordChange = { keyword = it },
+                onByAuthorChange = { byAuthor = it },
+                onSearch = {
+                    if (keyword.isNotBlank()) vm.search(keyword, byAuthor)
+                },
+            )
+            SearchBody(
+                ui = ui,
+                onOpenBook = onOpenBook,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchBody(
+    ui: ExploreUiState,
+    onOpenBook: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     when {
         ui.searching -> Box(
-            Modifier.fillMaxSize(),
+            modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) { CircularProgressIndicator() }
 
         ui.searchError != null -> Text(
             ui.searchError?.asString(context) ?: "",
-            modifier = Modifier.padding(16.dp),
+            modifier = modifier.padding(16.dp),
             color = MaterialTheme.colorScheme.error,
         )
 
-        ui.results.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+        ui.results.isNotEmpty() -> LazyColumn(modifier.fillMaxSize()) {
             item {
                 SegmentedColumn(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
@@ -333,7 +405,7 @@ private fun SearchBody(ui: ExploreUiState, onOpenBook: (Int) -> Unit) {
         }
 
         else -> Box(
-            Modifier.fillMaxSize(),
+            modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             Text(

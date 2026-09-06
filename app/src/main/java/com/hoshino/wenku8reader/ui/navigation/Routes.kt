@@ -15,6 +15,7 @@ object Routes {
     const val TAG = "tag/{tag}"
     const val AUTHOR = "author/{name}"
     const val TOC = "toc/{id}"
+    const val SEARCH = "search?keyword={keyword}&byAuthor={byAuthor}"
 
     fun detail(id: Int) = "detail/$id"
     fun reader(id: Int, cid: String? = null) =
@@ -22,4 +23,6 @@ object Routes {
     fun tag(tag: String) = "tag/${Uri.encode(tag)}"
     fun author(name: String) = "author/${Uri.encode(name)}"
     fun toc(id: Int) = "toc/$id"
+    fun search(keyword: String, byAuthor: Boolean) =
+        "search?keyword=${Uri.encode(keyword)}&byAuthor=$byAuthor"
 }
