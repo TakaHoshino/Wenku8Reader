@@ -12,6 +12,7 @@
   </a>
 </p>
 
+![Visitors](https://count.moeyy.cn/@Wenku8Reader?name=Wenku8Reader&theme=moebooru&padding=7&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
 
 ## 简介
 
@@ -59,14 +60,9 @@
 
 ## 支持与交流
 
-<p align="center">
-  <a href="https://qm.qq.com/q/PeFKgwevG6">
-    <img src="https://img.shields.io/badge/QQ%E4%BA%A4%E6%B5%81%E7%BE%A4-%E7%82%B9%E5%87%BB%E5%8A%A0%E5%85%A5-12B7F5?style=flat-square&logo=tencentqq&logoColor=white" alt="QQ交流群" />
-  </a>
-  <a href="https://www.ifdian.net/a/wenku8reader">
-    <img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E7%BB%99%E4%BD%9C%E8%80%85%E4%B9%B0%E6%9D%AF%E5%92%96%E5%95%A1-946CE6?style=flat-square&logo=buymeacoffee&logoColor=white" alt="爱发电" />
-  </a>
-</p>
+- [**QQ交流群**](https://qm.qq.com/q/PeFKgwevG6) —— 加入 QQ 交流群进行实时讨论。
+- [**给作者买杯咖啡**](https://www.ifdian.net/a/wenku8reader) —— 你的支持是我最大的更新动力
+- 如果你喜欢该项目，欢迎向他人分享！
 
 ## 鸣谢
 
