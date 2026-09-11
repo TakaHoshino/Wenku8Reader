@@ -37,15 +37,35 @@ object Parsers {
     )
     private val GID_FROM_INDEX = Pattern.compile("href=\"/novel/(\\d+)/\\d+/index\\.htm\"")
     private val GID_FROM_CHAPTER = Pattern.compile("href=\"/novel/(\\d+)/\\d+/\\d+\\.htm\"")
-        /** 搜索结果封面 URL：匹配 src="完整URL"，支持 http:// 和 https:// 开头。
-     * 解析后若 URL 缺少域名（仅 /image/...），补全为 https://img.wenku8.com/ 前缀。
+    /**
+     * 搜索结果封面 URL：`src="…/image/{gid}/{bookId}/{bookId}s.jpg"`。
+     * 组 1 = 封面地址，组 2 = bookId——一次匹配同时拿到两者，
+     * 不再对同一个 URL 二次跑正则（原 `COVER_URL_IN_RESULT` + `IMAGE_BOOKID_PATTERN`）。
+     * `/image/` 前用 `*` 而非 `+`：站点也会给纯相对路径（`/image/1/2/2s.jpg`），
+     * 这种写法才能匹配到，再由 [absolutizeCover] 补全域名。
      */
     private val COVER_URL_IN_RESULT = Pattern.compile(
-        "src=\"([^\"]+/image/\\d+/\\d+/\\d+s\\.jpg)\""
+        "src=\"([^\"]*/image/\\d+/(\\d+)/\\d+s\\.jpg)\""
     )
-    /** 从封面 URL 提取 bookId（路径第二段）：/image/{gid}/{bookId}/{bookId}s.jpg */
-    private val IMAGE_BOOKID_PATTERN = Pattern.compile("/image/\\d+/(\\d+)/\\d+s\\.jpg")
     private const val IMG_DOMAIN = "https://img.wenku8.com"
+
+    /**
+     * 把封面地址补全为绝对 URL。站点在详情页给绝对地址，在标签/书单页给相对路径
+     * （`/image/…`），协议相对地址 `//img.…` 也可能出现；不补全的话图片按页面地址解析会 404。
+     * `parseSearchResults` 与 `parseBookList` 共用同一实现，避免两处行为漂移。
+     */
+    private fun absolutizeCover(url: String): String {
+        val u = url.trim()
+        return when {
+            u.isEmpty() -> u
+            // 协议相对地址：补上 https:，不能直接拼域名（否则会变成 https://img…//img…）
+            u.startsWith("//") -> "https:$u"
+            u.startsWith("/") -> IMG_DOMAIN + u
+            // 已带 scheme（http(s)、data: 等）的地址原样保留，不擅自改域名
+            u.contains(":") -> u
+            else -> "$IMG_DOMAIN/$u"
+        }
+    }
 
     private val HOME_BLOCKTITLE = Pattern.compile(
         "<div class=\"blocktitle\"[^>]*>(.*?)</div>", Pattern.DOTALL
@@ -71,13 +91,11 @@ object Parsers {
     )
     private val LINE_BREAK = Regex("<br\\s*/?>")
     private val PARAGRAPH_END = Regex("</p>", RegexOption.IGNORE_CASE)
+    /** 折叠正文里的连续空行。提到文件级常量，避免 parseChapter 每章都新建一次正则。 */
+    private val MULTI_NEWLINE = Regex("\n{3,}")
 
     private val BOOKCASE_LINK = Pattern.compile(
         "<a[^>]+href=\"([^\"]*readbookcase\\.php[^\"]*)\"[^>]*>([^<]+?)</a>", Pattern.DOTALL
-    )
-
-    private val TAG_LINK = Pattern.compile(
-        "<a[^>]+href=['\"][^'\"]*tags\\.php\\?t=[^'\"]*['\"][^>]*>(.*?)</a>", Pattern.DOTALL
     )
 
     private fun unescape(s: String): String = s
@@ -93,6 +111,25 @@ object Parsers {
 
     private fun stripTags(s: String): String = s.replace(ANY_TAG, "")
 
+    /**
+     * 从已命中的"书籍链接" matcher 中提取一条 [HomeBook]：
+     * 书名优先取 `<a title="…">`（站点该属性是完整书名，链接文本可能被截断），
+     * 缺失时回退到链接标签文本；封面取链接内第一个 `<img src>` 并补全域名。
+     * `parseSearchResults` 与 `parseBookList` 共用，避免两套逐行重复的逻辑各自漂移。
+     */
+    private fun homeBookAt(matcher: Matcher): HomeBook? {
+        val whole = matcher.groupOrEmpty(0)
+        val id = matcher.groupOrEmpty(1).toIntOrNull() ?: return null
+        val titleAttr = LINK_TITLE.matcher(whole)
+            .let { if (it.find()) it.groupOrEmpty(1) else null }
+        val name = if (titleAttr != null) clean(titleAttr)
+        else clean(stripTags(matcher.groupOrEmpty(2)))
+        if (name.isEmpty()) return null
+        val cover = IMG_SRC.matcher(whole)
+            .let { if (it.find()) absolutizeCover(it.groupOrEmpty(1)) else null }
+        return HomeBook(id, name, cover)
+    }
+
     // ------------------------------------------------------------------ //
     fun parseSearchResults(html: String): List<SearchResult> {
         val results = mutableListOf<SearchResult>()
@@ -100,26 +137,20 @@ object Parsers {
         val m = SEARCH_CAPTION.matcher(html)
         if (!m.find()) return results
         val scope = m.groupOrEmpty(1)
-        // 提取封面：从每个搜索结果条目里匹配 <img src="...ids.jpg">（s.jpg 封面图），
-        // 以 bookId（URL 路径第二段）为 key 建立映射——与下方 SEARCH_BOOK_LINK 的 bookId 对齐。
+        // 提取封面：一次正则同时得到封面地址与 bookId（URL 路径第二段），
+        // 以 bookId 为 key 建立映射——与下方 SEARCH_BOOK_LINK 的 bookId 对齐。
         val covers = mutableMapOf<Int, String>()
         val im = COVER_URL_IN_RESULT.matcher(scope)
         while (im.find()) {
-            val url = im.groupOrEmpty(1)
-            // 补全为绝对 URL：相对路径 /image/... → https://img.wenku8.com/image/...
-            val full = if (url.startsWith("http")) url else IMG_DOMAIN + url
-            val bookIdMatcher = IMAGE_BOOKID_PATTERN.matcher(full)
-            if (!bookIdMatcher.find()) continue
-            val bookId = bookIdMatcher.groupOrEmpty(1).toIntOrNull() ?: continue
-            covers[bookId] = full
+            val bookId = im.groupOrEmpty(2).toIntOrNull() ?: continue
+            covers[bookId] = absolutizeCover(im.groupOrEmpty(1))
         }
         val bm = SEARCH_BOOK_LINK.matcher(scope)
         while (bm.find()) {
-            val id = bm.groupOrEmpty(1).toIntOrNull() ?: continue
-            val name = clean(bm.groupOrEmpty(2))
-            if (name.isEmpty() || name == "我要阅读") continue
-            if (!seen.add(id)) continue
-            results.add(SearchResult(id, name, covers[id]))
+            val book = homeBookAt(bm) ?: continue
+            if (book.name == "我要阅读") continue
+            if (!seen.add(book.id)) continue
+            results.add(SearchResult(book.id, book.name, covers[book.id]))
         }
         return results
     }
@@ -229,39 +260,20 @@ object Parsers {
     }
 
     // ------------------------------------------------------------------ //
-    /** Parse the wenku8 tags page into a list of tag names. */
-    fun parseTags(html: String): List<String> {
-        val seen = LinkedHashSet<String>()
-        val m = TAG_LINK.matcher(html)
-        while (m.find()) {
-            val name = clean(stripTags(m.groupOrEmpty(1)))
-                .substringBefore('(')
-                .substringBefore('（')
-                .trim()
-            if (name.isNotEmpty()) seen.add(name)
-        }
-        return seen.toList()
-    }
-
     /** Parse a book result page (search / tag / list) into books with covers. */
     fun parseBookList(html: String): List<HomeBook> {
         val map = LinkedHashMap<Int, HomeBook>()
         val bm = HOME_BOOK_LINK.matcher(html)
         while (bm.find()) {
-            val whole = bm.groupOrEmpty(0)
-            val id = bm.groupOrEmpty(1).toIntOrNull() ?: continue
-            val titleAttr = LINK_TITLE.matcher(whole)
-                .let { if (it.find()) it.groupOrEmpty(1) else null }
-            val cover = IMG_SRC.matcher(whole)
-                .let { if (it.find()) it.groupOrEmpty(1) else null }
-            val name = if (titleAttr != null) clean(titleAttr)
-            else clean(stripTags(bm.groupOrEmpty(2)))
-            if (name.isEmpty()) continue
-            val existing = map[id]
+            // 书名/封面解析与 parseSearchResults 完全共用 homeBookAt，
+            // 封面同样经 absolutizeCover 补全域名（原实现只在搜索结果里补全，
+            // 标签书单的相对路径 /image/… 会直接交给 Coil 导致加载失败）。
+            val book = homeBookAt(bm) ?: continue
+            val existing = map[book.id]
             if (existing == null) {
-                map[id] = HomeBook(id, name, cover)
-            } else if (existing.coverUrl == null && cover != null) {
-                map[id] = existing.copy(coverUrl = cover)
+                map[book.id] = book
+            } else if (existing.coverUrl == null && book.coverUrl != null) {
+                map[book.id] = existing.copy(coverUrl = book.coverUrl)
             }
         }
         return map.values.toList()
@@ -335,7 +347,7 @@ object Parsers {
         var text = body.replace(ANY_TAG, "")
         text = unescape(text).replace("\u3000", "  ")
         val lines = text.split("\n").map { it.trim() }
-        text = lines.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
+        text = lines.joinToString("\n").replace(MULTI_NEWLINE, "\n\n").trim()
         return ChapterContent(title, text, images)
     }
 
@@ -374,7 +386,6 @@ object Parsers {
     /** Split a full-novel TXT into chapters using the chapter index. */
     fun splitFullTxt(txt: String, volumes: List<Volume>): List<ChapterContent> {
         val text = txt.replace("\r\n", "\n").replace("\r", "\n")
-        val lines = text.split("\n")
 
         val chapters = mutableListOf<Pair<String, String>>() // header -> name
         for (v in volumes) {
@@ -383,16 +394,42 @@ object Parsers {
             }
         }
 
-        val headerMap = mutableMapOf<String, MutableList<Int>>()
-        lines.forEachIndexed { i, line ->
-            val k = line.trim()
-            if (k.isNotEmpty()) headerMap.getOrPut(k) { mutableListOf() }.add(i)
+        // 只有目录里真实出现过的章节头文本才需要记录行号。原实现给全文每一行都建
+        // "文本 → 行号列表" 的全量 map（几十万条装箱 Integer），这是 10MB 级 TXT 的主要开销；
+        // 按章节头过滤后条目数等于章节数，正文行的去重不再需要全量索引。
+        val expectedHeaders = HashSet<String>(chapters.size * 2)
+        chapters.forEach { expectedHeaders.add(it.first) }
+
+        // 一次遍历同时完成两件事（原实现要对每行 trim 两次）：
+        //   1) headerMap：行号 → 去空白后的行文本，正文切片阶段直接按行号取，无需二次 trim；
+        //      空白行为 null，等价于原实现里"trim 后为空的行跳过"。
+        //      用"按行号索引的 ArrayList"承载（而不是 HashMap<Int, String>）：语义同为
+        //      O(1) 随机访问，但不为每个行号装箱 Integer、不建哈希节点——实测后者在 MB 级
+        //      文本上反而比旧实现更慢、分配更多，与本次优化的目的相悖。
+        //   2) headerLines：章节头文本 → 出现过的行号（升序），用于按游标顺序定位章节起点。
+        val headerMap = ArrayList<String?>()
+        val headerLines = HashMap<String, MutableList<Int>>()
+        // 按 '\n' 手工扫描而不是 lineSequence()/split()：lineSequence 的分隔符序列要为每条
+        // 行边界建对象，实测比旧实现还慢；手工扫描只做一次 substring + 一次 trim，
+        // 且无需再保留整份"原始行数组"，峰值内存更低。
+        var lineStart = 0
+        while (true) {
+            val nl = text.indexOf('\n', lineStart)
+            val end = if (nl < 0) text.length else nl
+            val line = text.substring(lineStart, end).trim()
+            headerMap.add(line.ifEmpty { null })
+            if (line.isNotEmpty() && line in expectedHeaders) {
+                headerLines.getOrPut(line) { mutableListOf() }.add(headerMap.size - 1)
+            }
+            if (nl < 0) break
+            lineStart = nl + 1
         }
+        val totalLines = headerMap.size
 
         val positions = IntArray(chapters.size) { -1 }
         var cursor = -1
         for ((i, pair) in chapters.withIndex()) {
-            val list = headerMap[pair.first] ?: emptyList()
+            val list = headerLines[pair.first] ?: emptyList()
             var found = -1
             for (idx in list) if (idx > cursor) { found = idx; break }
             positions[i] = found
@@ -406,7 +443,6 @@ object Parsers {
             if (positions[i] >= 0) last = positions[i]
         }
 
-        val n = lines.size
         val result = mutableListOf<ChapterContent>()
         for ((i, pair) in chapters.withIndex()) {
             val start = positions[i]
@@ -414,11 +450,11 @@ object Parsers {
                 result.add(ChapterContent(pair.second, ""))
                 continue
             }
-            val end = if (next[i] >= 0) next[i] else n
+            val end = if (next[i] >= 0) next[i] else totalLines
             val body = mutableListOf<String>()
             for (li in start + 1 until end) {
-                val line = lines[li].trim()
-                if (line.isEmpty()) continue
+                // 缺失即为空白行，跳过；已有文本是建索引时 trim 过的，不再重复 trim
+                val line = headerMap[li] ?: continue
                 if (line.contains("轻小说文库") ||
                     line.contains("wenku8", ignoreCase = true) ||
                     line.startsWith("★")) continue
