@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ 的备份/迁移规则（android:dataExtractionRules）。
+
+  与 `backup_rules.xml` 保持同一口径：排除凭据、会话 Cookie 与书架数据的
+  SharedPreferences。云备份与设备间迁移（device-transfer）都要排除，
+  否则换机时敏感数据仍会经系统通道流转。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="account.xml" />
+        <exclude domain="sharedpref" path="cookies.xml" />
+        <exclude domain="sharedpref" path="library.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="account.xml" />
+        <exclude domain="sharedpref" path="cookies.xml" />
+        <exclude domain="sharedpref" path="library.xml" />
+    </device-transfer>
+</data-extraction-rules>

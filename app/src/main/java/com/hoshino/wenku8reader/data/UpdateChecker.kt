@@ -2,9 +2,15 @@ package com.hoshino.wenku8reader.data
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.hoshino.wenku8reader.R
 import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -27,7 +33,16 @@ data class ReleaseInfo(
  */
 class UpdateChecker {
 
-    private val client = OkHttpClient()
+    /**
+     * 超时必须显式设置：默认配置下 `OkHttpClient` 无读/写超时，
+     * 弱网或对端挂起时协程会长期悬挂且没有取消点（更新检查与 APK 下载都会卡死）。
+     */
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(120, TimeUnit.SECONDS)
+        .build()
 
     companion object {
         private const val REPO = "TakaHoshino/Wenku8Reader"
@@ -59,7 +74,8 @@ class UpdateChecker {
             client.newCall(req).execute().use { resp ->
                 if (resp.code == 404) return@runCatching null
                 check(resp.isSuccessful) { "检查更新失败（HTTP ${resp.code}）" }
-                val text = resp.body!!.string()
+                // 204/HEAD 等场景 body 可能为空，避免强制解包崩溃
+                val text = resp.body?.string() ?: return@runCatching null
                 val json = if (stable) {
                     JSONObject(text)
                 } else {
@@ -115,9 +131,11 @@ class UpdateChecker {
             val req = Request.Builder().url(url).header("User-Agent", UA).build()
             client.newCall(req).execute().use { resp ->
                 check(resp.isSuccessful) { "下载失败（HTTP ${resp.code}）" }
-                val total = resp.body?.contentLength() ?: -1L
+                // 统一用空安全访问：204/HEAD 等场景 body 为空
+                val body = resp.body ?: error("下载响应为空（HTTP ${resp.code}）")
+                val total = body.contentLength().takeIf { it > 0 } ?: -1L
                 dest.parentFile?.mkdirs()
-                resp.body!!.byteStream().use { input ->
+                body.byteStream().use { input ->
                     dest.outputStream().use { output ->
                         val buf = ByteArray(8192)
                         var read = 0L
@@ -135,8 +153,73 @@ class UpdateChecker {
         }
     }
 
-    /** 用 FileProvider 拉起系统安装器（覆盖安装/更新包）。 */
-    fun installApk(context: Context, file: File) {
+    /**
+     * 校验下载到的 APK 与当前已安装应用的签名证书是否一致。
+     *
+     * 为什么必须校验：更新链路允许经 `gh-proxy.com` 第三方镜像前缀下载 APK，
+     * 下载完成后直接拉起系统安装器。若不比对签名，中间人或被接管的镜像可下发
+     * 任意 APK 诱导用户安装——这是本次评估中唯一具备「可被远程利用」性质的缺陷。
+     * 签名不一致一律拒绝安装。
+     */
+    fun verifyApkSignature(context: Context, apk: File): Boolean {
+        if (!apk.exists() || apk.length() == 0L) return false
+        val pm = context.packageManager
+        val archiveSigs = runCatching {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNATURES)
+            }
+            info?.let { signaturesOf(it) }
+        }.getOrNull()
+        if (archiveSigs.isNullOrEmpty()) return false
+
+        val selfSigs = runCatching {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+            }
+            signaturesOf(info)
+        }.getOrNull()
+        if (selfSigs.isNullOrEmpty()) return false
+
+        return archiveSigs == selfSigs
+    }
+
+    /** 取包签名证书的 SHA-256 指纹集合（支持多签名）。 */
+    private fun signaturesOf(info: PackageInfo): Set<String>? {
+        val certs: List<ByteArray> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val si = info.signingInfo ?: return null
+            si.apkContentsSigners.map { it.toByteArray() }
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures?.map { it.toByteArray() } ?: return null
+        }
+        if (certs.isEmpty()) return null
+        return certs.mapTo(mutableSetOf()) { bytes ->
+            java.security.MessageDigest.getInstance("SHA-256")
+                .digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+        }
+    }
+
+    /**
+     * 校签后用 FileProvider 拉起系统安装器（覆盖安装/更新包）。
+     * 校签失败：删除可疑文件、提示用户、**不**安装（返回 false）。
+     */
+    fun installApk(context: Context, file: File): Boolean {
+        if (!verifyApkSignature(context, file)) {
+            runCatching { file.delete() }
+            Toast.makeText(
+                context,
+                R.string.update_signature_mismatch,
+                Toast.LENGTH_LONG,
+            ).show()
+            return false
+        }
         val uri: Uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
@@ -146,7 +229,7 @@ class UpdateChecker {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        runCatching { context.startActivity(intent) }
+        return runCatching { context.startActivity(intent) }.isSuccess
     }
 
     /** 解析版本号基础段：剥离 `v` 前缀与 prerelease 后缀（如 v0.3.0-dev.16 → [0,3,0]）。 */
