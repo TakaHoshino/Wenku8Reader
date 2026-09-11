@@ -14,11 +14,14 @@ import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
+import com.hoshino.wenku8reader.ui.common.toUiTextOrUnknown
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -137,17 +140,28 @@ class ReaderViewModel(
         }
     }
 
+    /**
+     * 当前章节加载任务。新的加载请求会取消上一个：
+     * 目录快速连点或"上一章/下一章"连按会并发多个请求，
+     * 先发后到的旧章节响应可能覆盖用户正在看的新章节。
+     */
+    private var loadChapterJob: Job? = null
+
     fun loadChapter(cid: String) {
         val gid = _ui.value.gid ?: return
-        viewModelScope.launch {
+        loadChapterJob?.cancel()
+        loadChapterJob = viewModelScope.launch {
             _ui.update { it.copy(chapterLoading = true, error = null) }
             val result = repository.chapterContent(gid, bookId, cid)
+            // 已被更新的请求取代：直接退出，不写任何状态
+            if (!isActive) return@launch
             val ch = result.getOrNull()
             if (ch == null) {
                 _ui.update {
                     it.copy(
                         chapterLoading = false,
-                        error = UiText.DynamicString(result.exceptionOrNull()?.message ?: ""),
+                        // 异常 message 可能为 null，回退到通用文案避免空白提示
+                        error = result.exceptionOrNull().toUiTextOrUnknown(),
                     )
                 }
                 return@launch
@@ -161,11 +175,10 @@ class ReaderViewModel(
                 }
                 return@launch
             }
+            // 只有确认拿到有效章节后才记录进度：若请求被取消（用户已切走），
+            // 不应把"进入过该章"当作已读位置落盘。
             preferences.saveProgress(bookId, cid)
-            val idx = _ui.value.flatChapters.indexOfFirst { it.cid == cid }
-            if (idx >= 0) {
-                preferences.saveProgressPosition(bookId, idx, _ui.value.flatChapters.size)
-            }
+            preferences.saveProgressTotal(bookId, _ui.value.flatChapters.size)
             // 重读机制：重复阅读已完成的章节 → 立即重置为未完成，直到再次读完才恢复"已读"
             if (preferences.isChapterFinished(bookId, cid)) {
                 preferences.resetChapterFinished(bookId, cid)
@@ -180,6 +193,8 @@ class ReaderViewModel(
             } else {
                 ch
             }
+            // 繁简转换是挂起点，转换期间用户可能又切了章节
+            if (!isActive) return@launch
             _ui.update {
                 it.copy(chapterLoading = false, currentCid = cid, currentChapter = display)
             }

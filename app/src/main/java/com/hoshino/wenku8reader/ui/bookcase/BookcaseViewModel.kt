@@ -6,11 +6,13 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.LocalLibraryStore
 import com.hoshino.wenku8reader.ui.common.UiText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.Collator
 import java.util.Locale
 
@@ -36,7 +38,6 @@ data class BookcaseEntry(
     val lastUpdate: String = "",
     val wordCount: Int = 0,
     val addedAt: Long = 0L,
-    val progressPos: Int = 0,
     val progressTotal: Int = 0,
     /** 已读章节数：目录页标记"已读"的章节（finishedChapters）数量。 */
     val readCount: Int = 0,
@@ -76,24 +77,27 @@ class BookcaseViewModel(
     fun load() {
         viewModelScope.launch {
             _ui.update { it.copy(isLoading = true) }
-            natural = localLibrary.all()
-                .sortedByDescending { it.addedAt }
-                .map { lb ->
-                    val (pos, total) = preferences.progressPosition(lb.book.id)
-                    BookcaseEntry(
-                        bookId = lb.book.id,
-                        title = lb.book.title,
-                        author = lb.book.author,
-                        coverUrl = lb.book.coverUrl,
-                        status = lb.book.status,
-                        lastUpdate = lb.book.lastUpdate,
-                        wordCount = parseWordCount(lb.book.wordCount),
-                        addedAt = lb.addedAt,
-                        progressPos = pos,
-                        progressTotal = total,
-                        readCount = preferences.finishedChapters(lb.book.id).size,
-                    )
-                }
+            // 书架读取含 SharedPreferences 的整份 JSON 解析，且每本书还要再解析一次
+            // 已读章节集合——必须放到 IO 线程。原实现未指定调度器（默认 Main），
+            // 百本规模下首帧会明显卡顿甚至 ANR。
+            natural = withContext(Dispatchers.IO) {
+                localLibrary.all()
+                    .sortedByDescending { it.addedAt }
+                    .map { lb ->
+                        BookcaseEntry(
+                            bookId = lb.book.id,
+                            title = lb.book.title,
+                            author = lb.book.author,
+                            coverUrl = lb.book.coverUrl,
+                            status = lb.book.status,
+                            lastUpdate = lb.book.lastUpdate,
+                            wordCount = parseWordCount(lb.book.wordCount),
+                            addedAt = lb.addedAt,
+                            progressTotal = preferences.progressTotal(lb.book.id),
+                            readCount = preferences.finishedChapters(lb.book.id).size,
+                        )
+                    }
+            }
             _ui.update { it.copy(isLoading = false, error = null) }
             applySort()
         }
@@ -144,7 +148,7 @@ class BookcaseViewModel(
 
     private fun parseWordCount(raw: String): Int {
         val s = raw.trim().uppercase().replace(",", "").replace("，", "")
-        val m = Regex("([0-9.]+)\\s*([KM千]|万)?").find(s) ?: return 0
+        val m = WORD_COUNT.find(s) ?: return 0
         val num = m.groupValues[1].toDoubleOrNull() ?: return 0
         val mult = when (m.groupValues[2]) {
             "K", "千" -> 1000
@@ -152,6 +156,13 @@ class BookcaseViewModel(
             "万" -> 10_000
             else -> 1
         }
-        return (num * mult).toInt()
+        // 先按 Long 计算再钳制：异常数据（如 "99999M"）会让 Double→Int 截断甚至溢出，
+        // 得到负数参与排序时会把这类书错排到极前/极后。
+        return (num * mult).toLong().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    private companion object {
+        /** 字数文本解析（如 "390K" / "1.2万" / "12M"）；提为常量避免每本书都新建正则。 */
+        val WORD_COUNT = Regex("([0-9.]+)\\s*([KM千]|万)?")
     }
 }

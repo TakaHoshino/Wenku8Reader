@@ -8,6 +8,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.ValueCallback
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -31,11 +32,11 @@ import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.util.Base64
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.math.max
 import kotlin.math.min
@@ -74,23 +75,40 @@ class Wenku8Client(
         .cookieJar(cookieStore)
         .build()
 
-    /** Chromium network stack; its TLS fingerprint usually bypasses Cloudflare blocks. */
-    private val cronetEngine: CronetEngine? by lazy {
+    /**
+     * Chromium network stack; its TLS fingerprint usually bypasses Cloudflare blocks.
+     * 用 [Lazy] 持有，便于 [close] 判断引擎是否真的创建过（避免 close 反而触发创建）。
+     */
+    private val cronetEngineLazy: Lazy<CronetEngine?> = lazy {
         runCatching { CronetEngine.Builder(appContext).build() }.getOrNull()
     }
-    private val cronetExecutor = Executors.newSingleThreadExecutor()
+    private val cronetEngine: CronetEngine? get() = cronetEngineLazy.value
 
-    @Volatile private var lastRequest = 0L
-    @Volatile private var lastSearch = 0L
-    @Volatile private var rate = 1.0
-    private val lock = Any()
+    /**
+     * Cronet 回调执行器。复用 IO 调度器而不是自建单线程池：
+     * 自建线程池的生命周期与应用等长却从不 `shutdown()`（线程泄漏），
+     * 复用调度器后无需再管理其释放。
+     */
+    private val cronetExecutor: Executor = Dispatchers.IO.asExecutor()
+
+    /**
+     * 统一限流组件。原先 `lastRequest` / `lastSearch` / `rate` 三个字段与
+     * `pace()` / `adjustRate()` / 搜索内联节流散落在类中，读代码要跳半个文件
+     * 才能拼出"一次请求究竟等了几次"。收敛为一个所有者后策略清晰；
+     * 分层本身保留——全局请求间隔、自适应速率、搜索硬间隔语义不同，不能压成一个延时。
+     */
+    private val pacer = RatePacer(PACE_BASE_INTERVAL_MS, SEARCH_MIN_INTERVAL_MS)
 
     var username: String? = null
         private set
 
     companion object {
-        private const val DEFAULT_BASE = "https://www.wenku8.cc"
+        /** 默认主站镜像（单一来源：[Wenku8Hosts]）。 */
+        private const val DEFAULT_BASE = Wenku8Hosts.DEFAULT_BASE
         private const val DL = "https://dl.wenku8.com"
+
+        /** 可用镜像；供设置页等直接消费，避免多处各自硬编码。 */
+        val MIRRORS: List<String> get() = Wenku8Hosts.MIRRORS
 
         // ---- 官方 App API（无网页 CF 验证，参考 LightNovelReader）----
         private const val APP_API_OFFICIAL = "http://app.wenku8.com/android.php"
@@ -103,6 +121,26 @@ class Wenku8Client(
             "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         private val GB18030: Charset = Charset.forName("GB18030")
         private val RATE_CODES = setOf(403, 429, 500, 502, 503, 504)
+
+        /** 登录页特征串：命中说明拿到的是登录页而非目标内容（不缓存、视为无效）。 */
+        private const val LOGIN_PATH = "login.php"
+
+        /** 站点限流错误页特征："两次搜索的间隔时间不得少于 5 秒"。 */
+        private const val THROTTLE_MARK = "两次搜索的间隔时间"
+
+        // ---- 搜索节流/重试（有界，避免无界递归）----
+        private const val SEARCH_MIN_INTERVAL_MS = 5000L
+        private const val SEARCH_MAX_ATTEMPTS = 3
+        private const val SEARCH_RETRY_DELAY_MS = 5000L
+
+        /** 全局请求间隔基数（毫秒），实际间隔 = 该值 × 自适应速率。 */
+        private const val PACE_BASE_INTERVAL_MS = 600L
+
+        /** 详情页/单书命中链接（`/book/{id}.htm`）。 */
+        private val BOOK_URL = Regex("/book/(\\d+)\\.htm")
+
+        /** Cronet 请求等待上限（秒）；超时后 cancel 并返回 null。 */
+        private const val CRONET_TIMEOUT_SECONDS = 8L
 
         // ---- 磁盘缓存 TTL（见 HtmlDiskCache）----
         const val TTL_HOME = 60L * 60 * 1000                 // 首页 1 小时
@@ -121,13 +159,6 @@ class Wenku8Client(
             "科幻", "机战", "战争", "冒险", "龙傲天", "悬疑", "犯罪", "复仇", "黑暗", "猎奇",
             "惊悚", "间谍", "末日", "游戏", "大逃杀", "青梅竹马", "妹妹", "女儿", "JK", "JC",
             "大小姐", "性转", "伪娘", "人外", "后宫", "百合", "耽美", "NTR", "女性视角",
-        )
-
-        /** Mirror hosts; used to fall back when a host returns a Cloudflare block. */
-        private val MIRRORS = listOf(
-            "https://www.wenku8.cc",
-            "https://www.wenku8.net",
-            "https://www.wenku8.com",
         )
 
         /** 随机 Android Chrome UA（参考 LightNovelReader：随机 Build ID 与子版本）。 */
@@ -158,12 +189,27 @@ class Wenku8Client(
     // 主镜像选择（设置页可切换）+ cf_clearance UA 绑定
     // ------------------------------------------------------------------ //
 
-    /** 用户选定的主镜像优先，其余镜像按固定顺序兜底。 */
+    /**
+     * 用户选定的主镜像优先，其余镜像按固定顺序兜底。
+     *
+     * 结果按主镜像缓存：`uaFor`/`tryDirect`/`fetchWithBypass` 每次请求都会读取该属性，
+     * 原实现是 `get` 属性里 `buildList + filter` 重新构造，属纯无谓分配。
+     * 仅在设置页切换主镜像（[primaryMirrorProvider] 返回值变化）时重建。
+     */
+    @Volatile private var cachedPrimary: String? = null
+    @Volatile private var cachedMirrors: List<String> = emptyList()
+
     private val mirrors: List<String>
-        get() = buildList {
+        get() {
             val primary = primaryMirrorProvider().ifBlank { DEFAULT_BASE }
-            add(primary)
-            MIRRORS.filter { it != primary }.forEach { add(it) }
+            if (primary != cachedPrimary) {
+                cachedMirrors = buildList {
+                    add(primary)
+                    MIRRORS.filter { it != primary }.forEach { add(it) }
+                }
+                cachedPrimary = primary
+            }
+            return cachedMirrors
         }
 
     private val base: String get() = mirrors.first()
@@ -186,40 +232,36 @@ class Wenku8Client(
 
     // ------------------------------------------------------------------ //
     // 内存缓存（参考 LightNovelReader 的 2h Cache）
+    // 均带 LRU 容量上限：只有 TTL 时，用户长读一本书会让 chapterCache 把
+    // 全部已读章节正文（每章数十 KB）长期留在内存里。
     // ------------------------------------------------------------------ //
-    private val infoCache = TimedCache(2 * 60 * 60 * 1000L)
-    private val tocCache = TimedCache(2 * 60 * 60 * 1000L)
-    private val chapterCache = TimedCache(30 * 60 * 1000L)
+    private val infoCache = TimedCache(2 * 60 * 60 * 1000L, maxEntries = 128)
+    private val tocCache = TimedCache(2 * 60 * 60 * 1000L, maxEntries = 32)
+    private val chapterCache = TimedCache(30 * 60 * 1000L, maxEntries = 64)
+
+    /**
+     * 释放网络资源（应用退出或数据源被替换时调用）。
+     * 仅在 Cronet 引擎确实创建过时才 shutdown，避免"释放"反而触发初始化。
+     */
+    fun close() {
+        if (cronetEngineLazy.isInitialized()) {
+            runCatching { cronetEngineLazy.value?.shutdown() }
+        }
+    }
 
     /** App API 串行限流（官方 App 行为：同时间仅一个请求）。 */
     private val appApiSemaphore = Semaphore(1)
 
     // ------------------------------------------------------------------ //
-    // pacing / retry
+    // retry（节流状态统一在 [pacer]）
     // ------------------------------------------------------------------ //
-    private fun adjustRate(ok: Boolean) {
-        synchronized(lock) {
-            rate = if (ok) max(1.0, rate * 0.85) else min(8.0, rate * 2)
-        }
-    }
-
-    private suspend fun pace(ms: Long) {
-        var sleep = 0L
-        synchronized(lock) {
-            val wait = lastRequest + (ms * rate).toLong() - System.currentTimeMillis()
-            if (wait > 0) sleep = wait
-            lastRequest = System.currentTimeMillis()
-        }
-        if (sleep > 0) delay(sleep)
-    }
-
     private suspend fun execute(req: Request, retries: Int = 3): Response {
         var attempt = 0
         while (true) {
-            pace(600)
+            pacer.pace()
             val resp = withContext(Dispatchers.IO) { okHttp.newCall(req).execute() }
             if (resp.code in RATE_CODES) {
-                adjustRate(false)
+                pacer.adjust(ok = false)
                 if (attempt < retries) {
                     resp.close()
                     val backoff = min(1500L * (1L shl attempt), 30000L)
@@ -235,7 +277,7 @@ class Wenku8Client(
                 }
                 throw IOException(msg)
             }
-            adjustRate(true)
+            pacer.adjust(ok = true)
             return resp
         }
     }
@@ -296,9 +338,9 @@ class Wenku8Client(
         retries: Int = 3,
         ua: String = UA,
     ): String {
-        htmlCache.get(url, ttlMs)?.let { return it }
+        htmlCache.get(url, ttlMs, category)?.let { return it }
         val html = getHtml(url, retries, ua)
-        if (html.isNotBlank() && !isChallenge(html) && !html.contains("login.php")) {
+        if (html.isNotBlank() && !isChallenge(html) && !html.contains(LOGIN_PATH)) {
             // 写入前同步用户配置的缓存上限（动态生效）
             htmlCache.setMaxBytes(cacheMaxMbProvider().toLong() * 1024 * 1024)
             htmlCache.put(url, html, category)
@@ -310,9 +352,6 @@ class Wenku8Client(
 
     /** 各类型磁盘缓存大小（字节）。 */
     fun cacheStats(): Map<String, Long> = htmlCache.sizeByCategory()
-
-    /** 磁盘缓存总大小（字节）。 */
-    fun cacheTotalSize(): Long = htmlCache.totalSize()
 
     /** 清理磁盘缓存（[category] = null 清全部）；清全部时同时清空内存缓存。 */
     fun clearCache(category: String? = null) {
@@ -386,57 +425,57 @@ class Wenku8Client(
         ok
     }
 
-    suspend fun logout() {
-        runCatching { getBytes("$base/logout.php") }
-        cookieStore.clear()
-        username = null
-    }
+    // 说明：这里**没有** logout()。本应用全程使用内置共享账号、不提供退出入口，
+    // 原先的 logout() 在全仓已无任何调用点（清除会话统一走 clearCookies()），
+    // 故一并移除，避免留下"可以退出登录"的误导性 API。
 
     // ------------------------------------------------------------------ //
     // read operations
     // ------------------------------------------------------------------ //
-    suspend fun search(keyword: String, byAuthor: Boolean): List<SearchResult> = withContext(Dispatchers.IO) {
-        var sleep = 0L
-        synchronized(lock) {
-            val wait = lastSearch + 5000 - System.currentTimeMillis()
-            if (wait > 0) sleep = wait
-            lastSearch = System.currentTimeMillis()
+    suspend fun search(keyword: String, byAuthor: Boolean): List<SearchResult> =
+        withContext(Dispatchers.IO) {
+            val type = if (byAuthor) "author" else "articlename"
+            // 有界重试：站点在两次搜索间隔 < 5s 时返回错误页。
+            // 原实现递归调用自身且无次数上限——站点持续返回错误页时会无界深递归，
+            // 长时间挂起且协程取消无法从递归中恢复。这里改为定长循环。
+            repeat(SEARCH_MAX_ATTEMPTS) { attempt ->
+                pacer.paceSearch()
+                val resp = postForm(
+                    "$base/so.php",
+                    listOf(
+                        "searchtype" to type,
+                        "searchkey" to keyword,
+                        "charset" to "gbk",
+                        "Submit" to "\u8F7B\u5C0F\u8BF4\u641C\u7D22",
+                    )
+                )
+                val finalUrl = resp.request.url.toString()
+                val html = String(readBytes(resp), GB18030)
+                val throttled = html.contains(THROTTLE_MARK) || html.contains("出现错误")
+                if (!throttled) {
+                    return@withContext parseSearchResult(finalUrl, html)
+                }
+                if (attempt < SEARCH_MAX_ATTEMPTS - 1) delay(SEARCH_RETRY_DELAY_MS)
+            }
+            throw IOException("搜索被站点限流，请稍后重试")
         }
-        if (sleep > 0) delay(sleep)
 
-        val type = if (byAuthor) "author" else "articlename"
-        val resp = postForm(
-            "$base/so.php",
-            listOf(
-                "searchtype" to type,
-                "searchkey" to keyword,
-                "charset" to "gbk",
-                "Submit" to "\u8F7B\u5C0F\u8BF4\u641C\u7D22",
-            )
-        )
-        val finalUrl = resp.request.url.toString()
-        val html = String(readBytes(resp), GB18030)
-
-        // search-too-frequent error page -> wait and retry once
-        if (html.contains("两次搜索的间隔时间") || html.contains("出现错误")) {
-            delay(5000)
-            return@withContext search(keyword, byAuthor)
-        }
-
-        val m = Regex("/book/(\\d+)\\.htm").find(finalUrl)
+    /** 搜索响应解析：既可能是精确命中（302 直跳详情页），也可能是结果列表页。 */
+    private fun parseSearchResult(finalUrl: String, html: String): List<SearchResult> {
+        val m = BOOK_URL.find(finalUrl)
         if (m != null) {
-            val id = m.groupValues[1].toIntOrNull() ?: return@withContext emptyList()
+            val id = m.groupValues[1].toIntOrNull() ?: return emptyList()
             val info = Parsers.parseBookInfo(html, id)
             // 单结果重定向：从详情页带上封面 URL（与列表页一致展示封面）
-            return@withContext listOf(SearchResult(id, info.title, info.coverUrl))
+            return listOf(SearchResult(id, info.title, info.coverUrl))
         }
-        Parsers.parseSearchResults(html)
+        return Parsers.parseSearchResults(html)
     }
 
     suspend fun bookInfo(id: Int): BookInfo = withContext(Dispatchers.IO) {
         infoCache.get("info_$id") ?: run {
             // 网页优先（含磁盘缓存 + cf_clearance 快路径）；失败/空则走官方 App API（免 CF）
-            val web = runCatching {
+            val web = runCatchingNotCancelling {
                 Parsers.parseBookInfo(getHtmlCached("$base/book/$id.htm", TTL_BOOK, "book"), id)
             }.getOrNull()
             val info = web?.takeIf { it.title.isNotBlank() }
@@ -449,7 +488,7 @@ class Wenku8Client(
 
     suspend fun chapters(bookId: Int, groupId: Int): List<Volume> = withContext(Dispatchers.IO) {
         tocCache.get("toc_$bookId") ?: run {
-            val web = runCatching {
+            val web = runCatchingNotCancelling {
                 Parsers.parseChapterIndex(
                     getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK, "book")
                 )
@@ -465,7 +504,7 @@ class Wenku8Client(
     suspend fun chapterContent(gid: Int, bookId: Int, cid: String): ChapterContent =
         withContext(Dispatchers.IO) {
             chapterCache.get("chap_${bookId}_$cid") ?: run {
-                val web = runCatching {
+                val web = runCatchingNotCancelling {
                     Parsers.parseChapter(
                         getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER, "chapter")
                     )
@@ -594,16 +633,25 @@ class Wenku8Client(
         ) ?: emptyList()
     }
 
-    /** Rough classification of an unexpected page body, for diagnostics. */
-    private fun classify(html: String): String = when {
-        isChallenge(html) -> "疑似CF挑战页"
-        html.contains("frmlogin") || html.contains("login.php") || html.contains("用户登录") -> "疑似登录页"
-        else -> "未知内容"
-    }
-
     private fun isChallenge(html: String): Boolean =
         html.contains("challenge-platform") || html.contains("cf-challenge") ||
             html.contains("cf_chl") || html.contains("cf-chl")
+
+    /**
+     * `runCatching` 的同义封装：**不吞协程取消**。
+     *
+     * 标准 `runCatching` 捕获 `Throwable`，会把 `CancellationException` 一并吃掉：
+     * 页面被取消时会被误判成"直连失败"，随后继续走 WebView/Cronet 绕过栈，
+     * 协程既无法及时取消、还会多打一串无谓请求。
+     */
+    private inline fun <T> runCatchingNotCancelling(block: () -> T): Result<T> =
+        try {
+            Result.success(block())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Result.failure(e)
+        }
 
     /**
      * 快路径（参考 LightNovelReader 的 cookie-first 思路）：直接用 OkHttp 携带
@@ -619,7 +667,7 @@ class Wenku8Client(
     ): T? {
         for (h in mirrors) {
             val ua = uaFor(urlFor(h))
-            val parsed = runCatching {
+            val parsed = runCatchingNotCancelling {
                 parse(getHtmlCached(urlFor(h), ttlMs, category, retries = 1, ua = ua))
             }.getOrNull()
             if (parsed != null) return parsed
@@ -631,46 +679,33 @@ class Wenku8Client(
      * Cloudflare 三级绕过抓取（与 tags/tagBooks 同栈）：
      * WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）→ Cronet（TLS 指纹）
      * → OkHttp 随机 Android UA，逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
-     * [steps] 可选，收集各层诊断信息供错误提示。返回 null 表示全部失败。
+     * 返回 null 表示全部失败。
+     *
+     * 注：原先还有一个 `steps: MutableList<String>` 诊断参数，用于收集各层失败原因，
+     * 但从未有任何调用方传入（整条诊断链路是半成品），已移除以免误导。
      */
     private suspend fun <T> fetchWithBypass(
         urlFor: (String) -> String,
         parse: (String) -> T?,
-        steps: MutableList<String>? = null,
     ): T? {
         for (h in mirrors) {
-            val html = webViewGet(urlFor(h))
-            if (html != null) {
-                val parsed = parse(html)
-                if (parsed != null) return parsed
-                steps?.add("WebView $h 无有效内容(${classify(html)})")
-            } else {
-                steps?.add("WebView $h 失败/超时")
-            }
+            val html = webViewGet(urlFor(h)) ?: continue
+            parse(html)?.let { return it }
         }
         val engine = cronetEngine
         if (engine != null) {
             for (h in mirrors) {
-                val html = cronetGet(engine, urlFor(h))
-                if (html != null) {
-                    val parsed = parse(html)
-                    if (parsed != null) return parsed
-                    steps?.add("Cronet $h 无有效内容(${classify(html)})")
-                } else {
-                    steps?.add("Cronet $h 失败/超时")
-                }
+                val html = cronetGet(engine, urlFor(h)) ?: continue
+                parse(html)?.let { return it }
             }
-        } else {
-            steps?.add("Cronet 初始化失败")
         }
         for (h in mirrors) {
             // 若该主机已有 cf_clearance（WebView 解出后持久化），复用其绑定 UA 直接通过
             val ua = uaFor(urlFor(h))
-            val parsed = runCatching {
+            val parsed = runCatchingNotCancelling {
                 parse(getHtml(urlFor(h), retries = 1, ua = ua))
             }.getOrNull()
             if (parsed != null) return parsed
-            steps?.add("OkHttp $h 无有效内容")
         }
         return null
     }
@@ -679,89 +714,89 @@ class Wenku8Client(
     private suspend fun cronetGet(engine: CronetEngine, url: String): String? =
         withContext(Dispatchers.IO) {
             val latch = CountDownLatch(1)
-        val result = AtomicReference<ByteArray?>(null)
-        val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
-        val body = ByteArrayOutputStream()
-        val httpUrl = url.toHttpUrl()
-        val cookieHeader = cookieStore.loadForRequest(httpUrl)
-            .joinToString("; ") { "${it.name}=${it.value}" }
+            val result = AtomicReference<ByteArray?>(null)
+            val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
+            val body = ByteArrayOutputStream()
+            val httpUrl = url.toHttpUrl()
+            val cookieHeader = cookieStore.loadForRequest(httpUrl)
+                .joinToString("; ") { "${it.name}=${it.value}" }
 
-        val callback = object : UrlRequest.Callback() {
-            override fun onRedirectReceived(
-                request: UrlRequest,
-                info: UrlResponseInfo,
-                newLocationUrl: String?,
-            ) {
-                request.followRedirect()
-            }
-
-            override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
-                runCatching {
-                    info.allHeadersAsList
-                        .filter { it.key.equals("Set-Cookie", ignoreCase = true) }
-                        .mapNotNull { (_, v) ->
-                            runCatching { Cookie.parse(httpUrl, v) }.getOrNull()
-                        }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { cookieStore.saveFromResponse(httpUrl, it) }
+            val callback = object : UrlRequest.Callback() {
+                override fun onRedirectReceived(
+                    request: UrlRequest,
+                    info: UrlResponseInfo,
+                    newLocationUrl: String?,
+                ) {
+                    request.followRedirect()
                 }
-                request.read(readBuffer)
+
+                override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+                    runCatching {
+                        info.allHeadersAsList
+                            .filter { it.key.equals("Set-Cookie", ignoreCase = true) }
+                            .mapNotNull { (_, v) ->
+                                runCatching { Cookie.parse(httpUrl, v) }.getOrNull()
+                            }
+                            .takeIf { it.isNotEmpty() }
+                            ?.let { cookieStore.saveFromResponse(httpUrl, it) }
+                    }
+                    request.read(readBuffer)
+                }
+
+                override fun onReadCompleted(
+                    request: UrlRequest,
+                    info: UrlResponseInfo,
+                    byteBuffer: ByteBuffer,
+                ) {
+                    byteBuffer.flip()
+                    val arr = ByteArray(byteBuffer.remaining())
+                    byteBuffer.get(arr)
+                    body.write(arr)
+                    byteBuffer.clear()
+                    request.read(byteBuffer)
+                }
+
+                override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
+                    result.set(body.toByteArray())
+                    latch.countDown()
+                }
+
+                override fun onFailed(
+                    request: UrlRequest,
+                    info: UrlResponseInfo?,
+                    error: CronetException,
+                ) {
+                    latch.countDown()
+                }
+
+                override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
+                    latch.countDown()
+                }
             }
 
-            override fun onReadCompleted(
-                request: UrlRequest,
-                info: UrlResponseInfo,
-                byteBuffer: ByteBuffer,
-            ) {
-                byteBuffer.flip()
-                val arr = ByteArray(byteBuffer.remaining())
-                byteBuffer.get(arr)
-                body.write(arr)
-                byteBuffer.clear()
-                request.read(byteBuffer)
+            val builder = engine.newUrlRequestBuilder(url, callback, cronetExecutor)
+                .setHttpMethod("GET")
+                .addHeader("User-Agent", uaFor(url))
+                .addHeader(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+                )
+                .addHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .addHeader("Cache-Control", "max-age=0")
+                .addHeader("Upgrade-Insecure-Requests", "1")
+                .addHeader("Sec-Fetch-Dest", "document")
+                .addHeader("Sec-Fetch-Mode", "navigate")
+                .addHeader("Sec-Fetch-Site", "none")
+                .addHeader("Sec-Fetch-User", "?1")
+            refererFor(url)?.let { builder.addHeader("Referer", it) }
+            if (cookieHeader.isNotEmpty()) builder.addHeader("Cookie", cookieHeader)
+            val request = builder.build()
+            request.start()
+            if (!latch.await(CRONET_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                request.cancel()
             }
-
-            override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
-                result.set(body.toByteArray())
-                latch.countDown()
-            }
-
-            override fun onFailed(
-                request: UrlRequest,
-                info: UrlResponseInfo?,
-                error: CronetException,
-            ) {
-                latch.countDown()
-            }
-
-            override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
-                latch.countDown()
-            }
+            result.get()?.let { String(it, GB18030) }
         }
-
-        val builder = engine.newUrlRequestBuilder(url, callback, cronetExecutor)
-            .setHttpMethod("GET")
-            .addHeader("User-Agent", uaFor(url))
-            .addHeader(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-            )
-            .addHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-            .addHeader("Cache-Control", "max-age=0")
-            .addHeader("Upgrade-Insecure-Requests", "1")
-            .addHeader("Sec-Fetch-Dest", "document")
-            .addHeader("Sec-Fetch-Mode", "navigate")
-            .addHeader("Sec-Fetch-Site", "none")
-            .addHeader("Sec-Fetch-User", "?1")
-        refererFor(url)?.let { builder.addHeader("Referer", it) }
-        if (cookieHeader.isNotEmpty()) builder.addHeader("Cookie", cookieHeader)
-        val request = builder.build()
-        request.start()
-        if (!latch.await(8, TimeUnit.SECONDS)) {
-            request.cancel()
-        }
-        result.get()?.let { String(it, GB18030) }
-    }
 
     /**
      * Loads the page in a hidden WebView so Cloudflare's JS challenge runs like in a
@@ -851,14 +886,75 @@ class Wenku8Client(
     /** type: "txt"(GBK) | "utf8" | "big5" */
     suspend fun downloadFullTxt(id: Int, type: String): ByteArray =
         getBytes("$DL/down.php?type=$type&node=1&id=$id")
+
+    /**
+     * 统一限流组件：本项目**全部**请求节流状态的唯一所有者。
+     *
+     * 三层语义各自独立、不可合并成一个延时：
+     * 1. [pace] 全局请求间隔（间隔 = 基数 × 自适应速率），保护站点也保护自己；
+     * 2. [adjust] 自适应速率（成功回落 / 失败放大，1.0~8.0），遇 429 自动降速；
+     * 3. [paceSearch] 搜索硬间隔（站点硬性要求两次搜索 ≥5s，短于该值直接返回错误页）。
+     * 此外 App API 另有 `Semaphore(1)` 串行约束（官方 App 行为），留在调用侧。
+     */
+    private class RatePacer(
+        private val baseIntervalMs: Long,
+        private val searchIntervalMs: Long,
+    ) {
+        private val lock = Any()
+        private var lastRequest = 0L
+        private var lastSearch = 0L
+        private var rate = 1.0
+
+        /** 请求结果反馈：成功逐步回落（×0.85），失败立即放大（×2），钳制在 1.0~8.0。 */
+        fun adjust(ok: Boolean) {
+            synchronized(lock) {
+                rate = if (ok) max(1.0, rate * 0.85) else min(8.0, rate * 2)
+            }
+        }
+
+        /** 全局请求间隔：必要时挂起补足等待。 */
+        suspend fun pace() {
+            val sleep = synchronized(lock) {
+                val now = System.currentTimeMillis()
+                val wait = lastRequest + (baseIntervalMs * rate).toLong() - now
+                lastRequest = now
+                wait
+            }
+            if (sleep > 0) delay(sleep)
+        }
+
+        /** 搜索硬间隔：站点要求两次搜索间隔 ≥ [searchIntervalMs]。 */
+        suspend fun paceSearch() {
+            val sleep = synchronized(lock) {
+                val now = System.currentTimeMillis()
+                val wait = lastSearch + searchIntervalMs - now
+                lastSearch = now
+                wait
+            }
+            if (sleep > 0) delay(sleep)
+        }
+    }
 }
 
 /**
- * 简单 TTL 内存缓存（参考 LightNovelReader 的 Cache）。
+ * 简单 TTL + LRU 内存缓存（参考 LightNovelReader 的 Cache）。
  * 只缓存成功结果；超时后下次访问自动重取。
+ *
+ * 容量上限说明：原实现只有 TTL、没有容量上限——用户长读一本书时
+ * `chapterCache`（30 分钟 TTL）会把全部已读章节正文（每章数十 KB）
+ * 一直累积在内存里。这里补上 LRU 上限（按访问顺序淘汰最久未用），
+ * 把内存占用钳制在可预期范围内。
  */
-private class TimedCache(private val ttlMs: Long) {
-    private val map = ConcurrentHashMap<String, Pair<Long, Any>>()
+private class TimedCache(
+    private val ttlMs: Long,
+    private val maxEntries: Int,
+) {
+    /** accessOrder = true：读取即刷新 LRU 顺序，供 [removeEldestEntry] 淘汰最久未用项。 */
+    private val map = object : LinkedHashMap<String, Pair<Long, Any>>(16, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, Pair<Long, Any>>,
+        ): Boolean = size > maxEntries
+    }
 
     @Suppress("UNCHECKED_CAST")
     @Synchronized

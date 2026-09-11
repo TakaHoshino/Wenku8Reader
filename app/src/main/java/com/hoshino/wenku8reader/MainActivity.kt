@@ -1,8 +1,10 @@
 package com.hoshino.wenku8reader
 
 import android.content.Context
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Display
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -38,6 +40,10 @@ class MainActivity : ComponentActivity() {
             "zh-CN" -> java.util.Locale.SIMPLIFIED_CHINESE
             else -> return context // 跟随系统：不覆盖
         }
+        // 资源字符串由 createConfigurationContext 覆盖，但进程级默认 Locale 是另一份状态：
+        // 不设置的话 java.text.DateFormat / NumberFormat 等仍按系统语言格式化。
+        // attachBaseContext 早于任何 UI 与格式化调用，此处设置安全；跟随系统时不覆盖默认值。
+        java.util.Locale.setDefault(locale)
         return context.createConfigurationContext(
             android.content.res.Configuration(context.resources.configuration)
                 .apply { setLocale(locale) },
@@ -45,18 +51,24 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (VolumeKeyTurn.enabled) {
+        if (VolumeKeyTurn.enabled && event.action == KeyEvent.ACTION_DOWN) {
+            // 仅在阅读器确实注册了回调时才吞掉音量键：回调为 null（音量键翻页已关闭但
+            // enabled 尚未被协程复位）时回退给系统，否则音量调节会被短暂吞掉。
             when (event.keyCode) {
-                KeyEvent.KEYCODE_VOLUME_UP ->
-                    if (event.action == KeyEvent.ACTION_DOWN) {
-                        VolumeKeyTurn.onVolumeUp?.invoke()
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    val turn = VolumeKeyTurn.onVolumeUp
+                    if (turn != null) {
+                        turn()
                         return true
                     }
-                KeyEvent.KEYCODE_VOLUME_DOWN ->
-                    if (event.action == KeyEvent.ACTION_DOWN) {
-                        VolumeKeyTurn.onVolumeDown?.invoke()
+                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    val turn = VolumeKeyTurn.onVolumeDown
+                    if (turn != null) {
+                        turn()
                         return true
                     }
+                }
             }
         }
         return super.dispatchKeyEvent(event)
@@ -93,7 +105,7 @@ class MainActivity : ComponentActivity() {
      * 仅当设备刷新率高于当前模式时生效；60Hz 设备无副作用。
      */
     private fun requestHighRefreshRate() {
-        val display = display ?: return
+        val display = currentDisplay() ?: return
         val current = display.mode
         val best = display.supportedModes
             .filter {
@@ -113,5 +125,27 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             window.attributes.preferredRefreshRate = best.refreshRate
         }
+    }
+
+    /**
+     * 取当前窗口所在的 [Display]。
+     *
+     * 为什么不用裸的 `display`：它是 Activity 从 Context 继承的旧入口。
+     * API 30+ 改走「窗口关联的显示设备」——`WindowManager.currentWindowMetrics` 只提供
+     * 窗口尺寸与 Insets、**不暴露 Display**，拿不到刷新率模式，因此这里用
+     * `context.display`（API 30 起可用），并以 [DisplayManager] 的默认显示设备兜底
+     * （多屏/未关联显示设备等极端情况仍能取到可用模式）。
+     * API 26-29 无替代 API，只能继续用旧入口。
+     */
+    private fun currentDisplay(): Display? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val ctx: Context = this
+            ctx.display?.let { return it }
+            return (getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
+                ?.getDisplay(Display.DEFAULT_DISPLAY)
+        }
+        @Suppress("DEPRECATION")
+        val legacy = display
+        return legacy
     }
 }

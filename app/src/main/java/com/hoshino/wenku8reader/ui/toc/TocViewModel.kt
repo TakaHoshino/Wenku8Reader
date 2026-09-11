@@ -46,8 +46,7 @@ class TocViewModel(
         viewModelScope.launch {
             _ui.update { it.copy(loading = true, error = null) }
             val info = repository.bookInfo(bookId).getOrNull()
-            val gid = info?.groupId
-            if (info == null || gid == null) {
+            if (info == null) {
                 _ui.update {
                     it.copy(
                         loading = false,
@@ -56,7 +55,21 @@ class TocViewModel(
                 }
                 return@launch
             }
+            // gid 统一走 repository.groupIdOf（缺字段时回退 id/1000）：
+            // 此前直接用 info.groupId，为 null 时整个目录页必然报"章节索引加载失败"，
+            // 而 Reader / DownloadEngine 走的是有回退的 groupIdOf，行为不一致。
+            val gid = repository.groupIdOf(info)
             val vols = repository.chapters(bookId, gid).getOrElse { emptyList() }
+            if (vols.isEmpty()) {
+                _ui.update {
+                    it.copy(
+                        loading = false,
+                        title = info.title,
+                        error = UiText.StringResource(R.string.error_chapter_index),
+                    )
+                }
+                return@launch
+            }
             val finished = preferences.finishedChapters(bookId)
             val current = preferences.resumeCid(bookId)
             // 默认全部展开；全卷章节都已读 → 首次加载自动折叠

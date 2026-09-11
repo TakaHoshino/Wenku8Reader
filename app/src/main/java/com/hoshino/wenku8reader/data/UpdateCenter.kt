@@ -37,9 +37,13 @@ class UpdateCenter(
     private val checker: UpdateChecker,
     private val preferences: AppPreferences,
     private val settings: ReaderSettings,
+    /**
+     * 协程作用域：由 [com.hoshino.wenku8reader.di.AppContainer] 注入应用级作用域，
+     * 使更新链路与应用生命周期一致（可统一取消）。
+     * 默认值仅为兼容既有调用点——不要依赖它，裸建的作用域无人取消。
+     */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _state = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
@@ -172,7 +176,12 @@ class UpdateCenter(
 
     /** 解析 versionName 末尾的 `-dev.N` 序号（如 `0.4.1-dev.28` → 28）；非 dev 构建返回 null。 */
     private fun devSeq(versionName: String): Int? {
-        val m = Regex("-dev\\.(\\d+)$").find(versionName) ?: return null
+        val m = DEV_SEQ.find(versionName) ?: return null
         return m.groupValues[1].toIntOrNull()
+    }
+
+    private companion object {
+        /** 预编译：devSeq 每次检查都会调用，内联 Regex(...) 会重复编译同一模式。 */
+        val DEV_SEQ = Regex("-dev\\.(\\d+)$")
     }
 }
