@@ -2,6 +2,7 @@ package com.hoshino.wenku8reader.data.local
 
 import android.content.Context
 import com.hoshino.wenku8reader.data.BookInfo
+import com.hoshino.wenku8reader.data.Wenku8Hosts
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -118,7 +119,9 @@ class LocalLibraryStore(context: Context) {
                 lastUpdate = o.optString("lastUpdate"),
                 wordCount = o.optString("wordCount"),
                 description = o.optString("desc"),
-                coverUrl = o.optString("cover").ifEmpty { null },
+                // 历史书架里可能存着站点给的 http:// 封面地址（应用现已默认禁止明文流量），
+                // 读取时就地升级协议，避免老用户已入架的书封面一直加载失败。
+                coverUrl = Wenku8Hosts.normalizeImageUrl(o.optString("cover")).ifEmpty { null },
                 groupId = if (gid >= 0) gid else null,
                 tags = tags,
             ),

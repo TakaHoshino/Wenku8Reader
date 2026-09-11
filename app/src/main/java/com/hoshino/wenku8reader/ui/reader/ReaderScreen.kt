@@ -511,7 +511,8 @@ fun ReaderScreen(
                                         }
                                         is ReaderPage.Image -> SubcomposeAsyncImage(
                                             model = ImageRequest.Builder(context)
-                                                .data(page.url)
+                                                // 归一化为 https：站点给 http 地址，明文流量已被禁用
+                                                .data(Wenku8Hosts.normalizeImageUrl(page.url))
                                                 .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
                                                 .crossfade(true)
                                                 .build(),
@@ -882,7 +883,8 @@ private fun ScrollContent(
             chapter.images.forEach { url ->
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
-                        .data(url)
+                        // 归一化为 https：站点给 http 地址，明文流量已被禁用
+                        .data(Wenku8Hosts.normalizeImageUrl(url))
                         .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
                         .crossfade(true)
                         .build(),
