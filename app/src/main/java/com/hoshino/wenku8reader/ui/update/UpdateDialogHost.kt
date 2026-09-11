@@ -67,21 +67,35 @@ fun UpdateDialogHost(
             }
         },
         confirmButton = {
-            if (state.downloading) {
-                // 下载中禁用
-            } else if (state.downloadError != null) {
-                TextButton(onClick = onUpdate) { Text(stringResource(R.string.action_retry)) }
-            } else {
-                TextButton(onClick = onUpdate) { Text(stringResource(R.string.update_now)) }
+            // 下载中不允许再次点击：用 enabled = !downloading 反向表达，
+            // 而不是「空分支 + 注释」——按钮保持可见，避免弹窗内容跳动。
+            TextButton(
+                onClick = onUpdate,
+                enabled = !state.downloading,
+            ) {
+                Text(
+                    stringResource(
+                        if (state.downloadError != null) R.string.action_retry
+                        else R.string.update_now
+                    )
+                )
             }
         },
         dismissButton = {
-            if (state.downloading) {
-                // 下载中不可取消（避免半包）
-            } else if (state.downloadError != null) {
-                TextButton(onClick = onLater) { Text(stringResource(R.string.action_close)) }
-            } else {
-                TextButton(onClick = onLater) { Text(stringResource(R.string.update_later)) }
+            // 下载中同样只禁用，不隐藏（避免半包提示消失造成的误解）
+            TextButton(
+                onClick = onLater,
+                enabled = !state.downloading,
+            ) {
+                Text(
+                    stringResource(
+                        if (state.downloadError != null) R.string.action_close
+                        else R.string.update_later
+                    )
+                )
+            }
+            // 「跳过该版本」只在正常状态下提供（下载中/下载失败时无意义）
+            if (!state.downloading && state.downloadError == null) {
                 TextButton(onClick = onSkip) { Text(stringResource(R.string.update_skip)) }
             }
         },

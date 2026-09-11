@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 及以下的备份规则（android:fullBackupContent）。
+
+  排除敏感 SharedPreferences，避免其进入云备份与 `adb backup`：
+  - account：账号凭据
+  - cookies：会话 / cf_clearance 令牌（泄露即等于账号被接管）
+  - library：本地书架快照
+  其余偏好（settings/ui/reading）体积小、恢复体验友好，保留备份。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="account.xml" />
+    <exclude domain="sharedpref" path="cookies.xml" />
+    <exclude domain="sharedpref" path="library.xml" />
+</full-backup-content>

@@ -53,6 +53,7 @@
     <string name="update_up_to_date">已是最新版本</string>
     <string name="update_none">暂无可用更新</string>
     <string name="update_check_failed">检查更新失败：%1$s</string>
+    <string name="update_signature_mismatch">更新包签名校验未通过，已阻止安装（文件可能被第三方镜像篡改）</string>
 
     <!-- 底部导航 -->
     <string name="tab_explore">探索</string>
@@ -170,11 +171,14 @@
     <string name="error_book_info">书籍信息加载失败，请重试</string>
     <string name="error_chapter_index">章节目录加载失败，请重试</string>
     <string name="error_chapter_load">章节加载失败，请重试</string>
+    <string name="error_unknown">操作失败，请重试</string>
+    <string name="error_with_detail">操作失败：%1$s</string>
 
     <!-- 设置 -->
     <string name="settings_section_account">账号</string>
     <string name="settings_builtin_account">内置账户</string>
     <string name="settings_builtin_account_hint">使用内置账户访问内容</string>
+    <string name="settings_account_builtin_desc">应用全程使用内置共享账号，无需登录或切换</string>
     <string name="settings_section_appearance">外观</string>
     <string name="settings_section_general">通用</string>
     <string name="settings_section_reading">阅读设置</string>

@@ -3,31 +3,19 @@ package com.hoshino.wenku8reader.data.local
 import android.content.Context
 
 /**
- * Persists account credentials and per-book reading progress in SharedPreferences.
+ * Persists per-book reading progress and lightweight UI state in SharedPreferences.
  * Replaces ad-hoc SharedPreferences access scattered across the UI layer.
+ *
+ * 安全说明：此处**不再持久化任何账号密码**。
+ * 旧版本曾提供 `saveCredentials/username/password`（明文写入未加密的 `account` 偏好），
+ * 经全仓检索确认从未被调用，属于纯粹的安全暴露面，故整体移除——登录态由
+ * [com.hoshino.wenku8reader.data.CookieStore] 持久化的会话 Cookie 承担，
+ * 无需保存密码即可免登录。
  */
 class AppPreferences(context: Context) {
 
-    private val account = context.getSharedPreferences("account", Context.MODE_PRIVATE)
     private val reading = context.getSharedPreferences("reading", Context.MODE_PRIVATE)
     private val ui = context.getSharedPreferences("ui", Context.MODE_PRIVATE)
-
-    val username: String?
-        get() = account.getString("username", null)
-
-    val password: String?
-        get() = account.getString("password", null)
-
-    fun saveCredentials(username: String, password: String) {
-        account.edit()
-            .putString("username", username)
-            .putString("password", password)
-            .apply()
-    }
-
-    fun clearAccount() {
-        account.edit().clear().apply()
-    }
 
     fun resumeCid(bookId: Int): String? =
         reading.getString("progress_$bookId", null)
@@ -39,14 +27,18 @@ class AppPreferences(context: Context) {
         reading.edit().putString("progress_$bookId", cid).apply()
     }
 
-    fun progressPosition(bookId: Int): Pair<Int, Int> =
-        reading.getInt("progress_pos_$bookId", 0) to reading.getInt("progress_total_$bookId", 0)
+    /**
+     * 该书的总章节数（用于书架进度：已读章节数 / 总章节数）。
+     *
+     * 原先这里还有个 `progressPosition` 返回 `(pos, total)`，但 `pos`（章节序号）
+     * 全仓没有任何读取点——书架的进度条用的是「已读数 / 总数」，阅读位置另有
+     * `resumeCid` 承担。留着两套语义相近的位置数据只会互相漂移，故只保留 total。
+     */
+    fun progressTotal(bookId: Int): Int =
+        reading.getInt("progress_total_$bookId", 0)
 
-    fun saveProgressPosition(bookId: Int, pos: Int, total: Int) {
-        reading.edit()
-            .putInt("progress_pos_$bookId", pos)
-            .putInt("progress_total_$bookId", total)
-            .apply()
+    fun saveProgressTotal(bookId: Int, total: Int) {
+        reading.edit().putInt("progress_total_$bookId", total).apply()
     }
 
     // ------------------------------------------------------------------ //

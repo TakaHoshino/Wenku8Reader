@@ -11,12 +11,26 @@ import com.hoshino.wenku8reader.data.local.LocalLibraryStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Manual dependency container owned by the Application. Holds the app-scoped
  * singletons and wires the dependency graph without a DI framework.
  */
 class AppContainer(context: Context) {
+
+    /**
+     * 应用级协程作用域（唯一）。
+     *
+     * 此前 `DownloadEngine` / `UpdateCenter` / `UpdateChecker` 各自裸建
+     * `CoroutineScope(SupervisorJob() + …)` 且永不取消，作用域散落、生命周期不可控。
+     * 这里集中持有一个，注入给需要的组件；需要主线程的（更新弹窗状态与安装器）
+     * 用 `Main.immediate`，与原实现行为一致。
+     */
+    private val applicationScope: CoroutineScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val readerSettings: ReaderSettings = ReaderSettings(context)
 
@@ -39,7 +53,8 @@ class AppContainer(context: Context) {
 
     /** 更新检查与安装（GitHub Releases 源）。 */
     val updateChecker: UpdateChecker = UpdateChecker()
-    val updateCenter: UpdateCenter = UpdateCenter(context, updateChecker, preferences, readerSettings)
+    val updateCenter: UpdateCenter =
+        UpdateCenter(context, updateChecker, preferences, readerSettings, applicationScope)
 
-    val downloadEngine: DownloadEngine = DownloadEngine(context, client)
+    val downloadEngine: DownloadEngine = DownloadEngine(context, repository, applicationScope)
 }

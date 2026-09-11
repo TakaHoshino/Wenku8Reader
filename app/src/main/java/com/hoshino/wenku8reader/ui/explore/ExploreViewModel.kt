@@ -9,11 +9,19 @@ import com.hoshino.wenku8reader.data.HomeSection
 import com.hoshino.wenku8reader.data.SearchResult
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
+import com.hoshino.wenku8reader.ui.common.toUiText
+import com.hoshino.wenku8reader.ui.common.toUiTextOrUnknown
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 /** A tag row on the Explore page: the tag name plus its recommended books. */
 @Immutable
@@ -44,9 +52,19 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
 
     private var homeLoaded = false
 
+    /** 当前进行中的标签抓取任务：重试时先取消，避免两轮遍历同时压向站点。 */
+    private var tagsJob: Job? = null
+
     companion object {
         // 内置分类共 50 个，全部展示（与 LightNovelReader 展示 ~48 个分类一致）
         private const val MAX_TAGS = 50
+
+        /**
+         * 标签抓取并发度。站点对请求有全局节流（约 600ms/次）并对高频访问返回限流码，
+         * 且直连失败后的回退路径会在主线程创建隐藏 WebView，并发过高既无收益又易触发封禁，
+         * 因此这里只放到 2（协议约定的上限 3 之内）。
+         */
+        private const val TAG_FETCH_CONCURRENCY = 2
     }
 
     fun loadHomeOnce() {
@@ -66,7 +84,7 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
                     _ui.update {
                         it.copy(
                             homeLoading = false,
-                            homeError = UiText.DynamicString(e.message ?: ""),
+                            homeError = e.toUiText(),
                         )
                     }
                 }
@@ -76,7 +94,10 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
     fun loadTags(force: Boolean = false) {
         val state = _ui.value
         if (!force && (state.tagsLoaded || state.tagsLoading)) return
-        viewModelScope.launch {
+        // 强制刷新（重试）时取消上一轮：否则两轮并发遍历会同时压向站点，
+        // 且两次局部刷新互相覆盖，最终列表可能缺项。
+        tagsJob?.cancel()
+        tagsJob = viewModelScope.launch {
             _ui.update { it.copy(tagsLoading = true, tagsLoaded = false, tagsError = null) }
             val tagsResult = repository.tags()
             val tags = tagsResult.getOrDefault(emptyList()).take(MAX_TAGS)
@@ -85,9 +106,7 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
                     it.copy(
                         tagsLoading = false,
                         tagsLoaded = true,
-                        tagsError = UiText.DynamicString(
-                            tagsResult.exceptionOrNull()?.message ?: "",
-                        ),
+                        tagsError = tagsResult.exceptionOrNull().toUiTextOrUnknown(),
                     )
                 }
                 return@launch
@@ -102,18 +121,31 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
                 }
                 return@launch
             }
-            val sections = mutableListOf<TagSection>()
-            for (tag in tags) {
-                val books = repository.tagBooks(tag).getOrDefault(emptyList()).take(6)
-                if (books.isNotEmpty()) {
-                    sections.add(TagSection(tag, books))
-                    // 批量（每 4 个）再更新一次列表，避免每个标签都触发整列重组
-                    if (sections.size % 4 == 0) {
-                        _ui.update { it.copy(tagSections = sections.toList()) }
+            // 受控并发抓取（原来是 50 个标签串行 await，首屏要等数十秒）。
+            // 用 Slot 数组按标签原始下标落位，保证最终/中途的展示顺序都与 tags 一致；
+            // 每个标签完成即刻 update 一次状态，配合 LazyColumn 的 tag 作为 key，
+            // 只有新出现的行参与组合，不再像之前那样每 4 个全量 toList() 复制。
+            val slots = arrayOfNulls<TagSection>(tags.size)
+            val slotLock = Mutex()
+            coroutineScope {
+                val gate = Semaphore(TAG_FETCH_CONCURRENCY)
+                tags.forEachIndexed { index, tag ->
+                    launch {
+                        gate.withPermit {
+                            val books = repository.tagBooks(tag).getOrDefault(emptyList()).take(6)
+                            if (books.isEmpty()) return@withPermit
+                            // 在锁内同时改写槽位并发布状态：发布顺序与槽位写入严格一致，
+                            // tagSections 只会单调增长，不会因旧快照后到而"回退"少几行
+                            slotLock.withLock {
+                                slots[index] = TagSection(tag, books)
+                                val snapshot = slots.filterNotNull()
+                                _ui.update { it.copy(tagSections = snapshot) }
+                            }
+                        }
                     }
                 }
             }
-            _ui.update { it.copy(tagsLoading = false, tagsLoaded = true, tagSections = sections.toList()) }
+            _ui.update { it.copy(tagsLoading = false, tagsLoaded = true, tagSections = slots.filterNotNull()) }
         }
     }
 
@@ -130,7 +162,7 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
                     _ui.update {
                         it.copy(
                             searching = false,
-                            searchError = UiText.DynamicString(e.message ?: ""),
+                            searchError = e.toUiText(),
                         )
                     }
                 }

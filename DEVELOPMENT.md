@@ -25,11 +25,20 @@
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
 | minSdk / target / compile | 26 / 34 / 34 |
-| Gradle | Gradle 8.9，AGP 8.5.2（需 JDK 17） |
+| Gradle | Gradle 8.9（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 8.5.2 |
 
-关键 build 文件：`app/build.gradle.kts`。**项目根目录没有 gradlew wrapper**，命令行需用 Android Studio 自带 Gradle/JBR 构建（见 §9）。
+关键 build 文件：`app/build.gradle.kts`。用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
 
-AndroidManifest：仅声明 `INTERNET` 权限，`usesCleartextTraffic="true"`（兼容 http 图片）。无 FileProvider、无存储权限（下载走 MediaStore）。
+> ⚠️ **JDK 版本要求 17–21**：Gradle 8.9 不支持 Java 22+。若 `JAVA_HOME` 指向过新的 JDK（例如 25），构建会在启动阶段直接失败并只打印版本号（`What went wrong: 25.0.2`）。此时把 `JAVA_HOME` 指到 JDK 17/21（如 Android Studio 自带 JBR 或 `C:\Users\<用户>\.jdks\jbr-21.x`）即可：
+> ```powershell
+> $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"; $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
+> .\gradlew.bat :app:assembleDebug
+> ```
+
+AndroidManifest：声明 `INTERNET` / `VIBRATE` 权限。安全加固：
+- 明文流量改为 `networkSecurityConfig` **白名单**（仅 `app.wenku8.com` 保留 http —— 官方 App API 无 HTTPS 端点；封面/插图/站点页面本就都是 HTTPS），不再全局 `usesCleartextTraffic="true"`；
+- `allowBackup` 保留但通过 `fullBackupContent`（API ≤30）与 `dataExtractionRules`（API 31+）**排除 `account`/`cookies`/`library`**，避免凭据、会话 Cookie 与书架数据进入云备份或 `adb backup`；
+- 有 FileProvider（更新安装用 `cacheDir/updates/`）；无存储权限（下载走 MediaStore）。
 
 ---
 
@@ -105,32 +114,34 @@ Wenku8Reader/
 - **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
 - **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp 随机 Android UA，逐镜像尝试。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
-- **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。
+- **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。三者均带 **LRU 容量上限**（info 128 / toc 32 / chapter 64 条）：只有 TTL 时，长读一本书会让章节正文无限累积在内存里。
 - **本地磁盘缓存**（`data/local/HtmlDiskCache.kt`）：抓取内容按 URL 落盘到 `filesDir/html_cache`（卸载前持久），命中且未过期直接返回、避免二次加载；仅缓存非 CF 挑战/非登录页。TTL：首页 1h、详情/目录 7d、章节正文 30d、标签书单 1d；总量超 30MB 时按最旧优先清理。内存缓存（快）→ 磁盘缓存（持久）→ 网络，三级取数。
-- **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；`RATE_CODES = {403,429,500,502,503,504}` 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。搜索额外 5s 最小间隔，超频错误页自动等 5s 重试一次。
+- **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；`RATE_CODES = {403,429,500,502,503,504}` 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。搜索额外 5s 最小间隔；命中站点限流错误页时**有界重试**（最多 3 次、每次等 5s，超出即报错）——原实现是无上限的递归调用，站点持续限流时会一直挂着且无法取消。
+- **取消语义**：所有 `runCatching` 均改为「不吞 `CancellationException`」的封装（`Wenku8Client` / `Wenku8Repository`），否则页面被取消会被误判成"直连失败"，继续走 WebView/Cronet 绕过栈。
 - **搜索精确命中**：POST `/so.php`，302 到 `/book/{id}.htm` 时直接解析单书详情。
 - **Referer**：`refererFor()` 按请求自身 host 生成，镜像安全。
 
 ### 4.3 解析（`Parsers.kt`）
 纯正则（`java.util.regex.Pattern`）。注意：
 - `parseChapter`：用 `indexOf("<div id=\"content\">")` 到 `indexOf("<div id=\"footlink\"")` 截取正文（**不用正则**，防嵌套 div）；剥离 `<ul id="contentdp">` 水印；`<br>/</p>` → `\n`；去标签；实体解码；`\u3000` → 两个半角；按行 trim、合并连续空行。
-- `splitFullTxt(txt, volumes)`：用目录树生成期望章节头（`卷名 章节名`），在 TXT 行里按序二分定位切分章节，用于 EPUB 生成。
+- `splitFullTxt(txt, volumes)`：用目录树生成期望章节头（`卷名 章节名`），在 TXT 行里**一次遍历、按行号游标线性定位**并切分章节，用于 EPUB 生成（相比"每行 trim 两次 + 文本→行号全量 map"，8MB/1000 章实测 53ms→38ms、55MB→43MB）。
 - `parseBookcase`：按 `bid` 分组，无 `cid` 链接为书名、有 `cid` 为最新章节。
-- `parseHomepage` / `parseTags` / `parseBookList`：首页 `<div class="block">` 切块、标签、书籍列表。
+- `parseHomepage` / `parseBookList`：首页 `<div class="block">` 切块、书籍列表（两者共用 `homeBookAt` 解析条目；封面统一经 `absolutizeCover` 补全域名）。
+  > 注：`parseTags` 已删除——标签来源改为内置清单 `BUILT_IN_TAGS`，不再抓取页面。
 
 ### 4.4 Cookie（`CookieStore.kt`）
 实现 `okhttp3.CookieJar`，登录成功后 `persist()` 落盘；`cronetGet`/`webViewGet` 手动拼 `Cookie` 头。
 
 ### 4.5 下载（`DownloadEngine` / `FileSaver` / `EpubBuilder`）
-- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags` 支持取消。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 先取全本 TXT 用 `splitFullTxt` 切章（成功率 <60% 回退逐章），再 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml）。
+- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 先取全本 TXT 用 `splitFullTxt` 切章（成功率 <60% 回退逐章），再 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml；章节 id/文件名统一 `%04d`；uid 取书名+作者 SHA-256 前 8 字节，避免中文书名退化成同一个 uid；`dcterms:modified` 用构建时刻）。
 - `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。
 
 ### 4.6 本地存储
-- `AppPreferences`（prefs：`account`/`reading`/`ui`）：账号明文凭据；每书 `progress_{bookId}` = 当前 cid；`progress_pos_/progress_total_` = 章节位置；书柜排序；**章节完成状态** `finished_{bookId}` = JSONArray(cid)（目录页"已读"标记 + 重读重置）。
-- `ReaderSettings`（prefs：`settings`）：**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题与阅读器。所有 setter 均先更新内存 StateFlow 再写 SharedPreferences（`emit()`）。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
-- `LocalLibraryStore`（prefs：`library`）：本地书架快照（JSONArray 序列化 `LibraryBook`）。
+- `AppPreferences`（prefs：`reading`/`ui`）：**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。每书 `progress_{bookId}` = 当前 cid；`progress_total_{bookId}` = 总章节数（书架进度用）；书柜排序；**章节完成状态** `finished_{bookId}` = JSONArray(cid)（目录页"已读"标记 + 重读重置）。
+- `ReaderSettings`（prefs：`settings`）：**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题与阅读器。所有 setter 均先更新内存 StateFlow 再写 SharedPreferences（`emit()`，**只写发生变化的 key**——原实现每次全量重写 30+ 个 key，Slider 拖动时每帧都在全量落盘）。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
+- `LocalLibraryStore`（prefs：`library`）：本地书架快照（JSONArray 序列化 `LibraryBook`）。**只存书目与入架信息**——阅读进度统一由 `AppPreferences` 承担，避免两套并行存储必然不一致。读取走内存缓存（`contains`/`all` 在详情页与书架页高频调用，原先每次都全量 JSON 解析）。
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
-- `DefaultAccount`：内置账号（`技术性文档(只读勿动)/wenku8account.txt`），首启静默登录保证未登录也能读内容。
+- `DefaultAccount`：**内置共享账号，本应用唯一且全程使用的账号**——不提供登录/退出/切换入口，首启与切换镜像时静默登录。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录）。
 
 ### 4.7 阅读统计（`ReadingStatsStore` / `ui/stats/`）
 - **埋点**：`ReaderScreen` 内 `ReadingTimeTracker`——仅应用前台（Lifecycle RESUMED）且正文可见时累计，每 60s 整段写入并持久化，退出阅读器时冲刷余量（不丢最后不足 60s 的阅读）；1s 定时器仅在组合期内存在，开销可忽略。
@@ -144,6 +155,12 @@ Wenku8Reader/
 - **目录页**：`toc/{id}` 路由 → `TocScreen`（独立二级页）：分卷可折叠（`AnimatedVisibility`），**默认全部展开、全卷已读自动折叠**，顶栏可全部展开/折叠；已读章节灰色 + "已读"标记，当前章节主题色加粗；点章节 → `reader/{id}?cid=...`（阅读器新增可选 `cid` 起始章节参数）。
 - **章节完成状态**：`AppPreferences.finishedChapters(bookId)`（JSONArray）；阅读器读至章节 100%（页模式最后一页 / 滚动模式到底，`snapshotFlow` 检测）→ `markChapterFinished`；**重读重置**：`loadChapter` 进入已完成章节时立即 `resetChapterFinished`（回到未完成），再次读完才恢复"已读"。仅章节级，不影响书级统计。
 - **书架已读统计**：`BookcaseEntry.readCount = finishedChapters(bookId).size`（与目录页"已读"同源），进度条 = 已读/总数（原为阅读位置 `(pos+1)/total`，已改为基于目录已读标记）。
+
+### 4.9 应用内更新（`UpdateChecker` / `UpdateCenter` / `ui/update/`）
+- **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表首个带 APK 的发布。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准 `yyyymmddHH`），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。启动自动检查有 24h 节流。
+- **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；`OkHttpClient` **显式设置连接/读写/整体超时**（默认无超时会长期挂起且无取消点）。
+- **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
+- **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。
 
 ---
 

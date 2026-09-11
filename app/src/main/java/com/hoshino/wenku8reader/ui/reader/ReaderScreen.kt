@@ -3,8 +3,6 @@ package com.hoshino.wenku8reader.ui.reader
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.Intent
-import android.content.IntentFilter
 import android.os.BatteryManager
 import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedVisibility
@@ -111,6 +109,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.ChapterContent
+import com.hoshino.wenku8reader.data.Wenku8Hosts
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
@@ -124,6 +123,64 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+
+// ------------------------------------------------------------------ //
+// 常量：集中定义便于统一调整，避免同一口径的数字散落多处而漂移
+// ------------------------------------------------------------------ //
+
+/** 正文上下预留边距：必须不小于顶栏/底栏与状态指示器占位，否则会遮住文字。 */
+private val CONTENT_TOP_INSET = 64.dp
+private val CONTENT_BOTTOM_INSET = 80.dp
+
+/** 阅读进度整数口径的"完成"阈值（100%）。 */
+private const val PROGRESS_COMPLETE_PERCENT = 100
+
+/** 状态指示器（电量/时钟）刷新间隔：30 秒足够，且避免过频唤醒。 */
+private const val BATTERY_CLOCK_REFRESH_MS = 30_000L
+
+/** 电量读取失败时的兜底百分比（沿用旧逻辑：读不到按满电显示）。 */
+private const val BATTERY_FALLBACK_PERCENT = 100
+
+/** 阅读时长计时器滴答间隔（毫秒）与每次累加的秒数，两者必须一致以免统计漂移。 */
+private const val READING_TICK_MS = 5_000L
+private const val READING_TICK_SECONDS = 5L
+
+/** 阅读时长落盘阈值：累计满 60 秒才写一次，降低 I/O 与重组开销。 */
+private const val READING_FLUSH_SECONDS = 60L
+
+/**
+ * 阅读进度整数百分比（0..100）：翻页模式取「当前页/总页数」，滚动模式取滚动比例。
+ *
+ * 抽成普通函数（而非 @Composable）是为了让组合期与 [snapshotFlow] 内部共用同一口径，
+ * 避免同一段三分支逻辑在多处重复、口径各自漂移。
+ */
+private fun readingPercentOf(
+    pageMode: Boolean,
+    currentPage: Int,
+    pageCount: Int,
+    scrollValue: Int,
+    scrollMaxValue: Int,
+): Int = if (pageMode) {
+    if (pageCount > 0) (currentPage + 1) * 100 / pageCount else 0
+} else {
+    if (scrollMaxValue > 0) scrollValue * 100 / scrollMaxValue else 0
+}
+
+/**
+ * 阅读进度比例（0f..1f）：翻页模式按页索引跨度，滚动模式按滚动比例；供底部进度条 Slider 使用。
+ * 与 [readingPercentOf] 同源，保证指示器数值与可拖动进度条始终一致。
+ */
+private fun readingFractionOf(
+    pageMode: Boolean,
+    currentPage: Int,
+    pageCount: Int,
+    scrollValue: Int,
+    scrollMaxValue: Int,
+): Float = if (pageMode) {
+    if (pageCount > 1) currentPage.toFloat() / (pageCount - 1) else 0f
+} else {
+    if (scrollMaxValue > 0) scrollValue.toFloat() / scrollMaxValue else 0f
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -229,12 +286,17 @@ fun ReaderScreen(
 
             val contentPadding = if (rs.autoPadding) {
                 // 固定边距，与是否沉浸无关，保证分页与阅读位置稳定。
-                PaddingValues(top = 64.dp, bottom = 80.dp, start = 16.dp, end = 16.dp)
+                PaddingValues(
+                    top = CONTENT_TOP_INSET,
+                    bottom = CONTENT_BOTTOM_INSET,
+                    start = 16.dp,
+                    end = 16.dp,
+                )
             } else {
                 // 手动边距也不得小于顶栏/底栏与状态指示器占位，避免遮住文字。
                 PaddingValues(
-                    top = maxOf(64.dp, rs.topPadding.dp),
-                    bottom = maxOf(80.dp, rs.bottomPadding.dp),
+                    top = maxOf(CONTENT_TOP_INSET, rs.topPadding.dp),
+                    bottom = maxOf(CONTENT_BOTTOM_INSET, rs.bottomPadding.dp),
                     start = rs.leftPadding.dp,
                     end = rs.rightPadding.dp,
                 )
@@ -279,7 +341,30 @@ fun ReaderScreen(
                 scrollState.scrollTo(0)
                 pagerState.scrollToPage(0)
             }
-            LaunchedEffect(pageMode) { if (pageMode) pagerState.scrollToPage(0) }
+
+            // 模式切换不丢进度：滚动模式下持续记录进度比例（不参与组合读取，故不会引起重组），
+            // 切回翻页模式时先记下比例，等分页结果就绪后再反推目标页落位
+            //（分页是异步的，切换瞬间 pagedChapters 仍为空，无法立即跳页）。
+            var scrollRatioForRestore by remember { mutableStateOf(0f) }
+            LaunchedEffect(pageMode) {
+                if (pageMode) return@LaunchedEffect
+                snapshotFlow {
+                    if (scrollState.maxValue > 0) {
+                        scrollState.value.toFloat() / scrollState.maxValue
+                    } else {
+                        0f
+                    }
+                }.distinctUntilChanged().collect { scrollRatioForRestore = it }
+            }
+            LaunchedEffect(pageMode, pagedChapters.size) {
+                val ratio = scrollRatioForRestore
+                if (!pageMode || pagedChapters.isEmpty() || ratio <= 0f) return@LaunchedEffect
+                // 用后立即清零：后续改字号等触发重新分页时不得再跳回旧位置
+                scrollRatioForRestore = 0f
+                pagerState.scrollToPage(
+                    (ratio * pagedChapters.size).toInt().coerceIn(0, pagedChapters.lastIndex),
+                )
+            }
 
             // ---- volume key turn ----
             val turnPage: (Int) -> Unit = { delta ->
@@ -288,9 +373,14 @@ fun ReaderScreen(
                         if (pagedChapters.isEmpty()) return@launch
                         val target = pagerState.currentPage + delta
                         when {
-                            target in 0 until pagedChapters.size -> pagerState.animateScrollToPage(target)
-                            delta > 0 -> if (rs.autoNextChapter) next?.let { vm.loadChapter(it.cid) }
-                            delta < 0 -> prev?.let { vm.loadChapter(it.cid) }
+                            target in 0 until pagedChapters.size ->
+                                pagerState.animateScrollToPage(target)
+
+                            delta > 0 ->
+                                if (rs.autoNextChapter) next?.let { vm.loadChapter(it.cid) }
+
+                            delta < 0 ->
+                                prev?.let { vm.loadChapter(it.cid) }
                         }
                     } else if (!pageMode) {
                         val step = (scrollState.viewportSize * 0.85f * delta).toInt()
@@ -300,14 +390,18 @@ fun ReaderScreen(
                     }
                 }
             }
+            // 音量键回调在组合之外被 MainActivity 调用，必须经 rememberUpdatedState 转发，
+            // 否则单例会长期持有过期的 turnPage 闭包（读到旧的页号/章节）。
             val currentTurnPage by rememberUpdatedState(turnPage)
-            LaunchedEffect(rs.volumeKeyTurnPage) {
-                VolumeKeyTurn.enabled = rs.volumeKeyTurnPage
-                // 音量键约定：上键 = 上一页，下键 = 下一页（与常见阅读器一致）
-                VolumeKeyTurn.onVolumeUp = { currentTurnPage(-1) }
-                VolumeKeyTurn.onVolumeDown = { currentTurnPage(1) }
-            }
-            DisposableEffect(Unit) {
+            // 注册与清理集中在同一个 DisposableEffect：设置关闭或退出阅读器时，
+            // 由同一处把 enabled 与两个回调一起清空，避免残留闭包继续吞掉音量键。
+            DisposableEffect(rs.volumeKeyTurnPage) {
+                if (rs.volumeKeyTurnPage) {
+                    // 音量键约定：上键 = 上一页，下键 = 下一页（与常见阅读器一致）
+                    VolumeKeyTurn.onVolumeUp = { currentTurnPage(-1) }
+                    VolumeKeyTurn.onVolumeDown = { currentTurnPage(1) }
+                    VolumeKeyTurn.enabled = true
+                }
                 onDispose {
                     VolumeKeyTurn.enabled = false
                     VolumeKeyTurn.onVolumeUp = null
@@ -359,7 +453,9 @@ fun ReaderScreen(
                                 offset.x > w * 2f / 3f ->
                                     if (pageMode && rs.clickTurnPage) currentTurnPage(if (rtl) -1 else 1)
                                     else immersive = true
-                                else -> immersive = !immersive
+
+                                else ->
+                                    immersive = !immersive
                             }
                         }
                     },
@@ -416,7 +512,7 @@ fun ReaderScreen(
                                         is ReaderPage.Image -> SubcomposeAsyncImage(
                                             model = ImageRequest.Builder(context)
                                                 .data(page.url)
-                                                .setHeader("Referer", "https://www.wenku8.net/")
+                                                .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
                                                 .crossfade(true)
                                                 .build(),
                                             contentDescription = stringResource(R.string.reader_illustration),
@@ -432,17 +528,19 @@ fun ReaderScreen(
                                 }
                             }
                         } else {
+                            // 参数列表内不内嵌 stringResource 调用，避免多行嵌套难以阅读
+                            val positionText = stringResource(
+                                R.string.reader_chapter_position,
+                                (idx + 1).coerceAtLeast(0),
+                                ui.flatChapters.size,
+                            )
                             ScrollContent(
                                 chapter = chapter,
                                 rs = rs,
                                 textColor = textColor,
                                 scrollState = scrollState,
                                 paddingValues = contentPadding,
-                                positionText = stringResource(
-                                    R.string.reader_chapter_position,
-                                    (idx + 1).coerceAtLeast(0),
-                                    ui.flatChapters.size,
-                                ),
+                                positionText = positionText,
                             )
                         }
                     }
@@ -456,19 +554,24 @@ fun ReaderScreen(
                     )
                 }
 
-                // 章节读完检测：翻到最后一页（页模式）或滚动到底（滚动模式）→ 标记"已读"
-                LaunchedEffect(ui.currentCid) {
+                // 章节读完检测：翻到最后一页（页模式）或滚动到底（滚动模式）→ 标记"已读"。
+                // snapshotFlow 只派生"是否已到末尾"这一布尔值：滚动模式下滚动位置每帧都在变，
+                // 若直接发射数值会按 60Hz 触发收集端；布尔化（配合 distinctUntilChanged）
+                // 使其只在"读完状态"翻转时发射一次。
+                // pageMode 作为 key：模式切换后必须用新口径重新监听。
+                LaunchedEffect(ui.currentCid, pageMode) {
                     val finishCid = ui.currentCid ?: return@LaunchedEffect
                     snapshotFlow {
-                        if (pageMode) {
-                            if (pagedChapters.isEmpty()) 0
-                            else (pagerState.currentPage + 1) * 100 / pagedChapters.size
-                        } else {
-                            if (scrollState.maxValue > 0) scrollState.value * 100 / scrollState.maxValue else 0
-                        }
-                    }.distinctUntilChanged().collect { percent ->
-                        if (percent >= 100) vm.markChapterFinished(finishCid)
+                        readingPercentOf(
+                            pageMode = pageMode,
+                            currentPage = pagerState.currentPage,
+                            pageCount = pagedChapters.size,
+                            scrollValue = scrollState.value,
+                            scrollMaxValue = scrollState.maxValue,
+                        ) >= PROGRESS_COMPLETE_PERCENT
                     }
+                        .distinctUntilChanged()
+                        .collect { finished -> if (finished) vm.markChapterFinished(finishCid) }
                 }
 
                 // status indicator: shown only in immersive, at the very bottom
@@ -478,14 +581,16 @@ fun ReaderScreen(
                     enter = expandVertically(),
                     exit = shrinkVertically(),
                 ) {
-                    val readingPercent = if (pageMode) {
-                        if (pagedChapters.isNotEmpty()) (pagerState.currentPage + 1) * 100 / pagedChapters.size else 0
-                    } else {
-                        if (scrollState.maxValue > 0) scrollState.value * 100 / scrollState.maxValue else 0
-                    }
+                    val progressPercent = readingPercentOf(
+                        pageMode = pageMode,
+                        currentPage = pagerState.currentPage,
+                        pageCount = pagedChapters.size,
+                        scrollValue = scrollState.value,
+                        scrollMaxValue = scrollState.maxValue,
+                    )
                     IndicatorBar(
                         title = chapter?.title ?: "",
-                        progressPercent = readingPercent,
+                        progressPercent = progressPercent,
                         color = textColor.copy(alpha = 0.7f),
                     )
                 }
@@ -495,15 +600,17 @@ fun ReaderScreen(
                     visible = !immersive,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 80.dp),
+                        .padding(bottom = CONTENT_BOTTOM_INSET),
                     enter = expandVertically(),
                     exit = shrinkVertically(),
                 ) {
-                    val chapterProgress = if (pageMode) {
-                        if (pagedChapters.size > 1) pagerState.currentPage.toFloat() / (pagedChapters.size - 1) else 0f
-                    } else {
-                        if (scrollState.maxValue > 0) scrollState.value.toFloat() / scrollState.maxValue else 0f
-                    }
+                    val chapterProgress = readingFractionOf(
+                        pageMode = pageMode,
+                        currentPage = pagerState.currentPage,
+                        pageCount = pagedChapters.size,
+                        scrollValue = scrollState.value,
+                        scrollMaxValue = scrollState.maxValue,
+                    )
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -544,10 +651,20 @@ fun ReaderScreen(
 
     // ---- immersive auto-trigger on scroll ----
     LaunchedEffect(scrollState) {
-        snapshotFlow { scrollState.value }
-            .drop(1)
-            .collect {
-                if (System.currentTimeMillis() > suppressImmersiveUntil) immersive = true
+        // 布尔派生 + distinctUntilChanged：只在"是否已滚动"翻转时发射一次，
+        // 避免滚动模式下每帧（60Hz）重复写入 immersive（值不变属于无效工作）。
+        snapshotFlow { scrollState.value > 0 }
+            .distinctUntilChanged()
+            .collect { scrolled ->
+                if (!scrolled) return@collect
+                // 章节切换后会短暂抑制，拖动进度条时抑制窗口还会被持续续期：
+                // 只能等到窗口真正结束（而不是固定延时一次），否则可能在用户操作中突然进入沉浸。
+                while (true) {
+                    val remaining = suppressImmersiveUntil - System.currentTimeMillis()
+                    if (remaining <= 0L) break
+                    delay(remaining)
+                }
+                immersive = true
             }
     }
 
@@ -672,7 +789,7 @@ private fun IndicatorBar(
         while (true) {
             batteryPercent = readBattery(context)
             now = System.currentTimeMillis()
-            delay(30_000)
+            delay(BATTERY_CLOCK_REFRESH_MS)
         }
     }
     val timeText = remember(now) { DateFormat.getTimeFormat(context).format(Date(now)) }
@@ -766,7 +883,7 @@ private fun ScrollContent(
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(url)
-                        .setHeader("Referer", "https://www.wenku8.net/")
+                        .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
                         .crossfade(true)
                         .build(),
                     contentDescription = stringResource(R.string.reader_illustration),
@@ -1108,11 +1225,12 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 private fun readBattery(context: Context): Int {
-    val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        ?: return 100
-    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-    return if (level >= 0 && scale > 0) level * 100 / scale else 100
+    // 改用 BatteryManager.getIntProperty 直接读取系统服务中缓存的电量属性（无广播 IPC），
+    // 替代原先 registerReceiver(null, ACTION_BATTERY_CHANGED) 的同步粘性广播读取，
+    // 避免在 remember 初值与每 30 秒轮询时于主线程做一次进程间通信。
+    val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+    val capacity = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+    return if (capacity in 0..100) capacity else BATTERY_FALLBACK_PERCENT
 }
 
 // ------------------------------------------------------------------ //
@@ -1135,16 +1253,19 @@ private fun ReadingTimeTracker(
     if (bookId <= 0) return
     val lifecycleOwner = LocalLifecycleOwner.current
     var pendingSeconds by remember { mutableLongStateOf(0L) }
+    // 书名可能在阅读器打开后由 openReader() 回填（首帧为空），
+    // 用 rememberUpdatedState 取最新值，避免 LaunchedEffect(bookId) 的闭包长期写入空书名。
+    val currentBookName by rememberUpdatedState(bookName)
 
     // 功耗优化：每 5s 计一次（每次累加 5s），较原 1s 滴答减少 5 倍 CPU 唤醒；
     // 仍满足「分钟级 + 向上取整」的统计精度。
     LaunchedEffect(bookId) {
         while (true) {
-            delay(5000)
+            delay(READING_TICK_MS)
             if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                pendingSeconds += 5
-                if (pendingSeconds >= 60) {
-                    store.addSeconds(bookId, bookName, pendingSeconds)
+                pendingSeconds += READING_TICK_SECONDS
+                if (pendingSeconds >= READING_FLUSH_SECONDS) {
+                    store.addSeconds(bookId, currentBookName, pendingSeconds)
                     store.persist()
                     pendingSeconds = 0
                 }
@@ -1156,7 +1277,7 @@ private fun ReadingTimeTracker(
         onDispose {
             // 冲刷余量，避免退出阅读器时丢失最后不足 60 秒的阅读
             if (pendingSeconds > 0) {
-                store.addSeconds(bookId, bookName, pendingSeconds)
+                store.addSeconds(bookId, currentBookName, pendingSeconds)
                 store.persist()
             }
         }

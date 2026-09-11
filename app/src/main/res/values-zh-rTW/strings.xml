@@ -53,6 +53,7 @@
     <string name="update_up_to_date">已是最新版本</string>
     <string name="update_none">暫無可用更新</string>
     <string name="update_check_failed">檢查更新失敗：%1$s</string>
+    <string name="update_signature_mismatch">更新包簽章驗證未通過，已阻止安裝（檔案可能被第三方鏡像篡改）</string>
 
     <!-- 底部導覽 -->
     <string name="tab_explore">探索</string>
@@ -170,11 +171,14 @@
     <string name="error_book_info">書籍資訊載入失敗，請重試</string>
     <string name="error_chapter_index">章節目錄載入失敗，請重試</string>
     <string name="error_chapter_load">章節載入失敗，請重試</string>
+    <string name="error_unknown">操作失敗，請重試</string>
+    <string name="error_with_detail">操作失敗：%1$s</string>
 
     <!-- 設定 -->
     <string name="settings_section_account">帳號</string>
     <string name="settings_builtin_account">內建帳戶</string>
     <string name="settings_builtin_account_hint">使用內建帳戶存取內容</string>
+    <string name="settings_account_builtin_desc">應用全程使用內建共享帳號，無需登入或切換</string>
     <string name="settings_section_appearance">外觀</string>
     <string name="settings_section_general">一般</string>
     <string name="settings_section_reading">閱讀設定</string>

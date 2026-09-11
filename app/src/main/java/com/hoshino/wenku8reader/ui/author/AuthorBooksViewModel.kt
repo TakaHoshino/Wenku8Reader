@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.hoshino.wenku8reader.data.SearchResult
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
+import com.hoshino.wenku8reader.ui.common.toUiText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,7 +47,7 @@ class AuthorBooksViewModel(
                     _ui.update {
                         it.copy(
                             loading = false,
-                            error = UiText.DynamicString(e.message ?: ""),
+                            error = e.toUiText(),
                         )
                     }
                 }

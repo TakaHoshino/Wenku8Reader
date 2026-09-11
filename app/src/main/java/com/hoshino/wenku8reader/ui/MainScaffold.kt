@@ -77,6 +77,9 @@ private val TABS = listOf(
     TabDest(R.string.tab_settings, Icons.Filled.Settings, Icons.Outlined.Settings),
 )
 
+/** 启动更新检查的延迟：等首屏稳定后再发起，避免与启动渲染/首屏请求竞争网络与主线程。 */
+private const val STARTUP_UPDATE_CHECK_DELAY_MS = 2000L
+
 /**
  * 应用外壳。参考 SukiSU-Ultra：
  * - 主界面三个 Tab 用 HorizontalPager 承载，底栏点击以弹簧动画滑动切换（[MainPagerState]）；
@@ -100,11 +103,13 @@ fun MainScaffold() {
     // 启动时按设置检查更新（静默，有新版本才弹窗）
     val appContext = LocalContext.current.applicationContext as Wenku8Application
     val container = appContext.container
-    val settings by container.readerSettings.flow.collectAsStateWithLifecycle()
     val updateState by container.updateCenter.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
-        delay(4000) // 等首屏稳定后再检查，避免与启动竞争
-        if (settings.checkUpdatesOnStartup) {
+        delay(STARTUP_UPDATE_CHECK_DELAY_MS)
+        // 必须读取**最新**的设置值：原实现在此读取的是 LaunchedEffect(Unit) 首次组合时
+        // 捕获的旧快照，导致用户在延迟窗口内关掉「启动检查」仍会被检查（反之亦然）。
+        // 更新中心自身还有 24h 节流（见 UpdateCenter.check），此处延迟只为避让首屏竞争。
+        if (container.readerSettings.flow.value.checkUpdatesOnStartup) {
             container.updateCenter.check(manual = false)
         }
     }
@@ -268,7 +273,10 @@ private fun MainPagerScreen(
 ) {
     HorizontalPager(
         state = pagerState,
-        beyondViewportPageCount = 2,
+        // 只预组合相邻 1 页：原值 2 会让三个主 Tab 在启动瞬间**同时组合**，
+        // Explore/Bookcase/Settings 的 LaunchedEffect 与 ViewModel 一并初始化
+        //（含书架的全量 JSON 读取与设置页的缓存统计），明显拖慢冷启动。
+        beyondViewportPageCount = 1,
     ) { page ->
         when (page) {
             0 -> ExplorePage(
@@ -287,6 +295,8 @@ private fun MainPagerScreen(
                 onOpenDownloads = onOpenDownloads,
                 onOpenAbout = onOpenAbout,
             )
+            // 显式兜底：新增 Tab 时若忘记补分支，这里会立刻暴露而不是静默渲染空白页
+            else -> error("未知的 Tab 索引：$page（TABS 与 when 分支不一致）")
         }
     }
 }

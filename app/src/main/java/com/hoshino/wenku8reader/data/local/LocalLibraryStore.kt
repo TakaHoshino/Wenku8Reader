@@ -5,82 +5,87 @@ import com.hoshino.wenku8reader.data.BookInfo
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** One entry in the on-device bookshelf. */
+/**
+ * One entry in the on-device bookshelf.
+ *
+ * 说明：这里**只保存书目快照与入架信息**。阅读进度（上次章节、已读章节、进度位置）
+ * 的唯一事实来源是 [AppPreferences]（`reading` 偏好）。此前本类还保存
+ * `lastReadCid/progressPos/progressTotal` 并在 `add()` 时"保留旧值"，
+ * 但那套数据从未被读取、也从不与 `reading` 同步，属于必然长期不一致的第二套存储，已移除。
+ */
 data class LibraryBook(
     val book: BookInfo,
     val shelf: String = "默认",
-    val lastReadCid: String? = null,
-    val progressPos: Int = 0,
-    val progressTotal: Int = 0,
     val addedAt: Long = 0L,
 )
 
 /**
  * On-device bookshelf backed by SharedPreferences. Stores a snapshot of each
- * book's details plus the local reading progress.
+ * book's details so the shelf renders offline without hitting the network.
+ *
+ * 读取走内存缓存：`contains`/`all` 在详情页与书架页高频调用，而 SharedPreferences
+ * 里存的是整份 JSON，每次调用都重新全量解析（百本规模下开销明显）。
+ * 写操作在落盘的同时同步更新缓存，因此不会出现「写完再读要重新解析」的浪费。
  */
 class LocalLibraryStore(context: Context) {
 
     private val prefs = context.getSharedPreferences("library", Context.MODE_PRIVATE)
 
-    fun all(): List<LibraryBook> = load()
+    /** 解析结果缓存；null 表示尚未加载。 */
+    @Volatile
+    private var cache: Map<Int, LibraryBook>? = null
 
-    fun contains(bookId: Int): Boolean = load().any { it.book.id == bookId }
+    fun all(): List<LibraryBook> = snapshot().values.toList()
 
-    /** Adds the book, preserving an existing entry's shelf and progress. */
+    fun contains(bookId: Int): Boolean = bookId in snapshot()
+
+    /** Adds the book, preserving an existing entry's shelf and added-time. */
+    @Synchronized
     fun add(book: BookInfo, shelf: String = "默认") {
-        val map = loadMap()
+        val map = snapshot().toMutableMap()
         val prev = map[book.id]
         map[book.id] = LibraryBook(
             book = book,
             shelf = shelf,
-            lastReadCid = prev?.lastReadCid,
-            progressPos = prev?.progressPos ?: 0,
-            progressTotal = prev?.progressTotal ?: 0,
             addedAt = prev?.addedAt ?: System.currentTimeMillis(),
         )
         save(map)
     }
 
-    /** Adds the book only if it is not already present. */
-    fun ensure(book: BookInfo) {
-        val map = loadMap()
-        if (book.id in map) return
-        map[book.id] = LibraryBook(book = book, addedAt = System.currentTimeMillis())
-        save(map)
-    }
-
-    fun updateProgress(bookId: Int, cid: String, pos: Int, total: Int) {
-        val map = loadMap()
-        val cur = map[bookId] ?: return
-        map[bookId] = cur.copy(lastReadCid = cid, progressPos = pos, progressTotal = total)
-        save(map)
-    }
-
+    @Synchronized
     fun remove(bookId: Int) {
-        val map = loadMap()
-        map.remove(bookId)
+        val map = snapshot().toMutableMap()
+        if (map.remove(bookId) == null) return
         save(map)
     }
 
     // ------------------------------------------------------------------ //
-    private fun loadMap(): MutableMap<Int, LibraryBook> =
-        load().associateBy { it.book.id }.toMutableMap()
 
-    private fun load(): List<LibraryBook> {
-        val raw = prefs.getString("data", null) ?: return emptyList()
+    private fun snapshot(): Map<Int, LibraryBook> =
+        cache ?: synchronized(this) {
+            cache ?: parse().also { cache = it }
+        }
+
+    private fun parse(): Map<Int, LibraryBook> {
+        val raw = prefs.getString("data", null) ?: return emptyMap()
         return runCatching {
             val arr = JSONArray(raw)
-            (0 until arr.length()).mapNotNull { i ->
-                arr.optJSONObject(i)?.let { fromJson(it) }
+            val out = LinkedHashMap<Int, LibraryBook>(arr.length())
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val entry = fromJson(o)
+                out[entry.book.id] = entry
             }
-        }.getOrDefault(emptyList())
+            out
+        }.getOrDefault(emptyMap())
     }
 
+    /** 落盘并同步刷新内存缓存（两者始终一致）。 */
     private fun save(map: Map<Int, LibraryBook>) {
         val arr = JSONArray()
         map.values.forEach { arr.put(toJson(it)) }
         prefs.edit().putString("data", arr.toString()).apply()
+        cache = map
     }
 
     private fun toJson(b: LibraryBook): JSONObject = JSONObject()
@@ -95,9 +100,6 @@ class LocalLibraryStore(context: Context) {
         .put("gid", b.book.groupId ?: -1)
         .put("tags", JSONArray(b.book.tags))
         .put("shelf", b.shelf)
-        .put("cid", b.lastReadCid)
-        .put("pos", b.progressPos)
-        .put("total", b.progressTotal)
         .put("time", b.addedAt)
 
     private fun fromJson(o: JSONObject): LibraryBook {
@@ -121,9 +123,6 @@ class LocalLibraryStore(context: Context) {
                 tags = tags,
             ),
             shelf = o.optString("shelf", "默认"),
-            lastReadCid = o.optString("cid").ifEmpty { null },
-            progressPos = o.optInt("pos"),
-            progressTotal = o.optInt("total"),
             addedAt = o.optLong("time"),
         )
     }

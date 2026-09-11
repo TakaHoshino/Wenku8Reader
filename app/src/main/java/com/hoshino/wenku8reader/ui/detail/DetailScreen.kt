@@ -102,6 +102,11 @@ fun DetailScreen(
         }
     }
 
+    // 进入组合（含从阅读器返回后重新进入）时刷新本地状态：
+    // 「是否已在书架 / 是否有进度」由 ViewModel 在 IO 线程读存储后写进 state，
+    // 组合期只读 state，避免每次重组都做一次 SharedPreferences 读取。
+    LaunchedEffect(Unit) { vm.refreshLocalState() }
+
     val scrollBehavior = androidx.compose.material3.TopAppBarDefaults
         .exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
@@ -239,7 +244,7 @@ fun DetailScreen(
                             Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text(stringResource(
-                                if (vm.hasProgress()) R.string.detail_continue_reading
+                                if (ui.hasProgress) R.string.detail_continue_reading
                                 else R.string.detail_start_reading
                             ))
                         }

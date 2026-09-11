@@ -106,4 +106,8 @@ dependencies {
     implementation("com.github.houbb:opencc4j:1.14.0")
     implementation("org.chromium.net:cronet-embedded:119.6045.31")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // 本地单元测试：Parsers / UpdateChecker.isNewer 等纯逻辑（无 Android 依赖）在此覆盖。
+    // 这两处是历史上 bug 最密集、且最容易在重构中悄悄回归的区域。
+    testImplementation("junit:junit:4.13.2")
 }

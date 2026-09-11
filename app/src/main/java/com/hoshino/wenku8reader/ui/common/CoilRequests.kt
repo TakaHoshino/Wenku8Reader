@@ -1,5 +1,6 @@
 package com.hoshino.wenku8reader.ui.common
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +16,27 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.hoshino.wenku8reader.data.Wenku8Hosts
+
+/**
+ * 封面图片请求（非 Composable 版本，供列表预取等场景复用）。
+ *
+ * Referer 取自 [Wenku8Hosts.IMAGE_REFERER] 这一单一来源：此前各处硬编码
+ * `https://www.wenku8.net/`，与用户可切换的默认主站（`.cc`）不一致，
+ * 主镜像变更后语义就错了。尺寸以像素给出，交给 Coil 按目标尺寸解码。
+ */
+fun coverImageRequest(
+    context: Context,
+    url: String?,
+    widthPx: Int,
+    heightPx: Int,
+    crossfade: Boolean = false,
+): ImageRequest = ImageRequest.Builder(context)
+    .data(url)
+    .size(widthPx, heightPx)
+    .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
+    .apply { if (crossfade) crossfade(true) }
+    .build()
 
 /**
  * 带防盗链 Referer 的封面图片请求。
@@ -36,12 +58,7 @@ fun rememberCoverRequest(
     val w = with(density) { width.roundToPx() }
     val h = with(density) { height.roundToPx() }
     return remember(url, w, h, crossfade) {
-        ImageRequest.Builder(context)
-            .data(url)
-            .size(w, h)
-            .setHeader("Referer", "https://www.wenku8.net/")
-            .apply { if (crossfade) crossfade(true) }
-            .build()
+        coverImageRequest(context, url, w, h, crossfade)
     }
 }
 

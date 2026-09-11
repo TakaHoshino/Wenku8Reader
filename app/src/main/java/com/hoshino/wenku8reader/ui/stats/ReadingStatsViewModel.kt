@@ -52,8 +52,6 @@ data class ReadingStatsUiState(
     val weekMinutes: Int = 0,
     /** 连续阅读天数（从今天起向前连续有记录的自然日数）。 */
     val streakDays: Int = 0,
-    /** 范围内有记录的天数（用于日均计算）。 */
-    val activeDays: Int = 0,
     /** 每日分钟数 = 总分钟 / 活跃天数（无记录为 0）。 */
     val avgDailyMinutes: Int = 0,
     /** 书籍在所选范围内的累计分钟数（降序）。 */
@@ -157,6 +155,7 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
             streak++
             cursor = cursor.minusDays(1)
         }
+        // 活跃天数：只参与日均计算，UI 不读取，故不进 UiState（避免死字段）
         val activeDays = daySeconds.size
 
         return ReadingStatsUiState(
@@ -166,7 +165,6 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
             totalMinutes = ceilMinutes(totalSeconds),
             weekMinutes = ceilMinutes(weekSeconds),
             streakDays = streak,
-            activeDays = activeDays,
             avgDailyMinutes = if (activeDays > 0) ceilMinutes(totalSeconds / activeDays) else 0,
             bookList = books,
             dailyBookMinutes = dailyBookMinutes,

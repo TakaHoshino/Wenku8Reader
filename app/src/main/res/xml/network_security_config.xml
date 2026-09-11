@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全配置：默认禁止明文 HTTP，仅对确需明文的具体域名开口子。
+
+  背景：此前全局 `android:usesCleartextTraffic="true"` 放开了所有明文流量，
+  等于应用内任意请求（含第三方更新镜像）都可被降级到未加密通道并被中间人篡改。
+  实际只有官方 App API（`app.wenku8.com/android.php`）没有 HTTPS 端点，
+  其余资源（封面 img.wenku8.com、插图 pic.777743.xyz、站点页面）均为 HTTPS，
+  因此这里只对该单一域名保留明文，其余一律要求 TLS。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 官方 App API 无 HTTPS 端点（http://app.wenku8.com/android.php），单独放行 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">app.wenku8.com</domain>
+    </domain-config>
+</network-security-config>
