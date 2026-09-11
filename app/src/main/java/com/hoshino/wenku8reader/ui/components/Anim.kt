@@ -11,11 +11,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 
 /**
  * MD3 motion: scales the content down slightly while pressed, with a ripple
  * feedback. Replaces a plain `Modifier.clickable { ... }`.
+ *
+ * 仅用于少量强调按钮/主操作：每次调用都会挂一个 pressed 状态观察者 + 一个动画，
+ * 高密度列表项（如每行一个的分段列表行、封面卡片）请直接用普通
+ * `Modifier.clickable`（波纹由全局 [LocalIndication] 提供即可），
+ * 否则长列表会平白多出成百上千个状态与动画开销。
  */
 @Composable
 fun Modifier.pressClickable(onClick: () -> Unit): Modifier {
@@ -30,7 +35,12 @@ fun Modifier.pressClickable(onClick: () -> Unit): Modifier {
         label = "pressScale",
     )
     return this
-        .scale(scale)
+        // 用 graphicsLayer 的 lambda 读取缩放值：动画帧只让绘制阶段失效，
+        // 不会像 Modifier.scale(scale) 那样每帧重跑整条 modifier 链的组合
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
         .clickable(
             interactionSource = interaction,
             indication = LocalIndication.current,

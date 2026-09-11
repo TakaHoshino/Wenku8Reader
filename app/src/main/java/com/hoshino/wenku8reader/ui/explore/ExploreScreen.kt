@@ -1,37 +1,25 @@
 package com.hoshino.wenku8reader.ui.explore
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
@@ -49,34 +37,30 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.Coil
-import coil.request.ImageRequest
 import com.hoshino.wenku8reader.R
-import com.hoshino.wenku8reader.data.HomeBook
-import com.hoshino.wenku8reader.data.HomeSection
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
-import com.hoshino.wenku8reader.ui.common.CoverImage
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
-import com.hoshino.wenku8reader.ui.components.SegmentedColumn
-import com.hoshino.wenku8reader.ui.components.SegmentedListItem
-import com.hoshino.wenku8reader.ui.components.TonalCard
-import com.hoshino.wenku8reader.ui.components.pressClickable
+
+/*
+ * 探索模块页面入口与组合层。
+ *
+ * 原先本文件同时承载 Explore 页 + Search 页 + 封面预取 + 4 个列表项组件（约 646 行），
+ * 按评估报告 2.5-3 的职责拆分建议拆为同包文件：
+ * - `ExploreHomeBody.kt`：推荐页签正文 + 封面预取
+ * - `ExploreTagsBody.kt`：标签页签正文 + 标签行
+ * - `ExploreSearchBody.kt`：独立搜索页正文
+ * - `ExploreItems.kt`：可复用列表项（封面卡片）
+ * 本文件只保留对外入口 ExplorePage / SearchScreen 与两页共用的顶栏搜索条、页签切换。
+ */
 
 /**
  * 探索页（主 Tab）。参考 SukiSU-Ultra 首页：折叠大顶栏 + 圆角搜索条 +
@@ -252,46 +236,6 @@ private fun ExploreTabRow(
     }
 }
 
-@Composable
-private fun TagsBody(
-    ui: ExploreUiState,
-    onOpenBook: (Int) -> Unit,
-    onOpenTag: (String) -> Unit,
-    onRetryTags: () -> Unit,
-) {
-    when {
-        ui.tagsLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-
-        ui.tagsError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    ui.tagsError?.asString(LocalContext.current) ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onRetryTags) { Text(stringResource(R.string.action_retry)) }
-            }
-        }
-
-        ui.tagSections.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                stringResource(R.string.explore_tags_empty),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(ui.tagSections, key = { "tag_${it.tag}" }) { section ->
-                TagRow(section, onOpenBook, onOpenTag)
-            }
-            item { Spacer(Modifier.height(24.dp)) }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
@@ -353,294 +297,5 @@ fun SearchScreen(
                 modifier = Modifier.weight(1f),
             )
         }
-    }
-}
-
-@Composable
-private fun SearchBody(
-    ui: ExploreUiState,
-    onOpenBook: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    when {
-        ui.searching -> Box(
-            modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) { CircularProgressIndicator() }
-
-        ui.searchError != null -> Text(
-            ui.searchError?.asString(context) ?: "",
-            modifier = modifier.padding(16.dp),
-            color = MaterialTheme.colorScheme.error,
-        )
-
-        ui.results.isNotEmpty() -> LazyColumn(modifier.fillMaxSize()) {
-            item {
-                SegmentedColumn(
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
-                    items = ui.results.map { r ->
-                        {
-                            SegmentedListItem(
-                                headlineContent = { Text(r.name) },
-                                supportingContent = {
-                                    Text(stringResource(R.string.search_result_id, r.id))
-                                },
-                                leadingContent = {
-                                    CoverImage(
-                                        url = r.coverUrl,
-                                        width = 48.dp,
-                                        height = 68.dp,
-                                        contentDescription = r.name,
-                                        cornerRadius = 8.dp,
-                                    )
-                                },
-                                onClick = { onOpenBook(r.id) },
-                            )
-                        }
-                    },
-                )
-            }
-            item { Spacer(Modifier.height(24.dp)) }
-        }
-
-        else -> Box(
-            modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                stringResource(R.string.search_press_to_search),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeBody(
-    ui: ExploreUiState,
-    onOpenBook: (Int) -> Unit,
-    onRefresh: () -> Unit,
-) {
-    val listState = rememberLazyListState()
-    // 参考 LightNovelReader：滚动时预取下一个区块的封面，进入视口时图片已就绪，
-    // 避免「区块组合 + 图片解码」在同一帧爆发导致的卡顿。
-    val context = LocalContext.current
-    val density = LocalDensity.current
-    val imageLoader = remember { Coil.imageLoader(context) }
-    LaunchedEffect(ui.sections) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .collect { idx ->
-                // 首项是「今日书库」标题行（index 0），其后为区块
-                val sectionIdx = idx - 1
-                if (sectionIdx in 0 until ui.sections.lastIndex) {
-                    ui.sections.drop(sectionIdx + 1).take(2).forEach { section ->
-                        section.books.forEach { b ->
-                            b.coverUrl?.let { url ->
-                                runCatching {
-                                    imageLoader.enqueue(
-                                        ImageRequest.Builder(context)
-                                            .data(url)
-                                            .size(
-                                                with(density) { 104.dp.roundToPx() },
-                                                with(density) { 146.dp.roundToPx() },
-                                            )
-                                            .setHeader("Referer", "https://www.wenku8.net/")
-                                            .build()
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-    }
-
-    when {
-        ui.homeLoading && ui.sections.isEmpty() ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-
-        ui.homeError != null && ui.sections.isEmpty() ->
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    stringResource(
-                        R.string.home_error,
-                        ui.homeError?.asString(LocalContext.current) ?: "",
-                    ),
-                    color = MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onRefresh) { Text(stringResource(R.string.action_retry)) }
-            }
-
-        ui.sections.isEmpty() ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    stringResource(R.string.home_empty),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-        else -> LazyColumn(
-            Modifier.fillMaxSize(),
-            state = listState,
-        ) {
-            item {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.home_subtitle),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    IconButton(onClick = onRefresh) {
-                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.action_refresh))
-                    }
-                }
-            }
-            items(ui.sections, key = { it.title }, contentType = { "section" }) { section ->
-                HomeSectionBlock(section, onOpenBook)
-            }
-            item { Spacer(Modifier.height(24.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun TagRow(
-    section: TagSection,
-    onOpenBook: (Int) -> Unit,
-    onOpenTag: (String) -> Unit,
-) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .pressClickable { onOpenTag(section.tag) }
-                .padding(horizontal = 20.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                section.tag,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                stringResource(R.string.explore_tag_all),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-        LazyRow(
-            Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-        ) {
-            items(section.books, key = { it.id }) { b ->
-                HomeCoverCard(b, onOpenBook)
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeSectionBlock(section: HomeSection, onOpenBook: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth()) {
-        Text(
-            section.title,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
-        )
-        if (section.books.any { it.coverUrl != null }) {
-            // 每行 4 本：快速滑动时一次性组合的封面数更少，显著降低组合爆发
-            LazyRow(
-                Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-            ) {
-                items(section.books.take(4), key = { it.id }) { b ->
-                    HomeCoverCard(b, onOpenBook)
-                }
-            }
-        } else {
-            // 纯文字榜单：surfaceBright 卡片
-            TonalCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    section.books.take(10).forEachIndexed { i, b ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .pressClickable { onOpenBook(b.id) }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "${i + 1}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.width(28.dp),
-                            )
-                            Text(
-                                b.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeCoverCard(b: HomeBook, onOpenBook: (Int) -> Unit) {
-    Column(
-        Modifier
-            .width(104.dp)
-            .padding(4.dp)
-            // 高频组合项：用普通 clickable，避免 pressClickable 的动画状态开销
-            .clickable { onOpenBook(b.id) },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        CoverImage(
-            url = b.coverUrl,
-            width = 104.dp,
-            height = 146.dp,
-            contentDescription = b.name,
-            cornerRadius = 10.dp,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            b.name,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
     }
 }

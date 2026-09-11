@@ -1,6 +1,7 @@
 package com.hoshino.wenku8reader.data.local
 
 import android.content.Context
+import com.hoshino.wenku8reader.data.Wenku8Hosts
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,8 +50,8 @@ data class ReaderSettingsState(
     val rightPadding: Int = 20,
 ) {
     companion object {
-        /** 默认主站镜像（用户可在设置页「网络」中切换）。 */
-        const val DEFAULT_MIRROR = "https://www.wenku8.cc"
+        /** 默认主站镜像（单一来源：[Wenku8Hosts.DEFAULT_BASE]；用户可在设置页「网络」切换）。 */
+        const val DEFAULT_MIRROR = Wenku8Hosts.DEFAULT_BASE
 
         /** 旧版本默认值，用于迁移：未手动改过主域的用户自动切到新默认值。 */
         const val LEGACY_DEFAULT_MIRROR = "https://www.wenku8.net"
@@ -76,7 +77,8 @@ class ReaderSettings(context: Context) {
         // 默认 wenku8.cc；旧默认 wenku8.net（用户未手动改过）自动迁移到新默认
         primaryMirror = prefs.getString("primary_mirror", null)
             ?.takeUnless { it == ReaderSettingsState.LEGACY_DEFAULT_MIRROR }
-            ?: ReaderSettingsState.DEFAULT_MIRROR,        backgroundMode = prefs.getString("bg_mode", "color") ?: "color",
+            ?: ReaderSettingsState.DEFAULT_MIRROR,
+        backgroundMode = prefs.getString("bg_mode", "color") ?: "color",
         // 旧版本只有单一 reader_bg / reader_text_color：迁移为浅色模式配色
         readerBackgroundLight = prefs.getLong(
             "reader_bg_light",
@@ -114,45 +116,81 @@ class ReaderSettings(context: Context) {
         rightPadding = prefs.getInt("pad_right", 20),
     )
 
+    /**
+     * 只写入**发生变化**的 key。
+     *
+     * 原实现每次调用都把 30+ 个 key 全量重写一遍：字号/字重/行距的 Slider 拖动时
+     * 每帧都会触发一次 emit，于是每帧都做一次全量 SharedPreferences 写盘
+     * （含 apply 的磁盘调度），既浪费又放大 IO。现在按字段比较后只写差异项。
+     */
     private fun emit(transform: (ReaderSettingsState) -> ReaderSettingsState) {
-        val next = transform(_flow.value)
+        val prev = _flow.value
+        val next = transform(prev)
+        if (next == prev) return
         _flow.value = next
-        prefs.edit()
-            .putString("dark_mode", next.darkMode)
-            .putBoolean("dynamic_color", next.dynamicColor)
-            .putLong("seed_color", next.seedColor)
-            .putBoolean("amoled", next.amoled)
-            .putString("primary_mirror", next.primaryMirror)
-            .putString("bg_mode", next.backgroundMode)
-            .putLong("reader_bg_light", next.readerBackgroundLight)
-            .putLong("reader_text_light", next.readerTextColorLight)
-            .putLong("reader_bg_dark", next.readerBackgroundDark)
-            .putLong("reader_text_dark", next.readerTextColorDark)
-            .putString("bg_image", next.backgroundImagePath)
-            .putString("font_family", next.fontFamily)
-            .putInt("font_size", next.fontSize)
-            .putInt("font_weight", next.fontWeight)
-            .putFloat("line_spacing", next.lineSpacing)
-            .putBoolean("traditional", next.traditionalChinese)
-            .putBoolean("scroll_mode", next.scrollMode)
-            .putBoolean("volume_turn", next.volumeKeyTurnPage)
-            .putBoolean("auto_next", next.autoNextChapter)
-            .putBoolean("turn_direction", next.pageTurnDirection)
-            .putInt("auto_interval", next.autoTurnInterval)
-            .putBoolean("click_turn", next.clickTurnPage)
-            .putBoolean("haptics_enabled", next.hapticsEnabled)
-            .putInt("haptics_strength", next.hapticsStrength)
-            .putBoolean("check_updates_on_startup", next.checkUpdatesOnStartup)
-            .putString("update_channel", next.updateChannel)
-            .putString("update_source", next.updateSource)
-            .putString("app_language", next.appLanguage)
-            .putInt("cache_max_mb", next.cacheMaxMb)
-            .putBoolean("auto_padding", next.autoPadding)
-            .putInt("pad_top", next.topPadding)
-            .putInt("pad_bottom", next.bottomPadding)
-            .putInt("pad_left", next.leftPadding)
-            .putInt("pad_right", next.rightPadding)
-            .apply()
+
+        val e = prefs.edit()
+        if (next.darkMode != prev.darkMode) e.putString("dark_mode", next.darkMode)
+        if (next.dynamicColor != prev.dynamicColor) e.putBoolean("dynamic_color", next.dynamicColor)
+        if (next.seedColor != prev.seedColor) e.putLong("seed_color", next.seedColor)
+        if (next.amoled != prev.amoled) e.putBoolean("amoled", next.amoled)
+        if (next.primaryMirror != prev.primaryMirror) e.putString("primary_mirror", next.primaryMirror)
+        if (next.backgroundMode != prev.backgroundMode) e.putString("bg_mode", next.backgroundMode)
+        if (next.readerBackgroundLight != prev.readerBackgroundLight) {
+            e.putLong("reader_bg_light", next.readerBackgroundLight)
+        }
+        if (next.readerTextColorLight != prev.readerTextColorLight) {
+            e.putLong("reader_text_light", next.readerTextColorLight)
+        }
+        if (next.readerBackgroundDark != prev.readerBackgroundDark) {
+            e.putLong("reader_bg_dark", next.readerBackgroundDark)
+        }
+        if (next.readerTextColorDark != prev.readerTextColorDark) {
+            e.putLong("reader_text_dark", next.readerTextColorDark)
+        }
+        if (next.backgroundImagePath != prev.backgroundImagePath) {
+            e.putString("bg_image", next.backgroundImagePath)
+        }
+        if (next.fontFamily != prev.fontFamily) e.putString("font_family", next.fontFamily)
+        if (next.fontSize != prev.fontSize) e.putInt("font_size", next.fontSize)
+        if (next.fontWeight != prev.fontWeight) e.putInt("font_weight", next.fontWeight)
+        if (next.lineSpacing != prev.lineSpacing) e.putFloat("line_spacing", next.lineSpacing)
+        if (next.traditionalChinese != prev.traditionalChinese) {
+            e.putBoolean("traditional", next.traditionalChinese)
+        }
+        if (next.scrollMode != prev.scrollMode) e.putBoolean("scroll_mode", next.scrollMode)
+        if (next.volumeKeyTurnPage != prev.volumeKeyTurnPage) {
+            e.putBoolean("volume_turn", next.volumeKeyTurnPage)
+        }
+        if (next.autoNextChapter != prev.autoNextChapter) e.putBoolean("auto_next", next.autoNextChapter)
+        if (next.pageTurnDirection != prev.pageTurnDirection) {
+            e.putBoolean("turn_direction", next.pageTurnDirection)
+        }
+        if (next.autoTurnInterval != prev.autoTurnInterval) {
+            e.putInt("auto_interval", next.autoTurnInterval)
+        }
+        if (next.clickTurnPage != prev.clickTurnPage) e.putBoolean("click_turn", next.clickTurnPage)
+        if (next.hapticsEnabled != prev.hapticsEnabled) {
+            e.putBoolean("haptics_enabled", next.hapticsEnabled)
+        }
+        if (next.hapticsStrength != prev.hapticsStrength) {
+            e.putInt("haptics_strength", next.hapticsStrength)
+        }
+        if (next.checkUpdatesOnStartup != prev.checkUpdatesOnStartup) {
+            e.putBoolean("check_updates_on_startup", next.checkUpdatesOnStartup)
+        }
+        if (next.updateChannel != prev.updateChannel) {
+            e.putString("update_channel", next.updateChannel)
+        }
+        if (next.updateSource != prev.updateSource) e.putString("update_source", next.updateSource)
+        if (next.appLanguage != prev.appLanguage) e.putString("app_language", next.appLanguage)
+        if (next.cacheMaxMb != prev.cacheMaxMb) e.putInt("cache_max_mb", next.cacheMaxMb)
+        if (next.autoPadding != prev.autoPadding) e.putBoolean("auto_padding", next.autoPadding)
+        if (next.topPadding != prev.topPadding) e.putInt("pad_top", next.topPadding)
+        if (next.bottomPadding != prev.bottomPadding) e.putInt("pad_bottom", next.bottomPadding)
+        if (next.leftPadding != prev.leftPadding) e.putInt("pad_left", next.leftPadding)
+        if (next.rightPadding != prev.rightPadding) e.putInt("pad_right", next.rightPadding)
+        e.apply()
     }
 
     fun setDarkMode(mode: String) = emit { it.copy(darkMode = mode) }

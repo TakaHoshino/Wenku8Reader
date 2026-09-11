@@ -107,7 +107,12 @@ fun DownloadsScreen(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    j.format.uppercase(),
+                                    // txt 额外显示编码（如 TXT · UTF8）；epub 无编码概念，只显示格式
+                                    if (j.format == "txt") {
+                                        "${j.format.uppercase()} · ${j.encoding.uppercase()}"
+                                    } else {
+                                        j.format.uppercase()
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )

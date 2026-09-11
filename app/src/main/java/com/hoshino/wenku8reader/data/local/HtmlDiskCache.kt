@@ -3,6 +3,9 @@ package com.hoshino.wenku8reader.data.local
 import android.content.Context
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 /**
  * URL → HTML 的本地磁盘缓存（`filesDir/html_cache`，卸载前持久存在）。
@@ -15,75 +18,100 @@ import java.security.MessageDigest
  */
 class HtmlDiskCache(
     context: Context,
-    private var maxBytes: Long = 30L * 1024 * 1024,
+    initialMaxBytes: Long = 30L * 1024 * 1024,
 ) {
     private val dir = File(context.filesDir, "html_cache").apply { mkdirs() }
 
+    /**
+     * 读写锁（替代原先的 `@Synchronized` 互斥锁）。
+     *
+     * 缓存读多写少，且读写本身都要做磁盘 I/O；用互斥锁会把**所有读取串行化**，
+     * 连续加载章节时彼此排队。改为读锁后并发读可并行，只在写入/清理/淘汰时独占。
+     * （磁盘 I/O 仍留在锁内：删除与读写操作必须互斥，否则可能读到写了一半的文件。）
+     */
+    private val lock = ReentrantReadWriteLock()
+
+    @Volatile
+    private var maxBytes: Long = initialMaxBytes
+
     /** 命中且未过期返回缓存内容；过期自动删除并返回 null。 */
-    @Synchronized
-    fun get(url: String, ttlMs: Long): String? {
-        val f = fileFor(url) ?: return null
-        if (System.currentTimeMillis() - f.lastModified() > ttlMs) {
-            f.delete()
-            return null
+    fun get(url: String, ttlMs: Long, category: String = "other"): String? {
+        val f = fileFor(url, category)
+        lock.read {
+            if (!f.exists()) return null
+            if (System.currentTimeMillis() - f.lastModified() <= ttlMs) {
+                return runCatching { f.readText() }.getOrNull()
+            }
         }
-        return runCatching { f.readText() }.getOrNull()
+        // 已过期：删除属写操作，须在写锁内独占进行
+        lock.write { runCatching { f.delete() } }
+        return null
     }
 
     /** 写入缓存；[category] 决定文件名前缀（用于分组统计与清理）。 */
-    @Synchronized
     fun put(url: String, html: String, category: String = "other") {
         if (html.isBlank()) return
-        runCatching {
-            val md5 = md5(url)
-            // 旧格式同名文件迁移：删除后以新格式写入
-            val legacy = File(dir, "$md5.html")
-            if (legacy.exists()) legacy.delete()
-            File(dir, "${sanitize(category)}_$md5.html").writeText(html)
+        val md5 = md5(url)
+        val legacy = File(dir, "$md5.html")
+        val target = File(dir, "${sanitize(category)}_$md5.html")
+        lock.write {
+            runCatching {
+                // 旧格式同名文件迁移：删除后以新格式写入
+                if (legacy.exists()) legacy.delete()
+                target.writeText(html)
+            }
             evictIfNeeded()
         }
     }
 
     /** 清理缓存：[category] = null 清全部；否则只清该类型（按文件名前缀匹配）。 */
-    @Synchronized
     fun clear(category: String? = null) {
-        val files = dir.listFiles() ?: return
-        if (category == null) {
-            files.forEach { it.delete() }
-        } else {
-            val prefix = "${sanitize(category)}_"
-            files.filter { it.name.startsWith(prefix) }.forEach { it.delete() }
+        lock.write {
+            val files = dir.listFiles() ?: return@write
+            if (category == null) {
+                files.forEach { it.delete() }
+            } else {
+                val prefix = "${sanitize(category)}_"
+                files.filter { it.name.startsWith(prefix) }.forEach { it.delete() }
+            }
         }
     }
 
-    /** 按类型分组统计大小（字节）。key = 文件名前缀；旧格式无前缀文件归入 "legacy"。 */
-    @Synchronized
+    /**
+     * 按类型分组统计大小（字节）。key = 文件名前缀；旧格式无前缀文件归入 [LEGACY_CATEGORY]。
+     *
+     * 用 `substringBeforeLast('_')` 取类别：文件名形如 `{category}_{md5}.html`，
+     * 而下划线后只可能是 md5（十六进制），因此最后一个下划线就是类别边界。
+     */
     fun sizeByCategory(): Map<String, Long> {
         val result = linkedMapOf<String, Long>()
-        dir.listFiles()?.forEach { f ->
-            val cat = f.name.substringBefore('_', "legacy").takeIf { f.name.contains('_') } ?: "legacy"
-            result[cat] = (result[cat] ?: 0L) + f.length()
+        lock.read {
+            dir.listFiles()?.forEach { f ->
+                val cat = if ('_' in f.name) f.name.substringBeforeLast('_') else LEGACY_CATEGORY
+                result[cat] = (result[cat] ?: 0L) + f.length()
+            }
         }
         return result
     }
 
-    /** 缓存总大小（字节）。 */
-    @Synchronized
-    fun totalSize(): Long = dir.listFiles()?.sumOf { it.length() } ?: 0L
-
     /** 动态调整上限（字节）；超限立即收缩。 */
-    @Synchronized
     fun setMaxBytes(bytes: Long) {
         maxBytes = bytes.coerceAtLeast(0L)
-        evictIfNeeded()
+        lock.write { evictIfNeeded() }
     }
 
-    private fun fileFor(url: String): File? {
+    /**
+     * 按确定性文件名定位缓存文件。
+     *
+     * 新格式的 category 在写入时已知、读取时由调用方传入，因此可直接拼出文件名，
+     * 无需像原实现那样对整个目录做一次 `listFiles` 过滤扫描。
+     * 旧格式（无前缀 `{md5}.html`）仅做一次存在性探测以兼容存量缓存。
+     */
+    private fun fileFor(url: String, category: String): File {
         val md5 = md5(url)
-        // 新格式（category_md5.html）优先；找不到再查旧格式（md5.html），兼容存量缓存
         val legacy = File(dir, "$md5.html")
         if (legacy.exists()) return legacy
-        return dir.listFiles { _, name -> name.endsWith("_$md5.html") }?.firstOrNull()
+        return File(dir, "${sanitize(category)}_$md5.html")
     }
 
     private fun evictIfNeeded() {
@@ -106,4 +134,9 @@ class HtmlDiskCache(
     /** category 只保留安全字符，避免路径穿越/非法文件名。 */
     private fun sanitize(category: String): String =
         category.replace(Regex("[^A-Za-z0-9_-]"), "").ifBlank { "other" }
+
+    private companion object {
+        /** 旧格式（无 category 前缀）缓存的归类名。 */
+        const val LEGACY_CATEGORY = "legacy"
+    }
 }
