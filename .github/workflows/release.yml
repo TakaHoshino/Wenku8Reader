@@ -197,16 +197,19 @@ jobs:
             exit 1
           fi
 
-          # 统一小写并去掉冒号后再比较指纹
+          # 统一小写并去掉冒号后再比较指纹。
+          # 用 sed 贪婪匹配到 "SHA-256 digest:" 之后的内容，而不是按 ': ' 切分字段：
+          # apksigner 的输出格式随版本/平台不同（有的会在 `Signer #1` 后也带一个冒号），
+          # 按字段切分会取到 "certificate SHA-256 digest" 这种错误值（实测踩过）。
           norm() { tr -d ':' | tr 'A-Z' 'a-z'; }
           ACTUAL="$("$APKSIGNER" verify --print-certs "$APK" \
-            | awk -F': ' '/SHA-256 digest/{print $2; exit}' | norm)"
+            | sed -n 's/.*SHA-256 digest:[[:space:]]*//p' | head -n 1 | norm)"
           EXPECTED="$(keytool -list -v -keystore "$KEYSTORE_PATH" \
             -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
-            | awk -F': ' '/SHA256:/{print $2; exit}' | norm)"
+            | sed -n 's/.*SHA256:[[:space:]]*//p' | head -n 1 | norm)"
 
-          if [ -z "$ACTUAL" ] || [ -z "$EXPECTED" ]; then
-            echo "::error::无法读取签名指纹（actual='$ACTUAL' expected='$EXPECTED'）"
+          if [ "${#ACTUAL}" -ne 64 ] || [ "${#EXPECTED}" -ne 64 ]; then
+            echo "::error::签名指纹长度异常（actual=${#ACTUAL} expected=${#EXPECTED}，应为 64）"
             exit 1
           fi
           if [ "$ACTUAL" != "$EXPECTED" ]; then
