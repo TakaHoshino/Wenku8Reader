@@ -21,9 +21,11 @@ import com.hoshino.wenku8reader.data.Wenku8Hosts
 /**
  * 封面图片请求（非 Composable 版本，供列表预取等场景复用）。
  *
- * Referer 取自 [Wenku8Hosts.IMAGE_REFERER] 这一单一来源：此前各处硬编码
- * `https://www.wenku8.net/`，与用户可切换的默认主站（`.cc`）不一致，
- * 主镜像变更后语义就错了。尺寸以像素给出，交给 Coil 按目标尺寸解码。
+ * Referer 取自 [Wenku8Hosts.IMAGE_REFERER] 这一单一来源。
+ * 地址经 [Wenku8Hosts.normalizeImageUrl] 统一升级为 HTTPS——站点页面给的是
+ * `http://img.wenku8.com/...`，而应用默认禁止明文流量（networkSecurityConfig），
+ * 原样请求会被系统直接拦截；这里是最后一道兜底，保证任何来源（含历史书架数据）
+ * 的封面地址都不会因此加载失败。
  */
 fun coverImageRequest(
     context: Context,
@@ -32,7 +34,7 @@ fun coverImageRequest(
     heightPx: Int,
     crossfade: Boolean = false,
 ): ImageRequest = ImageRequest.Builder(context)
-    .data(url)
+    .data(url?.let(Wenku8Hosts::normalizeImageUrl))
     .size(widthPx, heightPx)
     .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
     .apply { if (crossfade) crossfade(true) }

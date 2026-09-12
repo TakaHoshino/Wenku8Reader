@@ -1,35 +1,66 @@
 # 自动化版本发布（详见 VERSIONING.md）
 # - 触发：push 到 main/master，或手动 workflow_dispatch
-# - 版本：解析 Conventional Commits 自动升级（feat→minor，fix→patch，BREAKING→major）
+# - 版本：解析 Conventional Commits 自动升级（feat→minor，fix/perf→patch，BREAKING→major）
 # - versionCode：时间基准 yyyymmddHH（跨工作流单调递增，必然大于任何历史已装版本）
-# - 产出：打 git tag vX.Y.Z + GitHub Release（含 APK 与自动生成更新日志）
+# - 产出：打 git tag vX.Y.Z + GitHub Release（含 APK、SHA256SUMS 与自动生成更新日志）
+#
+# 安全设计（对应 CI 安全评审）：
+# 1. 签名密钥与写权限**分离到两个 job**：build 只读 + 用密钥签名；publish 只写 + 不接触密钥。
+#    这样即使构建链（Gradle/依赖/插件）被投毒，攻击者也拿不到「签名密钥 + contents:write」的组合。
+# 2. 签名密钥放在受保护环境 `release` 下（建议配置 Required reviewers + 仅允许 main/master 部署）。
+# 3. 密钥绝不放在 job 级 env、也绝不经 $GITHUB_ENV 传播，只在「校验/还原/构建/验签」几步内按需注入。
+# 4. 所有第三方 Action 固定到完整 commit SHA（浮动 tag 可被移动/投毒）。
+# 5. 无正式签名密钥时**直接失败**，不再回退 debug 签名发布。
+# 6. 构建后用 apksigner 校验 APK 签名证书与我们的 keystore 一致，并产出 SHA256SUMS。
 name: Release
 
 on:
   push:
     branches: [main, master]
-    # 纯文档/图标等不影响产物的改动不触发工作流（否则即使自我跳过也会空跑一次）
+    # 纯文档/图标等不影响产物的改动不触发（注意用 **/ 以覆盖子目录文档）
     paths-ignore:
-      - '*.md'
+      - '**/*.md'
       - 'LICENSE'
       - '.gitignore'
       - 'app_icon*.png'
   workflow_dispatch:
 
+# 顶层最小权限：写权限只授予真正需要的 publish job
 permissions:
-  contents: write
+  contents: read
+
+# 串行发布：避免并发打 tag / 同小时 versionCode 冲突
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
+  # ------------------------------------------------------------------ #
+  # 构建 + 签名：只读权限，接触签名密钥
+  # ------------------------------------------------------------------ #
+  build:
     runs-on: ubuntu-latest
-    # job 级 env：让步骤 if 条件可以检查签名密钥是否存在（secrets 不能直接在 if 中引用）
-    env:
-      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+    timeout-minutes: 45
+    # 签名密钥所在的保护环境（建议：Required reviewers + Deployment branches 仅 main/master）
+    environment: release
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.version.outputs.skip }}
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.vcode.outputs.version_code }}
+      last_tag: ${{ steps.version.outputs.last_tag }}
     steps:
       - name: Checkout（完整历史，供提交解析与打标签）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          # 不把 GITHUB_TOKEN 写进本地 git config：后续构建步骤即使被投毒也无法直接复用凭据
+          persist-credentials: false
+
+      - name: 校验 Gradle Wrapper
+        # 防止被替换过的 gradle-wrapper.jar 在构建时执行任意代码
+        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
       # ---- 语义化版本升级：解析最近一次 tag 之后的 Conventional Commits ----
       # 注意：必须用内联 run 步骤写 $GITHUB_OUTPUT——composite action 的输出
@@ -49,8 +80,19 @@ jobs:
           RANGE="HEAD"
           if [ -n "$LAST_TAG" ]; then RANGE="${LAST_TAG}..HEAD"; fi
 
+          # 基准必须是严格的 X.Y.Z，否则后面的算术会静默算错
+          if ! [[ "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::基准版本格式非法：'$BASE'（来自 tag '$LAST_TAG'），应为 X.Y.Z"
+            exit 1
+          fi
+
           # 升级类型判断（优先级：breaking > feat > fix/perf）
-          if git log "$RANGE" --format=%B | grep -qE '^BREAKING CHANGE|!(:|\s)'; then
+          # breaking 只认规范写法：subject 中的 `<type>!:`，或正文中以 BREAKING CHANGE 开头的行。
+          # 切勿用未锚定的 `!` 匹配：提交正文里的代码片段会被误判成重大变更
+          #（曾把一次纯 patch 变更误发成主版本 v0.6.1 → v1.0.0）。
+          # 注意 `git log --format=%B` 会给正文加 4 空格缩进，故正文匹配需容忍前导空白。
+          if git log "$RANGE" --format=%s | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:' \
+             || git log "$RANGE" --format=%B | grep -qE '^[[:space:]]*BREAKING[ -]CHANGE:'; then
             BUMP="major"
           elif git log "$RANGE" --format=%s | grep -qE '^feat(\([^)]*\))?!?:'; then
             BUMP="minor"
@@ -87,23 +129,32 @@ jobs:
 
       - name: 设置 JDK 17
         if: steps.version.outputs.skip != 'true'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: 17
 
-      # ---- 正式签名：Secrets 中配置 KEYSTORE_BASE64 后自动启用；否则回退 debug 签名 ----
-      # Secrets 只能存文本，keystore 需先 Base64 编码后存入 KEYSTORE_BASE64，
-      # 此步骤在运行器上还原为文件并导出 KEYSTORE_* 环境变量供 Gradle 读取。
-      # 注意：if 条件不能直接引用 secrets 上下文，改用 job 级 env（见 job 顶部 env.KEYSTORE_BASE64）。
-      - name: 准备正式签名（还原 keystore）
-        if: steps.version.outputs.skip != 'true' && env.KEYSTORE_BASE64 != ''
+      # ---- 签名密钥：必须存在，否则直接失败（不再回退 debug 签名）----
+      - name: 校验签名密钥已配置
+        if: steps.version.outputs.skip != 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> "$GITHUB_ENV"
-          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64}" ]; then
+            echo "::error::未配置正式签名密钥（KEYSTORE_BASE64），拒绝发布 debug 签名或未签名 APK。配置步骤见 VERSIONING.md §6。"
+            exit 1
+          fi
+
+      - name: 还原签名密钥
+        if: steps.version.outputs.skip != 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          chmod 600 "$RUNNER_TEMP/release.keystore"
 
       # ---- 构建：versionName 由语义解析注入，versionCode 用时间基准 yyyymmddHH ----
       # （跨工作流单调递增、必然大于任何历史已装版本；避免 run_number 各工作流独立计数
@@ -118,30 +169,111 @@ jobs:
         env:
           APP_VERSION_NAME: ${{ steps.version.outputs.version }}
           APP_VERSION_CODE: ${{ steps.vcode.outputs.version_code }}
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon
 
-      - name: 创建并推送 Git 标签
+      # ---- 产物校验：APK 签名证书必须与我们的 keystore 一致 ----
+      - name: 校验 APK 签名并生成校验和
         if: steps.version.outputs.skip != 'true'
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
+          set -euo pipefail
+          OUT=app/build/outputs/apk/release
+          APK="$OUT/app-release.apk"
+
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          APKSIGNER="$(ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::未找到 apksigner（ANDROID_SDK_ROOT=$SDK），无法校验 APK 签名"
+            exit 1
+          fi
+
+          # 统一小写并去掉冒号后再比较指纹。
+          # 用 sed 贪婪匹配到 "SHA-256 digest:" 之后的内容，而不是按 ': ' 切分字段：
+          # apksigner 的输出格式随版本/平台不同（有的会在 `Signer #1` 后也带一个冒号），
+          # 按字段切分会取到 "certificate SHA-256 digest" 这种错误值（实测踩过）。
+          norm() { tr -d ':' | tr 'A-Z' 'a-z'; }
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK" \
+            | sed -n 's/.*SHA-256 digest:[[:space:]]*//p' | head -n 1 | norm)"
+          EXPECTED="$(keytool -list -v -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
+            | sed -n 's/.*SHA256:[[:space:]]*//p' | head -n 1 | norm)"
+
+          if [ "${#ACTUAL}" -ne 64 ] || [ "${#EXPECTED}" -ne 64 ]; then
+            echo "::error::签名指纹长度异常（actual=${#ACTUAL} expected=${#EXPECTED}，应为 64）"
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::APK 签名证书与 keystore 不一致，拒绝发布"
+            exit 1
+          fi
+          echo "签名证书 SHA-256：$ACTUAL"
+
+          cd "$OUT"
+          sha256sum app-release.apk > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: 上传构建产物
+        if: steps.version.outputs.skip != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-apk
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 清理签名密钥
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+  # ------------------------------------------------------------------ #
+  # 发布：只写权限，不接触任何签名密钥
+  # ------------------------------------------------------------------ #
+  publish:
+    needs: build
+    if: needs.build.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout（生成更新日志需要 git 历史）
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 下载构建产物
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-apk
+          path: dist
 
       - name: 生成更新日志（自上次标签，含 versionCode 供应用按 code 比较更新）
         id: changelog
-        if: steps.version.outputs.skip != 'true'
         shell: bash
+        env:
+          LAST_TAG: ${{ needs.build.outputs.last_tag }}
+          VERSION_CODE: ${{ needs.build.outputs.version_code }}
         run: |
+          set -euo pipefail
           RANGE="HEAD"
-          if [ -n "${{ steps.version.outputs.last_tag }}" ]; then
-            RANGE="${{ steps.version.outputs.last_tag }}..HEAD"
-          fi
+          if [ -n "$LAST_TAG" ]; then RANGE="$LAST_TAG..HEAD"; fi
           # 首行写入 versionCode（应用更新检查以此为准，严格单调递增）
-          echo "versionCode: ${{ steps.vcode.outputs.version_code }}" > /tmp/changelog.md
-          echo "" >> /tmp/changelog.md
           {
+            echo "versionCode: $VERSION_CODE"
+            echo ""
             echo "### 新增"
             git log "$RANGE" --format=%s | grep -E '^feat' \
               | sed -E 's/^feat(\([^)]*\))?!?:? ?//' | sed 's/^/- /' || true
@@ -149,20 +281,22 @@ jobs:
             echo "### 修复"
             git log "$RANGE" --format=%s | grep -E '^fix' \
               | sed -E 's/^fix(\([^)]*\))?!?:? ?//' | sed 's/^/- /' || true
-          } >> /tmp/changelog.md
+          } > /tmp/changelog.md
           if ! grep -qE '^- ' /tmp/changelog.md; then
             echo "- 详见提交记录" >> /tmp/changelog.md
           fi
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/changelog.md >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          # 随机分隔符，避免正文出现固定 EOF 破坏 GITHUB_OUTPUT
+          DELIM="CHANGELOG_EOF_$(openssl rand -hex 12)"
+          { echo "body<<$DELIM"; cat /tmp/changelog.md; echo "$DELIM"; } >> "$GITHUB_OUTPUT"
 
       - name: 发布 GitHub Release
-        if: steps.version.outputs.skip != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ needs.build.outputs.version }}
+          name: v${{ needs.build.outputs.version }}
+          # 显式指定打标签的目标提交，避免默认落到默认分支 HEAD
+          target_commitish: ${{ github.sha }}
           body: ${{ steps.changelog.outputs.body }}
           files: |
-            app/build/outputs/apk/release/*.apk
+            dist/app-release.apk
+            dist/SHA256SUMS

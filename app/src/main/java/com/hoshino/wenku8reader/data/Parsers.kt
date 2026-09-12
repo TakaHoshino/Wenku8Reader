@@ -56,7 +56,7 @@ object Parsers {
      */
     private fun absolutizeCover(url: String): String {
         val u = url.trim()
-        return when {
+        val absolute = when {
             u.isEmpty() -> u
             // 协议相对地址：补上 https:，不能直接拼域名（否则会变成 https://img…//img…）
             u.startsWith("//") -> "https:$u"
@@ -65,6 +65,9 @@ object Parsers {
             u.contains(":") -> u
             else -> "$IMG_DOMAIN/$u"
         }
+        // 站点常给 http:// 图片地址，而应用默认禁止明文流量，必须升级为 https，
+        // 否则 Android 会拦截请求、封面全部加载失败。
+        return Wenku8Hosts.normalizeImageUrl(absolute)
     }
 
     private val HOME_BLOCKTITLE = Pattern.compile(
@@ -202,7 +205,8 @@ object Parsers {
 
         var cover: String? = null
         val cm = BOOK_COVER.matcher(html)
-        if (cm.find()) cover = cm.group(1)
+        // 详情页封面是绝对地址，但站点给的是 http://；统一经 absolutizeCover 补全/升级协议
+        if (cm.find()) cover = absolutizeCover(cm.groupOrEmpty(1))
 
         val tags = mutableListOf<String>()
         val tm2 = BOOK_TAGS.matcher(html)
@@ -336,10 +340,10 @@ object Parsers {
         }
         if (raw == null) return ChapterContent(title, "", emptyList())
 
-        // illustration image urls
+        // illustration image urls（同样可能是 http://，需升级协议，否则被明文流量策略拦截）
         val images = mutableListOf<String>()
         val im = CHAPTER_IMG.matcher(raw)
-        while (im.find()) images.add(im.groupOrEmpty(1))
+        while (im.find()) images.add(Wenku8Hosts.normalizeImageUrl(im.groupOrEmpty(1)))
 
         var body = raw.replace(CONTENT_WATERMARK, "")
         body = body.replace(LINE_BREAK, "\n")
@@ -556,7 +560,7 @@ object Parsers {
         content.split("<!--image-->").forEach { seg ->
             val s = seg.trim()
             if (s.startsWith("http")) {
-                images.add(s)
+                images.add(Wenku8Hosts.normalizeImageUrl(s))
             } else if (s.isNotBlank()) {
                 textParts.add(unescape(s))
             }

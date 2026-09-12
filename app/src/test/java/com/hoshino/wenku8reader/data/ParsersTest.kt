@@ -251,6 +251,34 @@ class ParsersTest {
     }
 
     @Test
+    fun parseBookInfo_upgradesHttpCoverToHttps() {
+        // 站点详情页给的是明文 http 封面地址，而应用默认禁止明文流量；
+        // 解析层必须升级为 https，否则 Android 拦截请求 → 封面全部加载失败（真实故障）
+        val html = """
+            <title>国王游戏 - 金泽伸明 - 其他文库 - 轻小说文库</title>
+            <img src="http://img.wenku8.com/image/1/1191/1191s.jpg" />
+        """.trimIndent()
+
+        val info = Parsers.parseBookInfo(html, 1191)
+
+        assertEquals("https://img.wenku8.com/image/1/1191/1191s.jpg", info.coverUrl)
+    }
+
+    @Test
+    fun parseChapter_upgradesHttpIllustrationToHttps() {
+        val html = """
+            <div id="title">插图</div>
+            <div id="content">
+            <div class="divimage"><img src="http://pic.777743.xyz/1/1191/177419/218990.jpg" class="imagecontent"></div>
+            </div>
+        """.trimIndent()
+
+        val ch = Parsers.parseChapter(html)
+
+        assertEquals(listOf("https://pic.777743.xyz/1/1191/177419/218990.jpg"), ch.images)
+    }
+
+    @Test
     fun parseHomepage_parsesSectionsAndSkipsBooklessBlocks() {
         val html = """
             <div class="block">
