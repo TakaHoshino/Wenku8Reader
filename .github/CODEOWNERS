@@ -1,0 +1,22 @@
+# 代码所有者（CODEOWNERS）
+#
+# 目的：让「发布链路」相关文件的改动必须经过仓库所有者审查。
+# 生效前提（GitHub 仓库设置，需手动开启一次）：
+#   Settings → Branches → 分支保护规则（master/dev）
+#     ☑ Require a pull request before merging
+#     ☑ Require review from Code Owners
+#
+# 为什么单独保护 .github/workflows/：工作流文件可以读取仓库 secrets（含 Android 签名密钥）
+# 并拥有 contents: write。任何能改工作流的人都能尝试窃取密钥或发布伪造 APK，
+# 因此这类文件必须比普通源码有更严格的审查要求。
+
+# 发布与 CI 定义
+/.github/workflows/   @TakaHoshino
+
+# 代码所有者规则自身的改动
+/.github/CODEOWNERS   @TakaHoshino
+
+# 构建配置（签名注入、版本号来源、R8 规则）
+/app/build.gradle.kts @TakaHoshino
+/gradle.properties    @TakaHoshino
+/app/proguard-rules.pro @TakaHoshino
