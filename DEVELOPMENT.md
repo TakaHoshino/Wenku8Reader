@@ -113,6 +113,9 @@ Wenku8Reader/
 - **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
 - **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
 - **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp 随机 Android UA，逐镜像尝试。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
+- **登录去重（`loginMutex` + 双检）**：启动静默登录、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。
+- **隐藏 WebView 的生命周期与并发**：`webViewGet()` 用 `webViewMutex` 串行化（同一时刻只有一个 WebView 解挑战：多开会在主线程同时跑 JS、放大内存与风控样本，而串行化后第二个请求通常直接复用刚拿到的 cf_clearance 走快路径）；`cont.invokeOnCancellation` 保证协程被取消（离开页面/超时/VModel 销毁）时也会销毁 WebView，统一走 `destroyWebView()`（stopLoading → about:blank → clearHistory → removeAllViews → 换掉 WebViewClient → destroy，每步 runCatching）。超时分两层：单次解挑战 15s，等待锁 + 执行整体 25s。
+- **Cronet 挂起等待**：`cronetGet()` 不再用 `CountDownLatch.await(8s)`（每个请求独占一个 IO 线程空等，取消也要等超时才释放），改为 `suspendCancellableCoroutine` + `withTimeoutOrNull`，线程在等待期间释放，取消直接传播到 `UrlRequest.cancel()`。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
 - **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。三者均带 **LRU 容量上限**（info 128 / toc 32 / chapter 64 条）：只有 TTL 时，长读一本书会让章节正文无限累积在内存里。
 - **本地磁盘缓存**（`data/local/HtmlDiskCache.kt`）：抓取内容按 URL 落盘到 `filesDir/html_cache`（卸载前持久），命中且未过期直接返回、避免二次加载；仅缓存非 CF 挑战/非登录页。TTL：首页 1h、详情/目录 7d、章节正文 30d、标签书单 1d；总量超 30MB 时按最旧优先清理。内存缓存（快）→ 磁盘缓存（持久）→ 网络，三级取数。
@@ -134,7 +137,7 @@ Wenku8Reader/
 
 ### 4.5 下载（`DownloadEngine` / `FileSaver` / `EpubBuilder`）
 - `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 先取全本 TXT 用 `splitFullTxt` 切章（成功率 <60% 回退逐章），再 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml；章节 id/文件名统一 `%04d`；uid 取书名+作者 SHA-256 前 8 字节，避免中文书名退化成同一个 uid；`dcterms:modified` 用构建时刻）。
-- `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。
+- `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。**重名即覆盖**：插入前先按 `RELATIVE_PATH` 查回本目录的文件并删掉同名/自动重命名副本（判定见 `isDuplicateDownloadName()`：标准形态 `书名 (1).txt` 与部分 ROM 的 `书名.txt(1)` 都算副本，另有单测覆盖），否则 MediaProvider 会把新文件改名成 `书名 (1).txt`，每重新下载一次就多一份副本；写入用 `IS_PENDING`，其他应用在写完前看不到半截文件。
 
 ### 4.6 本地存储
 - `AppPreferences`（prefs：`reading`/`ui`）：**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。每书 `progress_{bookId}` = 当前 cid；`progress_at_{bookId}` = **最后阅读时间戳**（毫秒，与进度同一次 edit 写入；「清理过期阅读记录」的唯一依据）；`progress_total_{bookId}` = 总章节数（书架进度用）；书柜排序；**章节完成状态** `finished_{bookId}` = JSONArray(cid)（目录页"已读"标记 + 重读重置）。`cleanupStaleReadingData(keepDays)` 删除「有时间戳且早于截止时间」的书本记录，判定逻辑抽成纯函数 `staleReadingBookIds()` 并单测（`AppPreferencesCleanupTest`）——**没有时间戳的旧记录一律保留**，避免凭猜测删用户数据。
@@ -194,7 +197,7 @@ Wenku8Reader/
 ### 5.1 入口与装配
 - `MainActivity`：`enableEdgeToEdge()`；`dispatchKeyEvent` 把音量键转发给 `VolumeKeyTurn`；`setContent` 中按 `ReaderSettings` 组装 `Wenku8ReaderTheme`，并用 **`HapticScope`** 注入全局点击振动（`LocalIndication` 委托 ripple + 按下时按 `hapticsStrength` 强度调用系统 `Vibrator`）。
 - **高刷新率适配**：`requestHighRefreshRate()` 在 API 30+ 用 `preferredDisplayModeId`、API 26-29 用 `preferredRefreshRate`，请求同分辨率下的最高刷新率（60Hz 设备无副作用）。
-- `Wenku8Application` + `AppContainer`：手动 DI，无框架。
+- `Wenku8Application` + `AppContainer`：手动 DI，无框架。容器持有**应用级作用域**：`applicationScope`（`Main.immediate`，供更新弹窗/安装器）与 `ioScope`（同 Job + `Dispatchers.IO`）；对外只暴露 `launchIo { }` 作为后台任务入口（静默登录、启动清理都走它）——两个作用域共享同一个 Job，未来统一取消只需取消 `applicationScope`。
 - `AppViewModelProvider`：手写 `ViewModelProvider.Factory`（从 `AppContainer` 取依赖注入 ViewModel）。
 
 ### 5.2 导航（`Routes.kt` + `MainScaffold.kt`，2026-08 UI 重构后）
@@ -206,12 +209,13 @@ Wenku8Reader/
 - 每个 Tab 页自带 `ExpressiveScaffold` + 顶栏（主 Tab 用静态 64dp `ExpressiveTopAppBar`，已去掉折叠大顶栏以消除滚动逐帧布局级联；子页统一用 Expressive Flexible 版 `ExpressiveLargeTopAppBar`，可带副标题并在滚动时收起），顶栏右侧下载图标进 `downloads`。
 
 ### 5.3 各页面（统一 M3 Expressive：surfaceContainer 背景 + surfaceBright 卡片 + 大圆角/弹性动效）
-- `ExplorePage/ViewModel`：静态顶栏「轻小说文库」+ 圆角搜索条（surfaceContainerHigh 药丸形）+ **Expressive 按钮组**（`ExpressiveToggleGroup`，按下项变宽/相邻项压缩）切换推荐 / 标签；首页栏目封面轮播、文字榜单（surfaceBright 卡片）、标签入口。
+- `ExplorePage/ViewModel`：静态顶栏「轻小说文库」+ 圆角搜索条（surfaceContainerHigh 药丸形）+ **Expressive 按钮组**（`ExpressiveToggleGroup`，按下项变宽/相邻项压缩）切换推荐 / 标签；首页栏目封面轮播、文字榜单（surfaceBright 卡片）、标签入口。**标签页按需加载**：标签清单来自内置常量（秒回），每个标签的书籍预览在行进入可见区域时才请求（`TagsBody` 的 `LaunchedEffect(tag, generation)` → `loadTagPreview`），刷新用 `tagsGeneration` 重新触发可见行。
 - `TagBooksScreen/ViewModel`：某标签下书籍列表（SegmentedColumn 卡片行）+ Flexible 大顶栏，**分页加载全部**（底部「加载更多」逐页追加）。
 - `DetailScreen/ViewModel`：Flexible 大顶栏（副标题=作者）+ 封面信息卡（标签用 StatusTag 药丸）+ 56dp 高强调阅读主按钮 + tonal 目录按钮 + 离线下载卡（TXT/EPUB + 波浪进度）+ 简介卡。
 - `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计与下载入口。
 - `DownloadsScreen/ViewModel`：Flexible 大顶栏 + 下载任务卡列表（进行中用 `ActiveProgressBar` 波浪进度、完成/失败为文本），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（占用合计、按类型清理、过期阅读记录、缓存上限，见 §4.10）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `StorageSettingsPage`（`ui/settings/StorageSettingsScreen.kt`，路由 `settings/storage`）：存储设置二级页——占用合计（与系统设置同口径）/ 按类型清理（图片、更新包、WebView 与临时文件）/ 网页缓存分类明细 / 过期阅读记录清理 / 缓存上限；清理结果以 Toast 回报（`CacheActionResult`）。主设置页因此不再被十余行缓存明细撑长，且这是低频操作。
 - `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
 - `SettingsComponents.kt`：`SectionTitle` / `SettingLabel` 等复用组件。

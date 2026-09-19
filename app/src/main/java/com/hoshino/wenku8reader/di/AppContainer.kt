@@ -14,6 +14,7 @@ import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -31,8 +32,25 @@ class AppContainer(context: Context) {
      * 这里集中持有一个，注入给需要的组件；需要主线程的（更新弹窗状态与安装器）
      * 用 `Main.immediate`，与原实现行为一致。
      */
-    private val applicationScope: CoroutineScope =
+    val applicationScope: CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /**
+     * 应用级**后台**任务作用域：与 [applicationScope] 共享同一个 Job，只是调度器换成 IO。
+     *
+     * 共享 Job 是关键——两个作用域同生共死，将来要统一取消后台任务时只需取消
+     * [applicationScope]；若各自 `SupervisorJob()`，取消一个不会影响另一个。
+     */
+    private val ioScope: CoroutineScope =
+        CoroutineScope(applicationScope.coroutineContext + Dispatchers.IO)
+
+    /**
+     * 启动应用级后台任务的唯一入口（静默登录、启动清理等）。
+     *
+     * 为什么不让调用方自己 `CoroutineScope(...).launch`：`Wenku8Application` 原先就是
+     * 这么写的，于是静默登录既不属于应用作用域、也没有任何地方能取消它。
+     */
+    fun launchIo(block: suspend CoroutineScope.() -> Unit): Job = ioScope.launch(block = block)
 
     val readerSettings: ReaderSettings = ReaderSettings(context)
 
@@ -73,7 +91,7 @@ class AppContainer(context: Context) {
          * 放在 AppContainer 里而不是 Application：写操作需要应用级作用域，
          * 用这里的 [applicationScope] 才不会又冒出一个无人取消的裸作用域。
          */
-        applicationScope.launch(Dispatchers.IO) {
+        launchIo {
             runCatching { storage.pruneStaleArtifacts() }
         }
     }
