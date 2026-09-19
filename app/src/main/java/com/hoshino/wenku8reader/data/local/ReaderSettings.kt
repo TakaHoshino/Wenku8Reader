@@ -43,6 +43,8 @@ data class ReaderSettingsState(
     val updateSource: String = "github",       // 更新源："github" | "gh_proxy"（镜像）
     val appLanguage: String = "system",        // 界面语言："system" | "zh-CN" | "zh-TW"
     val cacheMaxMb: Int = 30,                  // 磁盘缓存上限（MB），默认 30
+    // 动效风格：true = M3 Expressive 动效（推荐默认），false = 标准动效（线性、克制）
+    val expressiveMotion: Boolean = true,
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -109,6 +111,7 @@ class ReaderSettings(context: Context) {
         updateSource = prefs.getString("update_source", "github") ?: "github",
         appLanguage = prefs.getString("app_language", "system") ?: "system",
         cacheMaxMb = prefs.getInt("cache_max_mb", 30).coerceIn(10, 500),
+        expressiveMotion = prefs.getBoolean("expressive_motion", true),
         autoPadding = prefs.getBoolean("auto_padding", true),
         topPadding = prefs.getInt("pad_top", 24),
         bottomPadding = prefs.getInt("pad_bottom", 16),
@@ -185,6 +188,9 @@ class ReaderSettings(context: Context) {
         if (next.updateSource != prev.updateSource) e.putString("update_source", next.updateSource)
         if (next.appLanguage != prev.appLanguage) e.putString("app_language", next.appLanguage)
         if (next.cacheMaxMb != prev.cacheMaxMb) e.putInt("cache_max_mb", next.cacheMaxMb)
+        if (next.expressiveMotion != prev.expressiveMotion) {
+            e.putBoolean("expressive_motion", next.expressiveMotion)
+        }
         if (next.autoPadding != prev.autoPadding) e.putBoolean("auto_padding", next.autoPadding)
         if (next.topPadding != prev.topPadding) e.putInt("pad_top", next.topPadding)
         if (next.bottomPadding != prev.bottomPadding) e.putInt("pad_bottom", next.bottomPadding)
@@ -225,6 +231,7 @@ class ReaderSettings(context: Context) {
     fun setUpdateSource(source: String) = emit { it.copy(updateSource = source) }
     fun setAppLanguage(language: String) = emit { it.copy(appLanguage = language) }
     fun setCacheMaxMb(mb: Int) = emit { it.copy(cacheMaxMb = mb.coerceIn(10, 500)) }
+    fun setExpressiveMotion(enabled: Boolean) = emit { it.copy(expressiveMotion = enabled) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }

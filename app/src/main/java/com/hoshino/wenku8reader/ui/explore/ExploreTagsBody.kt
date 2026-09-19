@@ -15,10 +15,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,6 +26,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 
 /**
  * 探索页「标签」页签正文（从 `ExploreScreen.kt` 拆出，见评估报告 2.5-3）。
@@ -41,27 +42,23 @@ internal fun TagsBody(
 ) {
     when {
         ui.tagsLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            ExpressiveLoadingIndicator()
         }
 
-        ui.tagsError != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    ui.tagsError?.asString(LocalContext.current) ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onRetryTags) { Text(stringResource(R.string.action_retry)) }
-            }
-        }
+        ui.tagsError != null -> ExpressiveEmptyState(
+            title = ui.tagsError?.asString(LocalContext.current) ?: "",
+            shape = MaterialShapes.Boom,
+            error = true,
+            actionLabel = stringResource(R.string.action_retry),
+            onAction = onRetryTags,
+            modifier = Modifier.fillMaxSize(),
+        )
 
-        ui.tagSections.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                stringResource(R.string.explore_tags_empty),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        ui.tagSections.isEmpty() -> ExpressiveEmptyState(
+            title = stringResource(R.string.explore_tags_empty),
+            shape = MaterialShapes.SoftBurst,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         else -> LazyColumn(Modifier.fillMaxSize()) {
             items(ui.tagSections, key = { "tag_${it.tag}" }) { section ->

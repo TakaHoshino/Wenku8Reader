@@ -18,18 +18,18 @@
 | 项 | 值 |
 |---|---|
 | 语言 | Kotlin（JVM target 17） |
-| UI | Jetpack Compose（BOM 2024.09.02）+ Material 3 + material-icons-extended |
+| UI | Jetpack Compose（BOM 2026.05.01，ui/foundation 1.11.2）+ **Material 3 Expressive**（material3 1.5.0-alpha18）+ material-icons-extended |
 | 架构 | 单 Activity + Navigation-Compose + ViewModel（手写 DI 容器，无 Hilt） |
 | 网络 | OkHttp 4.12 + Cronet（chromium net）+ WebView 兜底；Coil 2.7 加载图片 |
 | 依赖注入 | 手写 `AppContainer`（`di/AppContainer.kt`） |
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
-| minSdk / target / compile | 26 / 34 / 34 |
-| Gradle | Gradle 8.9（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 8.5.2 |
+| minSdk / target / compile | 26 / 34 / **36**（material3 1.5 的 AAR 要求 minCompileSdk ≥ 35） |
+| Gradle | Gradle 8.14.3（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 8.13.2，Kotlin 2.2.20 |
 
 关键 build 文件：`app/build.gradle.kts`。用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
 
-> ⚠️ **JDK 版本要求 17–21**：Gradle 8.9 不支持 Java 22+。若 `JAVA_HOME` 指向过新的 JDK（例如 25），构建会在启动阶段直接失败并只打印版本号（`What went wrong: 25.0.2`）。此时把 `JAVA_HOME` 指到 JDK 17/21（如 Android Studio 自带 JBR 或 `C:\Users\<用户>\.jdks\jbr-21.x`）即可：
+> ⚠️ **JDK 版本要求 17–21（CI 用 17）**：Gradle 8.14.3 支持 JDK 17–24，JDK 25 仍不受支持。若 `JAVA_HOME` 指向过新的 JDK（例如 25），构建会在启动阶段直接失败并只打印版本号（`What went wrong: 25.0.2`）。此时把 `JAVA_HOME` 指到 JDK 17/21（如 Android Studio 自带 JBR 或 `C:\Users\<用户>\.jdks\jbr-21.x`）即可：
 > ```powershell
 > $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"; $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
 > .\gradlew.bat :app:assembleDebug
@@ -76,10 +76,10 @@ Wenku8Reader/
             ├── navigation/Routes.kt      # 类型安全路由常量（MAIN 为三 Tab 宿主路由）
             ├── common/                   # UiText.kt / ReaderAppearance.kt(fontFamilyFor) / CoilRequests.kt(封面请求，带 Referer + 目标尺寸解码)
             ├── theme/Theme.kt            # MD3 主题（动态取色 + 种子色 + AMOLED 纯黑）
-            ├── theme/Type.kt             # 全局 Typography（参考 SukiSU expressive 风格）
+            ├── theme/Type.kt             # 全局 Typography（M3 Expressive 强调字重 + 中文排版修正）
             ├── theme/Colors.kt           # 种子色预设
             ├── components/Anim.kt        # 通用动画（pressClickable 按压缩放）
-            ├── components/Expressive.kt  # SukiSU 风格组件（TonalCard/ExpressiveScaffold/Segmented 系列/StatusTag/WarningCard/ExpressiveSwitch）
+            ├── components/Expressive.kt  # M3 Expressive 组件层（Scaffold/顶栏/TonalCard/装饰形状/空状态/加载进度/Segmented 系列/ExpressiveSwitch）
             ├── components/PagerNavigation.kt # 主 Tab 弹簧动画（MainPagerState + springAnimateToPage）
             ├── explore/                  # 首页栏目 + 搜索 + 标签书单（ExplorePage / TagBooksScreen）
             ├── about/                    # 关于页（图标/版本/GitHub/爱发电链接）
@@ -174,29 +174,38 @@ Wenku8Reader/
 
 ### 5.2 导航（`Routes.kt` + `MainScaffold.kt`，2026-08 UI 重构后）
 - **主界面分页式 Tab**：`Routes.MAIN` 为宿主路由，内部 `HorizontalPager` 承载 3 个 Tab 页（`ExplorePage` / `BookcasePage` / `SettingsPage`），页面常驻（`beyondViewportPageCount=2`），切换保留滚动位置。
-- **弹簧动画**：底栏点击走 `MainPagerState.animateToPage()`（`ui/components/PagerNavigation.kt`，stiffness 322.2 / damping≈0.9），与 SukiSU-Ultra 一致；手动滑动由 `syncPage()` 同步选中态。
+- **弹簧动画**：底栏点击走 `MainPagerState.animateToPage()`（`ui/components/PagerNavigation.kt`），动画取自 `MaterialTheme.motionScheme.defaultSpatialSpec()`（Expressive 主题下为弹性空间动效，标准主题下自动退化）；手动滑动由 `syncPage()` 同步选中态。
 - **底栏**：`NavigationBar`（containerColor = `surfaceContainer`），选中/未选中用 Filled/Outlined 图标对。
 - **返回键**：非首个 Tab 时 `BackHandler` 先回首页 Tab，再回退导航栈。
 - 子页路由（`detail/{id}`、`reader/{id}?cid=`、`tag/{tag}`、`author/{name}`、`toc/{id}`、`stats`、`downloads`、`settings/custom`、`about`）走 NavHost（淡入 + 侧滑过渡），自带顶栏、无底栏；阅读器自绘 chrome。
-- 每个 Tab 页自带 `ExpressiveScaffold` + 顶栏（静态 64dp `TopAppBar`，探索/书架/设置主 Tab 已去掉折叠大顶栏以消除滚动逐帧布局级联；详情等子页仍为折叠 `LargeTopAppBar`），顶栏右侧下载图标进 `downloads`。
+- 每个 Tab 页自带 `ExpressiveScaffold` + 顶栏（主 Tab 用静态 64dp `ExpressiveTopAppBar`，已去掉折叠大顶栏以消除滚动逐帧布局级联；子页统一用 Expressive Flexible 版 `ExpressiveLargeTopAppBar`，可带副标题并在滚动时收起），顶栏右侧下载图标进 `downloads`。
 
-### 5.3 各页面（UI 重构后均为 SukiSU 风格：surfaceContainer 背景 + surfaceBright 卡片）
-- `ExplorePage/ViewModel`：折叠大顶栏「轻小说文库」+ 圆角搜索条（surfaceContainerHighest 药丸形）+ 推荐/标签 SegmentedButton；首页栏目封面轮播、文字榜单（surfaceBright 卡片）、标签入口。
-- `TagBooksScreen/ViewModel`：某标签下书籍列表（SegmentedColumn 卡片行），**分页加载全部**（底部「加载更多」逐页追加）。
-- `DetailScreen/ViewModel`：封面+基本信息 TonalCard（标签用 StatusTag 药丸）、阅读按钮、离线下载 TonalCard（TXT/EPUB + 进度）、简介 TonalCard。
-- `BookcasePage/ViewModel`：书架 TonalCard 列表 + 排序（顶栏 DropdownMenu）+ 刷新。
-- `DownloadsScreen/ViewModel`：下载任务 TonalCard 列表（进度/取消/完成路径），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、手动种子色）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
-- `AboutScreen`：关于页——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`，现为 1.0.0）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
-- `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
+### 5.3 各页面（统一 M3 Expressive：surfaceContainer 背景 + surfaceBright 卡片 + 大圆角/弹性动效）
+- `ExplorePage/ViewModel`：静态顶栏「轻小说文库」+ 圆角搜索条（surfaceContainerHigh 药丸形）+ **Expressive 按钮组**（`ExpressiveToggleGroup`，按下项变宽/相邻项压缩）切换推荐 / 标签；首页栏目封面轮播、文字榜单（surfaceBright 卡片）、标签入口。
+- `TagBooksScreen/ViewModel`：某标签下书籍列表（SegmentedColumn 卡片行）+ Flexible 大顶栏，**分页加载全部**（底部「加载更多」逐页追加）。
+- `DetailScreen/ViewModel`：Flexible 大顶栏（副标题=作者）+ 封面信息卡（标签用 StatusTag 药丸）+ 56dp 高强调阅读主按钮 + tonal 目录按钮 + 离线下载卡（TXT/EPUB + 波浪进度）+ 简介卡。
+- `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计与下载入口。
+- `DownloadsScreen/ViewModel`：Flexible 大顶栏 + 下载任务卡列表（进行中用 `ActiveProgressBar` 波浪进度、完成/失败为文本），自带返回键。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
+- `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
 - `SettingsComponents.kt`：`SectionTitle` / `SettingLabel` 等复用组件。
 
-### 5.4 通用组件（`ui/components/Expressive.kt`，material3 1.3 稳定 API 实现）
-- `ExpressiveScaffold`：surfaceContainer 背景 + `expressiveTopAppBarColors` / `expressiveLargeTopAppBarColors`。
-- `TonalCard`：surfaceBright + `shapes.large`，可选 onClick/onLongClick。
-- `SegmentedColumn` / `SegmentedListItem` / `SegmentedSwitchItem` / `SegmentedDropdownItem` / `SegmentedRadioItem`：surfaceBright 分组卡片列表（首项大圆角、项间 2dp 缝隙）。**注意**：material3 1.3 没有可点击 `ListItem`，`SegmentedListItem` 为自定义 Row 实现（标题/次要文本/前导/尾随 + `pressClickable`）。
-- `StatusTag` / `WarningCard` / `ExpressiveSwitch`（✓/✕ 拇指图标）。
+### 5.4 通用组件（`ui/components/Expressive.kt`，material3 1.5 Expressive API）
+- `ExpressiveScaffold` + `expressiveTopAppBarColors` / `ExpressiveTopAppBar` / `ExpressiveLargeTopAppBar`（+ `rememberExpressiveScrollBehavior`）：surfaceContainer 背景；主 Tab 用静态小顶栏，子页用 Flexible 大顶栏（展开两行、滚动收起）。
+- `TonalCard`：surfaceBright + `MaterialTheme.shapes.large`（20dp，Expressive 形状刻度），可选 onClick/onLongClick。
+- `DecorativeShapeBox` / `ExpressiveEmptyState`：用 `MaterialShapes`（Cookie9Sided / Clover4Leaf / SoftBurst / Boom / Sunny / PuffyDiamond）做装饰形状底 + 空态/错误态（标题 + 说明 + 可选操作按钮），各页不再各自手写空态。
+- `ExpressiveLoadingIndicator` / `ActiveProgressBar`：`LoadingIndicator`（形变加载）与 `LinearWavyProgressIndicator`（波浪进度，仅用于"正在进行"的下载/更新）。
+- `ExpressiveToggleGroup`：官方 `ButtonGroup` + `toggleableItem` + `ButtonGroupDefaults.OverflowIndicator`（项过多自动折叠）。
+- `SegmentedColumn` / `SegmentedListItem` / `SegmentedSwitchItem` / `SegmentedDropdownItem`：分组卡片列表，底层是官方 `SegmentedListItem` + `ListItemDefaults.segmentedShapes/SegmentedGap/segmentedColors`——**按下时按规范做形状变化**，分组圆角取自官方 token；分组下标由 `SegmentedColumn` 经 CompositionLocal 下发，调用点无需手写 index/count。
+- `StatusTag` / `ExpressiveSwitch`（✓/✕ 拇指图标，material3 默认不画图标，需由调用方通过 `thumbContent` 提供）。
 - `HapticIndication`（`ui/components/HapticIndication.kt`）：**全局点击振动**——Compose 1.7 `IndicationNodeFactory` + `DelegatingNode` 实现，委托默认 ripple 保留水波纹，按下时调系统 `Vibrator`（`VibrationEffect.createOneShot(20ms, strength*255/100)`，可调强度）；`MainActivity` 根部 `HapticScope` 注入 `LocalIndication`，所有 clickable/按钮/开关自动生效。⚠️ 经验：foundation 1.7 已弃用旧 `Indication` API（`LocalIndication` 在 `androidx.compose.foundation` 包）；`IndicationNodeFactory.create` 返回 `DelegatableNode`，需 `as Modifier.Node` 后交给 `DelegatingNode.delegate()`。
+
+### 5.5 Material 3 Expressive 落地要点（2026-09）
+- **主题**：`MainActivity` 走 `Wenku8ReaderTheme(...)` → `MaterialExpressiveTheme(colorScheme, motionScheme, shapes, typography)`。`motionScheme` 由设置项 `ReaderSettingsState.expressiveMotion` 决定（默认 `MotionScheme.expressive()`，可切 `standard()`）；`shapes` 只把 `large` 抬到 20dp（`ShapeDefaults.LargeIncreased`），其余档位保持 M3 默认，避免菜单/对话框/FAB 圆角被一并改动。
+- **排版**：`theme/Type.kt` 以 `Typography()` 为基线，标题/标签改用 emphasized 字重，中文正文/标题字距收敛为 0。
+- **动效**：页面切换（`MainScaffold` NavHost 过渡）、Tab 分页弹簧（`PagerNavigation`）、按压缩放（`Anim.pressClickable`）、折叠展开（详情下载区 / 目录分卷）统一取自 `MaterialTheme.motionScheme`，不再写死 `tween`/`spring` 参数。
+- **版本约束**：`MaterialExpressiveTheme` 在 material3 **1.4.0 仍是 internal**，Expressive 组件（`MaterialShapes`/`LoadingIndicator`/`ButtonGroup`/`SplitButton`/`FloatingToolbar`）也只出现在 1.5.0-alpha；因此 `app/build.gradle.kts` 显式把 material3 钉在 `1.5.0-alpha18`（BOM 2026.05.01 之外的单点覆盖）。升级 material3 时必须同时满足 `minCompileSdk`（当前 35，取 36）与 `minAndroidGradlePluginVersion`，并复核 `@ExperimentalMaterial3ExpressiveApi` 的 opt-in（见 `app/build.gradle.kts` 的 `compilerOptions.optIn`）。
 
 ---
 
@@ -267,7 +276,11 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - [x] 设置：滚动/侧滑切换、音量键翻页（默认开）、自动下一章（默认关）、翻页方向（默认向左）、自动翻页间隔输入
 - [x] 阅读器外观自定义（背景色/图、正文字色、字体、字号、行距、简繁、四边边距）
 
-### 7.2 UI 重构（2026-08，参考 `技术性文档(只读勿动)/SukiSU-Ultra-main` Material 侧）
+### 7.2 UI 重构
+
+**2026-08（组件外壳）**：参考 `技术性文档(只读勿动)/SukiSU-Ultra-main` Material 侧，把主外壳与各页面改为 surfaceContainer 背景 + surfaceBright 卡片 + 分组卡片列表。
+
+**2026-09（Material 3 Expressive）**：升级到 material3 1.5.0-alpha18 Expressive API，见 §5.4 / §5.5 —— 主题改用 `MaterialExpressiveTheme`、顶栏改 Flexible 大顶栏、分组列表改官方 `SegmentedListItem`（按下形状变化）、分段控件改 `ButtonGroup`、加载/进度改 `LoadingIndicator`/波浪进度条、空态用 `MaterialShapes` 装饰形状，动效统一走 motion scheme，并新增「表达性动效」开关。
 - [x] 主题：完整 surfaceContainer* 角色色板（手工种子色生成）+ AMOLED 纯黑模式 + expressive Typography；动态取色不变。
 - [x] 主界面：三 Tab 改 `HorizontalPager` + 弹簧动画（`PagerNavigation.kt`），底栏 `NavigationBar` 用 surfaceContainer 同色；返回键先回首页 Tab。
 - [x] 全页面卡片化：折叠大顶栏（LargeTopAppBar + exitUntilCollapsed）、surfaceBright 卡片列表（TonalCard / SegmentedColumn）、StatusTag 药丸、圆角搜索条。
@@ -334,7 +347,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 
 ```bash
 # 项目根目录无 gradlew wrapper。推荐直接用 Android Studio 打开本目录同步后 Run。
-# 命令行（本机已装 Gradle 8.9 于 ~/.gradle/wrapper/dists/gradle-8.9-bin/...）：
+# 命令行（wrapper 会自动拉取 Gradle 8.14.3 到 ~/.gradle/wrapper/dists/...）：
 $env:JAVA_HOME="<JDK17或Android Studio 的 jbr>"
 gradle :app:assembleDebug        # 产物 app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -358,8 +371,8 @@ gradle :app:assembleDebug        # 产物 app/build/outputs/apk/debug/app-debug.
 8. **沉浸系统栏**：切换用 `WindowInsetsControllerCompat`；离开阅读器时 `DisposableEffect` 恢复显示系统栏。
 9. **图片防盗链**：所有 Coil 请求需带 `Referer: https://www.wenku8.net/`。
 10. **命名/风格**：与现有代码一致即可；文件内大量中文注释，新增注释可用中文。
-11. **material3 版本约束（BOM 2024.09.02 = material3 1.3.0）**：没有可点击 `ListItem`、`ShortNavigationBar`、`SegmentedListItem`、`LargeFlexibleTopAppBar` 等 1.4 expressive API，也没有 `Pager(overscrollEffect)`。需要此类能力时：Tab 用 `HorizontalPager` + `PagerNavigation.kt` 弹簧、列表行用 `components/Expressive.kt` 的 `SegmentedListItem`（自定义 Row）、顶栏用 `LargeTopAppBar`。新增 SukiSU 风格组件统一放 `Expressive.kt`。
-12. **主题**：`Wenku8ReaderTheme(darkTheme, dynamicColor, seedColor, amoled)`；手工色板在 `Theme.kt` 的 `manualScheme()`，要补齐 surfaceContainer* 全角色，勿退回旧版只有 primary/background 的残缺色板。`amoled` 与 `darkMode/dynamicColor/seedColor` 一样存于 `ReaderSettings`（prefs `settings`）。
+11. **material3 版本约束（BOM 2026.05.01 + material3 1.5.0-alpha18）**：Expressive API 现已可用（`MaterialExpressiveTheme` / `MaterialShapes` / `LoadingIndicator` / `ButtonGroup` / `SplitButton` / `LargeFlexibleTopAppBar` / `SegmentedListItem` 等），但整体仍是 `@ExperimentalMaterial3ExpressiveApi` —— 已通过 `app/build.gradle.kts` 的 `compilerOptions.optIn` 全局放行，升级 material3 时按 §5.5 复核。新增 Expressive 组件统一放 `components/Expressive.kt`；页面**不要**直接写死颜色/圆角/动画参数，优先复用该文件的组件与 `MaterialTheme.motionScheme`。
+12. **主题**：`Wenku8ReaderTheme(darkTheme, dynamicColor, seedColor, amoled, expressiveMotion)`；手工色板在 `Theme.kt` 的 `manualScheme()`，要补齐 surfaceContainer* 全角色，勿退回旧版只有 primary/background 的残缺色板。`amoled` / `expressiveMotion` 与 `darkMode/dynamicColor/seedColor` 一样存于 `ReaderSettings`（prefs `settings`）。
 
 ---
 
@@ -381,10 +394,11 @@ gradle :app:assembleDebug        # 产物 app/build/outputs/apk/debug/app-debug.
 
 | 内容 | 位置 |
 |---|---|
-| 主 Tab 分页 + 弹簧动画（MainPagerState/springAnimateToPage） | `components/PagerNavigation.kt` |
+| 主 Tab 分页 + motion scheme 弹簧（MainPagerState/springAnimateToPage） | `components/PagerNavigation.kt` |
 | 主外壳（NavHost + NavigationBar + BackHandler） | `MainScaffold.kt` |
 | 三 Tab 宿主（HorizontalPager） | `MainScaffold.kt`（`MainPagerScreen`） |
-| SukiSU 风格组件（TonalCard/ExpressiveScaffold/Segmented 系列/StatusTag/WarningCard/ExpressiveSwitch） | `components/Expressive.kt` |
+| M3 Expressive 组件层（Scaffold/顶栏/TonalCard/装饰形状/空状态/加载进度/Segmented 系列/ExpressiveSwitch） | `components/Expressive.kt` |
+| Expressive 主题装配（MaterialExpressiveTheme + MotionScheme + Shapes） | `theme/Theme.kt`（`Wenku8ReaderTheme`） |
 | 手工色板（surfaceContainer* 全角色 + AMOLED） | `theme/Theme.kt`（`manualScheme`） |
 | 全局 Typography | `theme/Type.kt` |
 | 主题种子色预设 | `theme/Colors.kt` |

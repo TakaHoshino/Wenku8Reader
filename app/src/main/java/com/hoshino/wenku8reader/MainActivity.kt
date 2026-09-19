@@ -86,6 +86,8 @@ class MainActivity : ComponentActivity() {
                 dynamicColor = settings.dynamicColor,
                 seedColor = Color(settings.seedColor),
                 amoled = settings.amoled,
+                // M3 Expressive 动效（可在设置页「外观」切回标准动效）
+                expressiveMotion = settings.expressiveMotion,
             ) {
                 // 全局点击振动（设置开关 + 强度控制）
                 HapticScope(

@@ -46,6 +46,7 @@ class SettingsViewModel(
     fun setDynamicColor(enabled: Boolean) = readerSettings.setDynamicColor(enabled)
     fun setSeedColor(color: Long) = readerSettings.setSeedColor(color)
     fun setAmoled(enabled: Boolean) = readerSettings.setAmoled(enabled)
+    fun setExpressiveMotion(enabled: Boolean) = readerSettings.setExpressiveMotion(enabled)
     fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
     fun setHapticsStrength(value: Int) = readerSettings.setHapticsStrength(value)
     fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)

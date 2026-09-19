@@ -4,7 +4,12 @@ import android.graphics.Color as AndroidColor
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.ShapeDefaults
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -15,17 +20,23 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 
 /**
- * 全局主题。参考 SukiSU-Ultra 的 Material 侧设计语言：
+ * 全局主题（Material 3 Expressive）：
  * - 动态取色（Android 12+）或手动种子色；
  * - 完整补齐 surfaceContainer* 系列角色（折叠大顶栏 / 底栏 / 卡片同色系）；
- * - AMOLED 纯黑模式（深色下 surface 系列压到真黑）。
+ * - AMOLED 纯黑模式（深色下 surface 系列压到真黑）；
+ * - 形状刻度取 Expressive 的 large=20dp（卡片 / 列表组），动效由其 motion scheme 驱动。
+ *
+ * 为什么用 [MaterialExpressiveTheme] 而不是 `MaterialTheme`：前者会把
+ * motion scheme、形状与排版一并设为 Expressive 默认值（后者需要逐个显式传入）。
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun Wenku8ReaderTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     seedColor: Color = Color(0xFF3F5BA9),
     amoled: Boolean = false,
+    expressiveMotion: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val baseScheme = when {
@@ -38,12 +49,23 @@ fun Wenku8ReaderTheme(
     }
     // AMOLED 纯黑对动态色板同样生效：只压黑 surface 系列，保留动态取色的主色。
     val colorScheme = if (amoled && darkTheme) baseScheme.amoledCopy() else baseScheme
-    MaterialTheme(
+    MaterialExpressiveTheme(
         colorScheme = colorScheme,
+        motionScheme = if (expressiveMotion) MotionScheme.expressive() else MotionScheme.standard(),
+        shapes = Wenku8Shapes,
         typography = Wenku8Typography,
         content = content,
     )
 }
+
+/**
+ * 形状刻度：仅把 large 抬到 Expressive 的 20dp（卡片 / 分组列表容器），
+ * 其余档位保持 M3 默认，避免菜单、对话框、FAB 等组件的圆角被一并改动。
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private val Wenku8Shapes = Shapes(
+    large = ShapeDefaults.LargeIncreased,
+)
 
 /**
  * 把 surface/background 系列压到真黑，用于 OLED 省电。

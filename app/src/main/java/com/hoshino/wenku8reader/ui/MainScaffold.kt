@@ -1,7 +1,6 @@
 package com.hoshino.wenku8reader.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -134,17 +133,22 @@ fun MainScaffold() {
             }
         },
     ) { inner ->
+        // 页面切换动效统一取自主题的 motion scheme：
+        // Expressive 主题下是带弹性空间感的滑动，标准主题下自动退化为线性过渡。
+        val motion = MaterialTheme.motionScheme
         NavHost(
             navController = nav,
             startDestination = Routes.MAIN,
             modifier = Modifier.padding(bottom = inner.calculateBottomPadding()),
             enterTransition = {
-                fadeIn(tween(300)) + slideInHorizontally(tween(300)) { it / 4 }
+                fadeIn(motion.defaultEffectsSpec()) +
+                    slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 }
             },
-            exitTransition = { fadeOut(tween(200)) },
-            popEnterTransition = { fadeIn(tween(300)) },
+            exitTransition = { fadeOut(motion.fastEffectsSpec()) },
+            popEnterTransition = { fadeIn(motion.defaultEffectsSpec()) },
             popExitTransition = {
-                fadeOut(tween(200)) + slideOutHorizontally(tween(300)) { it / 4 }
+                fadeOut(motion.fastEffectsSpec()) +
+                    slideOutHorizontally(motion.fastSpatialSpec()) { it / 4 }
             },
         ) {
             composable(Routes.MAIN) {

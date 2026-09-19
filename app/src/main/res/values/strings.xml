@@ -226,6 +226,8 @@
     <string name="settings_dark_light">浅色</string>
     <string name="settings_dark_dark">深色</string>
     <string name="settings_dynamic_color">动态取色</string>
+    <string name="settings_expressive_motion">表达性动效</string>
+    <string name="settings_expressive_motion_summary">Material 3 Expressive 的弹性形变动效；关闭后改用克制的标准动效</string>
     <string name="settings_manual_color">手动取色</string>
     <string name="settings_background_color">背景颜色</string>
     <string name="settings_background_image">背景图片</string>

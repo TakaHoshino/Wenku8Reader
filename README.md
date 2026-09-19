@@ -10,7 +10,7 @@
 
 **轻小说文库**是一款原生 Android 阅读器：浏览 wenku8 全站栏目、搜索与分类找书、一键加入书架，并内置了沉浸式在线阅读器——支持侧滑翻页、自动翻页、音量键翻页、简繁转换，还可将整本书离线下载为 TXT / EPUB 随时阅读。
 
-应用采用 **Material Design 3** 设计语言：卡片化界面、动态取色（跟随系统壁纸生成主题色）、深色/纯黑（OLED 省电）模式，并适配 120Hz 高刷新率屏幕，滑动与翻页顺滑跟手。
+应用采用 **Material 3 Expressive** 设计语言：卡片化界面、动态取色（跟随系统壁纸生成主题色）、弹性形变与柔性顶栏、波浪进度与形变加载指示器、装饰形状空态、深色/纯黑（OLED 省电）模式，并适配 120Hz 高刷新率屏幕，滑动与翻页顺滑跟手。
 
 
 ## 功能特性
@@ -67,7 +67,7 @@
 
 ## 技术栈
 
-原生 **Kotlin + Jetpack Compose + Material Design 3** 构建，无 WebView 外壳；网络层基于 OkHttp + Cronet，图片加载使用 Coil，简繁转换使用 opencc4j。
+原生 **Kotlin + Jetpack Compose + Material 3 Expressive** 构建，无 WebView 外壳；网络层基于 OkHttp + Cronet，图片加载使用 Coil，简繁转换使用 opencc4j。
 
 ## 声明
 

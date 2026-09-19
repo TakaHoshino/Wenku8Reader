@@ -37,15 +37,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +59,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveSwitch
+import com.hoshino.wenku8reader.ui.components.ExpressiveToggleGroup
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
@@ -124,9 +124,11 @@ fun CustomizationScreen(
         }
     }
 
-    Scaffold(
+    val scrollBehavior = rememberExpressiveScrollBehavior()
+
+    ExpressiveScaffold(
         topBar = {
-            TopAppBar(
+            ExpressiveLargeTopAppBar(
                 title = { Text(stringResource(R.string.settings_custom)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -134,6 +136,7 @@ fun CustomizationScreen(
                             contentDescription = stringResource(R.string.action_back))
                     }
                 },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { inner ->
@@ -141,6 +144,7 @@ fun CustomizationScreen(
             Modifier
                 .fillMaxSize()
                 .padding(inner)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
@@ -148,9 +152,9 @@ fun CustomizationScreen(
             ListItem(
                 leadingContent = { Icon(Icons.Filled.Translate, contentDescription = null) },
                 headlineContent = { Text(stringResource(R.string.settings_simplified_traditional)) },
-                supportingContent = { Text(stringResource(R.string.settings_simplified_traditional_desc)) },
-                trailingContent = {
-                    Switch(
+                        supportingContent = { Text(stringResource(R.string.settings_simplified_traditional_desc)) },
+                        trailingContent = {
+                    ExpressiveSwitch(
                         checked = rs.traditionalChinese,
                         onCheckedChange = { vm.setTraditionalChinese(it) },
                     )
@@ -161,33 +165,26 @@ fun CustomizationScreen(
             SectionTitle(stringResource(R.string.settings_theme_paper))
 
             SettingLabel(stringResource(R.string.settings_dark_mode))
-            SingleChoiceSegmentedButtonRow(
+            val darkModeOptions = listOf(
+                "system" to R.string.settings_dark_system,
+                "light" to R.string.settings_dark_light,
+                "dark" to R.string.settings_dark_dark,
+            )
+            ExpressiveToggleGroup(
+                labels = darkModeOptions.map { stringResource(it.second) },
+                selectedIndex = darkModeOptions.indexOfFirst { it.first == rs.darkMode }.coerceAtLeast(0),
+                onSelect = { index -> vm.setDarkMode(darkModeOptions[index].first) },
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp),
-            ) {
-                val options = listOf(
-                    "system" to R.string.settings_dark_system,
-                    "light" to R.string.settings_dark_light,
-                    "dark" to R.string.settings_dark_dark,
-                )
-                options.forEachIndexed { index, (value, labelRes) ->
-                    SegmentedButton(
-                        selected = rs.darkMode == value,
-                        onClick = { vm.setDarkMode(value) },
-                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                    ) {
-                        Text(stringResource(labelRes), maxLines = 1)
-                    }
-                }
-            }
+            )
 
             // 动态取色 / 手动取色
             ListItem(
                 leadingContent = { Icon(Icons.Filled.Palette, contentDescription = null) },
                 headlineContent = { Text(stringResource(R.string.settings_dynamic_color)) },
                 trailingContent = {
-                    Switch(
+                    ExpressiveSwitch(
                         checked = rs.dynamicColor,
                         onCheckedChange = { vm.setDynamicColor(it) },
                     )

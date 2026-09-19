@@ -1,14 +1,15 @@
 package com.hoshino.wenku8reader.ui.explore
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -18,6 +19,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.common.CoverImage
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 
@@ -41,7 +44,7 @@ internal fun SearchBody(
         ui.searching -> Box(
             modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
-        ) { CircularProgressIndicator() }
+        ) { ExpressiveLoadingIndicator() }
 
         ui.searchError != null -> Text(
             ui.searchError?.asString(context) ?: "",
@@ -55,26 +58,22 @@ internal fun SearchBody(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
                     items = ui.results.map { r ->
                         {
-                            // 外层 Box 承担点击（普通 clickable = 低开销 + 全局 LocalIndication 波纹）；
-                            // SegmentedListItem 不传 onClick，避免内部再套一层按压缩放动画。
-                            // 该组件所在的 Surface 会按分段圆角裁剪，波纹范围与改造前一致。
-                            Box(Modifier.clickable { onOpenBook(r.id) }) {
-                                SegmentedListItem(
-                                    headlineContent = { Text(r.name) },
-                                    supportingContent = {
-                                        Text(stringResource(R.string.search_result_id, r.id))
-                                    },
-                                    leadingContent = {
-                                        CoverImage(
-                                            url = r.coverUrl,
-                                            width = 48.dp,
-                                            height = 68.dp,
-                                            contentDescription = r.name,
-                                            cornerRadius = 8.dp,
-                                        )
-                                    },
-                                )
-                            }
+                            SegmentedListItem(
+                                onClick = { onOpenBook(r.id) },
+                                headlineContent = { Text(r.name) },
+                                supportingContent = {
+                                    Text(stringResource(R.string.search_result_id, r.id))
+                                },
+                                leadingContent = {
+                                    CoverImage(
+                                        url = r.coverUrl,
+                                        width = 48.dp,
+                                        height = 68.dp,
+                                        contentDescription = r.name,
+                                        cornerRadius = 8.dp,
+                                    )
+                                },
+                            )
                         }
                     },
                 )
@@ -82,14 +81,11 @@ internal fun SearchBody(
             item { Spacer(Modifier.height(24.dp)) }
         }
 
-        else -> Box(
-            modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                stringResource(R.string.search_press_to_search),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        else -> ExpressiveEmptyState(
+            title = stringResource(R.string.search_press_to_search),
+            icon = Icons.Filled.Search,
+            shape = MaterialShapes.PuffyDiamond,
+            modifier = modifier.fillMaxSize(),
+        )
     }
 }

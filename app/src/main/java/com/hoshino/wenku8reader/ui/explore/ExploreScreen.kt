@@ -26,13 +26,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +43,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.components.ExpressiveToggleGroup
+import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 
 /*
@@ -86,7 +83,7 @@ fun ExplorePage(
     // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
         topBar = {
-            TopAppBar(
+            ExpressiveTopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = onOpenDownloads) {
@@ -96,9 +93,6 @@ fun ExplorePage(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
             )
         },
@@ -162,7 +156,7 @@ private fun SearchRow(
     ) {
         Surface(
             shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.weight(1f),
         ) {
             Row(
@@ -218,22 +212,20 @@ private fun ExploreTabRow(
     mode: ExploreMode,
     onModeChange: (ExploreMode) -> Unit,
 ) {
-    SingleChoiceSegmentedButtonRow(
+    // M3 Expressive 按钮组：按下时被按项变宽、相邻项压缩
+    ExpressiveToggleGroup(
+        labels = listOf(
+            stringResource(R.string.explore_tab_recommend),
+            stringResource(R.string.explore_tab_tags),
+        ),
+        selectedIndex = if (mode == ExploreMode.RECOMMEND) 0 else 1,
+        onSelect = { index ->
+            onModeChange(if (index == 0) ExploreMode.RECOMMEND else ExploreMode.TAGS)
+        },
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-    ) {
-        SegmentedButton(
-            selected = mode == ExploreMode.RECOMMEND,
-            onClick = { onModeChange(ExploreMode.RECOMMEND) },
-            shape = SegmentedButtonDefaults.itemShape(0, 2),
-        ) { Text(stringResource(R.string.explore_tab_recommend)) }
-        SegmentedButton(
-            selected = mode == ExploreMode.TAGS,
-            onClick = { onModeChange(ExploreMode.TAGS) },
-            shape = SegmentedButtonDefaults.itemShape(1, 2),
-        ) { Text(stringResource(R.string.explore_tab_tags)) }
-    }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -255,7 +247,7 @@ fun SearchScreen(
 
     ExpressiveScaffold(
         topBar = {
-            TopAppBar(
+            ExpressiveTopAppBar(
                 title = { Text(stringResource(R.string.action_search)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -265,9 +257,6 @@ fun SearchScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
                 windowInsets = WindowInsets.safeDrawing.only(
                     WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
                 ),

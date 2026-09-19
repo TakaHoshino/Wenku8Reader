@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
@@ -46,8 +47,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,6 +68,7 @@ import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
@@ -250,6 +250,15 @@ private fun AppearanceSection(
                     summary = stringResource(R.string.settings_dynamic_color_summary),
                     checked = rs.dynamicColor,
                     onCheckedChange = vm::setDynamicColor,
+                )
+            },
+            {
+                SegmentedSwitchItem(
+                    icon = Icons.Filled.Animation,
+                    title = stringResource(R.string.settings_expressive_motion),
+                    summary = stringResource(R.string.settings_expressive_motion_summary),
+                    checked = rs.expressiveMotion,
+                    onCheckedChange = vm::setExpressiveMotion,
                 )
             },
         ),
@@ -487,7 +496,7 @@ private fun AboutSection(
 private fun TopBar(
     onOpenDownloads: () -> Unit,
 ) {
-    TopAppBar(
+    ExpressiveTopAppBar(
         title = { Text(stringResource(R.string.tab_settings)) },
         actions = {
             IconButton(onClick = onOpenDownloads) {
@@ -497,9 +506,6 @@ private fun TopBar(
                 )
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
         windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
     )
 }

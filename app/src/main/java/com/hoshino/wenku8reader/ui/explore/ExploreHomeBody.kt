@@ -19,11 +19,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +39,8 @@ import coil.Coil
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.HomeSection
 import com.hoshino.wenku8reader.ui.common.coverImageRequest
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.TonalCard
 
 /**
@@ -89,35 +90,27 @@ internal fun HomeBody(
     when {
         ui.homeLoading && ui.sections.isEmpty() ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                ExpressiveLoadingIndicator()
             }
 
-        ui.homeError != null && ui.sections.isEmpty() ->
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    stringResource(
-                        R.string.home_error,
-                        ui.homeError?.asString(LocalContext.current) ?: "",
-                    ),
-                    color = MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onRefresh) { Text(stringResource(R.string.action_retry)) }
-            }
+        ui.homeError != null && ui.sections.isEmpty() -> ExpressiveEmptyState(
+            title = stringResource(
+                R.string.home_error,
+                ui.homeError?.asString(LocalContext.current) ?: "",
+            ),
+            icon = Icons.Filled.Refresh,
+            shape = MaterialShapes.Boom,
+            error = true,
+            actionLabel = stringResource(R.string.action_retry),
+            onAction = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        )
 
-        ui.sections.isEmpty() ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    stringResource(R.string.home_empty),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        ui.sections.isEmpty() -> ExpressiveEmptyState(
+            title = stringResource(R.string.home_empty),
+            shape = MaterialShapes.Cookie9Sided,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         else -> LazyColumn(
             Modifier.fillMaxSize(),
@@ -174,7 +167,6 @@ private fun HomeSectionBlock(section: HomeSection, onOpenBook: (Int) -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(16.dp),
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                     section.books.take(10).forEachIndexed { i, b ->

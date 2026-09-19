@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,10 +45,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.TonalCard
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
 
 /**
  * 关于页（子页）。应用图标 + 版本号 + 仓库 / 爱发电链接 + 应用介绍。
@@ -75,15 +74,15 @@ fun AboutScreen(
 
     ExpressiveScaffold(
         topBar = {
-            LargeTopAppBar(
+            ExpressiveLargeTopAppBar(
                 title = { Text(stringResource(R.string.about_title)) },
+                subtitle = { Text(stringResource(R.string.app_name)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.action_back))
                     }
                 },
-                colors = expressiveLargeTopAppBarColors(),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
             )
         },

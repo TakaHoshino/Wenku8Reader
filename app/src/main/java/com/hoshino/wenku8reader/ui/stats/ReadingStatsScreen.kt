@@ -26,17 +26,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -54,7 +51,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveToggleGroup
+import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import java.time.DayOfWeek
@@ -77,7 +77,7 @@ fun ReadingStatsScreen(
 
     ExpressiveScaffold(
         topBar = {
-            TopAppBar(
+            ExpressiveTopAppBar(
                 title = { Text(stringResource(R.string.stats_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -89,9 +89,6 @@ fun ReadingStatsScreen(
                         Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.action_refresh))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
             )
         },
@@ -104,30 +101,25 @@ fun ReadingStatsScreen(
         ) {
             // 时间尺度切换（默认：本月）
             val scales = ReadingScale.entries
-            SingleChoiceSegmentedButtonRow(
+            ExpressiveToggleGroup(
+                labels = scales.map { stringResource(it.labelRes) },
+                selectedIndex = scales.indexOf(ui.scale).coerceAtLeast(0),
+                onSelect = { index -> vm.setScale(scales[index]) },
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                scales.forEachIndexed { index, scale ->
-                    SegmentedButton(
-                        selected = ui.scale == scale,
-                        onClick = { vm.setScale(scale) },
-                        shape = SegmentedButtonDefaults.itemShape(index, scales.size),
-                    ) {
-                        Text(stringResource(scale.labelRes))
-                    }
-                }
-            }
+            )
 
             if (!ui.hasAnyData) {
                 // 空状态：尚无阅读记录
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(R.string.stats_empty),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                ExpressiveEmptyState(
+                    title = stringResource(R.string.stats_empty),
+                    icon = Icons.Filled.CalendarMonth,
+                    shape = MaterialShapes.Sunny,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
             } else {
                 Column(
                     Modifier

@@ -64,7 +64,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
@@ -113,6 +112,7 @@ import com.hoshino.wenku8reader.data.Wenku8Hosts
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.components.ExpressiveSwitch
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
 import java.io.File
 import java.util.Date
@@ -616,7 +616,8 @@ fun ReaderScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 6.dp),
-                        shape = RoundedCornerShape(20.dp),
+                        // 与主题的 Expressive 形状刻度一致（large = 20dp）
+                        shape = MaterialTheme.shapes.large,
                         tonalElevation = 3.dp,
                     ) {
                         Slider(
@@ -1128,17 +1129,17 @@ private fun ActionSettings(rs: ReaderSettingsState, vm: ReaderViewModel) {
         }
         item {
             SettingRow(stringResource(R.string.reader_click_turn)) {
-                Switch(checked = rs.clickTurnPage, onCheckedChange = { vm.setClickTurnPage(it) })
+                ExpressiveSwitch(checked = rs.clickTurnPage, onCheckedChange = { vm.setClickTurnPage(it) })
             }
         }
         item {
             SettingRow(stringResource(R.string.reader_volume_turn)) {
-                Switch(checked = rs.volumeKeyTurnPage, onCheckedChange = { vm.setVolumeKeyTurnPage(it) })
+                ExpressiveSwitch(checked = rs.volumeKeyTurnPage, onCheckedChange = { vm.setVolumeKeyTurnPage(it) })
             }
         }
         item {
             SettingRow(stringResource(R.string.reader_auto_next)) {
-                Switch(checked = rs.autoNextChapter, onCheckedChange = { vm.setAutoNextChapter(it) })
+                ExpressiveSwitch(checked = rs.autoNextChapter, onCheckedChange = { vm.setAutoNextChapter(it) })
             }
         }
         item {
@@ -1167,7 +1168,7 @@ private fun MarginSettings(rs: ReaderSettingsState, vm: ReaderViewModel) {
     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
         item {
             SettingRow(stringResource(R.string.reader_auto_margin)) {
-                Switch(checked = rs.autoPadding, onCheckedChange = { vm.setAutoPadding(it) })
+                ExpressiveSwitch(checked = rs.autoPadding, onCheckedChange = { vm.setAutoPadding(it) })
             }
         }
         if (!rs.autoPadding) {

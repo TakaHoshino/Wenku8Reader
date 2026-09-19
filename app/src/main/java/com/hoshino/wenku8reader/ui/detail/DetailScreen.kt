@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,16 +38,13 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,10 +62,12 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.JobStatus
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
+import com.hoshino.wenku8reader.ui.components.ActiveProgressBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.StatusTag
 import com.hoshino.wenku8reader.ui.components.TonalCard
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 
 /**
  * 书籍详情页（子页）。参考 SukiSU-Ultra：折叠大顶栏 + 封面信息卡片 +
@@ -107,13 +105,20 @@ fun DetailScreen(
     // 组合期只读 state，避免每次重组都做一次 SharedPreferences 读取。
     LaunchedEffect(Unit) { vm.refreshLocalState() }
 
-    val scrollBehavior = androidx.compose.material3.TopAppBarDefaults
-        .exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberExpressiveScrollBehavior()
+
+    // 大顶栏副标题：作者（无作者时不显示，避免出现空行）
+    val authorSubtitle: (@Composable () -> Unit)? =
+        if (info != null && info.author.isNotBlank()) {
+            { Text(info.author, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        } else {
+            null
+        }
 
     ExpressiveScaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            LargeTopAppBar(
+            ExpressiveLargeTopAppBar(
                 title = {
                     Text(
                         info?.title ?: stringResource(R.string.detail_title_default),
@@ -121,6 +126,7 @@ fun DetailScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
+                subtitle = authorSubtitle,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack,
@@ -139,7 +145,6 @@ fun DetailScreen(
                         )
                     }
                 },
-                colors = expressiveLargeTopAppBarColors(),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                 scrollBehavior = scrollBehavior,
             )
@@ -176,7 +181,8 @@ fun DetailScreen(
                 }
                 AnimatedVisibility(
                     visibleState = entered,
-                    enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { it / 16 },
+                    enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                        slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it / 16 },
                 ) {
                     Column(
                         Modifier
@@ -190,7 +196,7 @@ fun DetailScreen(
                         Spacer(Modifier.height(2.dp))
 
                         // 封面 + 基本信息
-                        TonalCard(shape = RoundedCornerShape(16.dp)) {
+                        TonalCard {
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -236,21 +242,26 @@ fun DetailScreen(
                             }
                         }
 
-                        // 阅读按钮
+                        // 阅读按钮：Expressive 高强调主操作（56dp 高度 + 大圆角）
                         Button(
                             onClick = { onRead(vm.bookId) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
                         ) {
                             Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text(stringResource(
-                                if (ui.hasProgress) R.string.detail_continue_reading
-                                else R.string.detail_start_reading
-                            ))
+                            Text(
+                                stringResource(
+                                    if (ui.hasProgress) R.string.detail_continue_reading
+                                    else R.string.detail_start_reading,
+                                ),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
                         }
 
-                        // 目录按钮（进入独立目录页）
-                        OutlinedButton(
+                        // 目录按钮（进入独立目录页）：次级操作 → tonal 按钮（中等强调）
+                        FilledTonalButton(
                             onClick = { onOpenToc(vm.bookId) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -260,7 +271,7 @@ fun DetailScreen(
                         }
 
                         // 离线下载
-                        TonalCard(shape = RoundedCornerShape(16.dp)) {
+                        TonalCard {
                             Column(Modifier.padding(14.dp)) {
                                 Text(
                                     stringResource(R.string.detail_offline_download),
@@ -271,12 +282,12 @@ fun DetailScreen(
                                     Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    OutlinedButton(
+                                    FilledTonalButton(
                                         onClick = { vm.download("txt") },
                                         enabled = !busy,
                                         modifier = Modifier.weight(1f),
                                     ) { Text(stringResource(R.string.detail_format_txt)) }
-                                    OutlinedButton(
+                                    FilledTonalButton(
                                         onClick = { vm.download("epub") },
                                         enabled = !busy,
                                         modifier = Modifier.weight(1f),
@@ -285,14 +296,16 @@ fun DetailScreen(
 
                                 AnimatedVisibility(
                                     visible = job != null,
-                                    enter = fadeIn(tween(250)) + expandVertically(),
-                                    exit = fadeOut(tween(200)) + shrinkVertically(),
+                                    enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                                        expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                                    exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                        shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()),
                                 ) {
                                     val j = job
                                     Spacer(Modifier.height(12.dp))
                                     when (j?.status) {
                                         JobStatus.RUNNING -> {
-                                            LinearProgressIndicator(
+                                            ActiveProgressBar(
                                                 progress = { j?.progress ?: 0f },
                                                 modifier = Modifier.fillMaxWidth(),
                                             )
@@ -321,7 +334,7 @@ fun DetailScreen(
                         }
 
                         // 内容简介
-                        TonalCard(shape = RoundedCornerShape(16.dp)) {
+                        TonalCard {
                             Column(Modifier.padding(14.dp)) {
                                 Text(
                                     stringResource(R.string.detail_description),
