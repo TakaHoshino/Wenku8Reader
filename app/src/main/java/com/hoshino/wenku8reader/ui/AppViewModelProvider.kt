@@ -29,6 +29,9 @@ object AppViewModelProvider {
             SettingsViewModel(
                 application().container.readerSettings,
                 application().container.client,
+                application().container.preferences,
+                application().container.storage,
+                application().container.updateCenter,
             )
         }
         initializer {

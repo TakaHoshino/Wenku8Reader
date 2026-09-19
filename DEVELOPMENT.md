@@ -137,7 +137,7 @@ Wenku8Reader/
 - `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。
 
 ### 4.6 本地存储
-- `AppPreferences`（prefs：`reading`/`ui`）：**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。每书 `progress_{bookId}` = 当前 cid；`progress_total_{bookId}` = 总章节数（书架进度用）；书柜排序；**章节完成状态** `finished_{bookId}` = JSONArray(cid)（目录页"已读"标记 + 重读重置）。
+- `AppPreferences`（prefs：`reading`/`ui`）：**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。每书 `progress_{bookId}` = 当前 cid；`progress_at_{bookId}` = **最后阅读时间戳**（毫秒，与进度同一次 edit 写入；「清理过期阅读记录」的唯一依据）；`progress_total_{bookId}` = 总章节数（书架进度用）；书柜排序；**章节完成状态** `finished_{bookId}` = JSONArray(cid)（目录页"已读"标记 + 重读重置）。`cleanupStaleReadingData(keepDays)` 删除「有时间戳且早于截止时间」的书本记录，判定逻辑抽成纯函数 `staleReadingBookIds()` 并单测（`AppPreferencesCleanupTest`）——**没有时间戳的旧记录一律保留**，避免凭猜测删用户数据。
 - `ReaderSettings`（prefs：`settings`）：**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题与阅读器。所有 setter 均先更新内存 StateFlow 再写 SharedPreferences（`emit()`，**只写发生变化的 key**——原实现每次全量重写 30+ 个 key，Slider 拖动时每帧都在全量落盘）。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
 - `LocalLibraryStore`（prefs：`library`）：本地书架快照（JSONArray 序列化 `LibraryBook`）。**只存书目与入架信息**——阅读进度统一由 `AppPreferences` 承担，避免两套并行存储必然不一致。读取走内存缓存（`contains`/`all` 在详情页与书架页高频调用，原先每次都全量 JSON 解析）。
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
@@ -161,6 +161,31 @@ Wenku8Reader/
 - **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；`OkHttpClient` **显式设置连接/读写/整体超时**（默认无超时会长期挂起且无取消点）。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
 - **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。
+
+### 4.10 存储占用统计与清理（`AppStorageManager` / `ui/settings`）
+
+**背景（用户报障）**：系统「应用信息 → 存储」显示缓存 33MB / 用户数据 36MB，而应用内「缓存管理」只显示 2.8MB。
+根因是**统计口径只覆盖了一个目录**：旧实现只统计 `filesDir/html_cache`（网页离线缓存），
+而实际占用的四个大头分散在别处 —— Coil 图片缓存（`cacheDir/image_cache`）、
+更新安装包（`cacheDir/updates`）、WebView/Chromium 缓存（`cacheDir/WebView*`）、
+数据目录其余部分（`shared_prefs`、`app_webview`、`code_cache`）。
+
+| 位置 | 系统设置里的归类 | 归属组件 | 可清理 |
+|---|---|---|---|
+| `filesDir/html_cache` | 用户数据 | `HtmlDiskCache` | ✅ 按类型/全部 |
+| `cacheDir/image_cache` | 缓存 | Coil `ImageLoader.diskCache` | ✅（经 Coil API，不手删目录） |
+| `cacheDir/updates` | 缓存 | `UpdateCenter.download` | ✅（下载中会跳过） |
+| `cacheDir/WebView*` | 缓存 | WebView/Chromium | ✅（`WebView.clearCache(true)` + 目录兜底；**不动 Cookie**） |
+| `cacheDir/reader_background_*.tmp` | 缓存 | 自定义背景图复制 | ✅ |
+| `shared_prefs`（`reading`/`ui`/`settings`/`cookies`…） | 用户数据 | `AppPreferences` 等 | ⚠️ 仅清理过期阅读记录，其余不动 |
+| `app_webview` / `code_cache` | 用户数据 | WebView 数据 / JIT | ❌ 系统管理（`code_cache` 只展示） |
+
+- `AppStorageManager.stats()` 返回 `StorageBreakdown`，其中 `cacheDirTotal` 对齐系统「缓存」、`dataDirTotal` 对齐系统「用户数据」，设置页把两个合计值直接摆在最前面，用户可自行与系统设置对照。
+- 所有统计/清理都是挂起函数并跑在 `Dispatchers.IO`（要 walk 上万个文件）；`WebView.clearCache` 单独切回 `Dispatchers.Main`。
+- 清理图片缓存走 `ImageLoader.diskCache.clear()`：Coil 内部有 journal，绕过它直接删目录会让索引与文件不一致。
+- 清理结果由 `SettingsViewModel` 以 `CacheActionResult(kind, freedBytes, affectedBooks)` 回传（ViewModel 不持 Context），文案与 Toast 在设置页渲染。
+- ⚠️ **不要**在更新下载进行中删 `cacheDir/updates`：文件句柄仍指向它，删掉会让"下载成功"却写出一个已被删除的文件（`clearCacheDir(preserveUpdatePackage = true)` 已处理）。
+- 内存缓存（`TimedCache`）本就有 LRU 上限（info 128 / toc 32 / chapter 64），不在系统存储统计口径内。
 
 ---
 
@@ -186,7 +211,7 @@ Wenku8Reader/
 - `DetailScreen/ViewModel`：Flexible 大顶栏（副标题=作者）+ 封面信息卡（标签用 StatusTag 药丸）+ 56dp 高强调阅读主按钮 + tonal 目录按钮 + 离线下载卡（TXT/EPUB + 波浪进度）+ 简介卡。
 - `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计与下载入口。
 - `DownloadsScreen/ViewModel`：Flexible 大顶栏 + 下载任务卡列表（进行中用 `ActiveProgressBar` 波浪进度、完成/失败为文本），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（占用合计、按类型清理、过期阅读记录、缓存上限，见 §4.10）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
 - `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
 - `SettingsComponents.kt`：`SectionTitle` / `SettingLabel` 等复用组件。

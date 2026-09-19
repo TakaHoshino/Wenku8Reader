@@ -211,6 +211,34 @@
     <string name="settings_cache_clear_all_desc">同時清空記憶體快取</string>
     <string name="settings_cache_max">最大快取</string>
     <string name="settings_cache_max_summary">磁碟快取大小上限，超出後自動清理最舊內容</string>
+    <string name="settings_cache_storage_title">儲存空間佔用</string>
+    <string name="settings_cache_html_detail">網頁離線快取明細</string>
+    <string name="settings_cache_total_cache">快取合計</string>
+    <string name="settings_cache_total_cache_desc">對應系統設定的「快取」：圖片快取、更新安裝檔、WebView 快取與暫存檔</string>
+    <string name="settings_cache_total_data">應用程式資料合計</string>
+    <string name="settings_cache_total_data_desc">對應系統設定的「使用者資料」：網頁離線快取、閱讀進度、WebView 資料等</string>
+    <string name="settings_cache_code_cache">系統程式碼快取</string>
+    <string name="settings_cache_code_cache_desc">JIT/ART 產生，由系統管理，應用程式無法清理</string>
+    <string name="settings_cache_images">圖片快取</string>
+    <string name="settings_cache_images_desc">封面與插圖（Coil 磁碟快取）</string>
+    <string name="settings_cache_updates">更新安裝檔</string>
+    <string name="settings_cache_updates_desc">已下載的更新 APK，安裝後即可清理</string>
+    <string name="settings_cache_other_title">WebView 與其他快取</string>
+    <string name="settings_cache_other_desc">WebView 快取與暫存檔，不影響登入狀態</string>
+    <string name="settings_cache_reading_data">本機資料</string>
+    <string name="settings_cache_reading_data_desc">閱讀進度、已讀標記、書櫃與設定（SharedPreferences，含登入 Cookie）</string>
+    <string name="settings_cache_cleanup_reading">清理過期閱讀紀錄</string>
+    <string name="settings_cache_cleanup_reading_desc">僅清理 %1$d 天前、之後未再閱讀的書本紀錄</string>
+    <string name="settings_cache_freed">已釋放 %1$s</string>
+    <string name="settings_cache_nothing">沒有可清理的內容</string>
+    <string name="settings_cache_reading_cleaned">已清理 %1$d 本書的過期紀錄</string>
+    <string name="settings_cache_reading_nothing">沒有需要清理的過期紀錄</string>
+    <string name="settings_cache_confirm_clear_all_title">清理全部快取？</string>
+    <string name="settings_cache_confirm_clear_all_message">將釋放網頁離線快取、圖片快取、更新安裝檔與暫存檔。閱讀進度、書櫃與設定不會被刪除。</string>
+    <string name="settings_cache_confirm_cleanup_title">清理過期閱讀紀錄？</string>
+    <string name="settings_cache_confirm_cleanup_message">將刪除 %1$d 天前、之後未再閱讀的書本進度與已讀標記，此操作無法復原。</string>
+    <string name="action_confirm">確定</string>
+    <string name="action_cancel">取消</string>
 
     <!-- 語言 -->
     <string name="settings_language">語言</string>

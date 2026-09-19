@@ -216,6 +216,34 @@
     <string name="settings_cache_clear_all_desc">同时清空内存缓存</string>
     <string name="settings_cache_max">最大缓存</string>
     <string name="settings_cache_max_summary">磁盘缓存大小上限，超出后自动清理最旧内容</string>
+    <string name="settings_cache_storage_title">存储占用</string>
+    <string name="settings_cache_html_detail">网页离线缓存明细</string>
+    <string name="settings_cache_total_cache">缓存合计</string>
+    <string name="settings_cache_total_cache_desc">对应系统设置的「缓存」：图片缓存、更新安装包、WebView 缓存与临时文件</string>
+    <string name="settings_cache_total_data">应用数据合计</string>
+    <string name="settings_cache_total_data_desc">对应系统设置的「用户数据」：网页离线缓存、阅读进度、WebView 数据等</string>
+    <string name="settings_cache_code_cache">系统代码缓存</string>
+    <string name="settings_cache_code_cache_desc">JIT/ART 生成，由系统管理，应用无法清理</string>
+    <string name="settings_cache_images">图片缓存</string>
+    <string name="settings_cache_images_desc">封面与插图（Coil 磁盘缓存）</string>
+    <string name="settings_cache_updates">更新安装包</string>
+    <string name="settings_cache_updates_desc">已下载的更新 APK，安装后即可清理</string>
+    <string name="settings_cache_other_title">WebView 与其他缓存</string>
+    <string name="settings_cache_other_desc">WebView 缓存与临时文件，不影响登录状态</string>
+    <string name="settings_cache_reading_data">本地数据</string>
+    <string name="settings_cache_reading_data_desc">阅读进度、已读标记、书架与设置（SharedPreferences，含登录 Cookie）</string>
+    <string name="settings_cache_cleanup_reading">清理过期阅读记录</string>
+    <string name="settings_cache_cleanup_reading_desc">仅清理 %1$d 天前、之后未再阅读的书本记录</string>
+    <string name="settings_cache_freed">已释放 %1$s</string>
+    <string name="settings_cache_nothing">没有可清理的内容</string>
+    <string name="settings_cache_reading_cleaned">已清理 %1$d 本书的过期记录</string>
+    <string name="settings_cache_reading_nothing">没有需要清理的过期记录</string>
+    <string name="settings_cache_confirm_clear_all_title">清理全部缓存？</string>
+    <string name="settings_cache_confirm_clear_all_message">将释放网页离线缓存、图片缓存、更新安装包与临时文件。阅读进度、书架与设置不会被删除。</string>
+    <string name="settings_cache_confirm_cleanup_title">清理过期阅读记录？</string>
+    <string name="settings_cache_confirm_cleanup_message">将删除 %1$d 天前、之后未再阅读的书本进度与已读标记，此操作无法撤销。</string>
+    <string name="action_confirm">确定</string>
+    <string name="action_cancel">取消</string>
 
     <!-- 设置 · 自定义 -->
     <string name="settings_custom">自定义</string>

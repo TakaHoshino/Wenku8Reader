@@ -6,6 +6,7 @@ import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.UpdateChecker
 import com.hoshino.wenku8reader.data.Wenku8Client
 import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.LocalLibraryStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
@@ -14,6 +15,7 @@ import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Manual dependency container owned by the Application. Holds the app-scoped
@@ -46,6 +48,12 @@ class AppContainer(context: Context) {
 
     val preferences: AppPreferences = AppPreferences(context)
 
+    /**
+     * 存储占用统计与清理（缓存目录 + 网页离线缓存 + SharedPreferences）。
+     * 需要 [client] 拿网页离线缓存的真实大小与清理入口，故在其之后初始化。
+     */
+    val storage: AppStorageManager = AppStorageManager(context, client)
+
     val localLibrary: LocalLibraryStore = LocalLibraryStore(context)
 
     /** 阅读时长聚合存储（按书+日期，热力图数据源）。 */
@@ -57,4 +65,16 @@ class AppContainer(context: Context) {
         UpdateCenter(context, updateChecker, preferences, readerSettings, applicationScope)
 
     val downloadEngine: DownloadEngine = DownloadEngine(context, repository, applicationScope)
+
+    init {
+        /**
+         * 启动时回收陈旧缓存产物（更新安装包 / 残留临时文件）。
+         *
+         * 放在 AppContainer 里而不是 Application：写操作需要应用级作用域，
+         * 用这里的 [applicationScope] 才不会又冒出一个无人取消的裸作用域。
+         */
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching { storage.pruneStaleArtifacts() }
+        }
+    }
 }

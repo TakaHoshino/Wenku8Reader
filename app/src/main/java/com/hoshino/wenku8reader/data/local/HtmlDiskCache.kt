@@ -20,7 +20,20 @@ class HtmlDiskCache(
     context: Context,
     initialMaxBytes: Long = 30L * 1024 * 1024,
 ) {
-    private val dir = File(context.filesDir, "html_cache").apply { mkdirs() }
+    private val dir = File(context.filesDir, DIR_NAME).apply { mkdirs() }
+
+    /**
+     * 缓存目录（`filesDir/html_cache`）。
+     *
+     * 对外暴露只读引用，供存储占用统计复用同一条路径——统计与清理必须指向同一个目录，
+     * 各自拼一遍路径字符串迟早会漂移。
+     */
+    val directory: File get() = dir
+
+    /** 缓存目录总大小（含子目录，正常情况下没有子目录，防御性处理）。 */
+    fun totalSize(): Long = lock.read {
+        dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    }
 
     /**
      * 读写锁（替代原先的 `@Synchronized` 互斥锁）。
@@ -136,6 +149,9 @@ class HtmlDiskCache(
         category.replace(Regex("[^A-Za-z0-9_-]"), "").ifBlank { "other" }
 
     private companion object {
+        /** 缓存目录名（`filesDir/html_cache`）。 */
+        const val DIR_NAME = "html_cache"
+
         /** 旧格式（无 category 前缀）缓存的归类名。 */
         const val LEGACY_CATEGORY = "legacy"
     }

@@ -353,6 +353,19 @@ class Wenku8Client(
     /** 各类型磁盘缓存大小（字节）。 */
     fun cacheStats(): Map<String, Long> = htmlCache.sizeByCategory()
 
+    /** 网页离线缓存（`filesDir/html_cache`）总大小（字节）。 */
+    fun htmlCacheSize(): Long = htmlCache.totalSize()
+
+    /**
+     * 立即按当前设置应用缓存上限。
+     *
+     * 原先上限只在**写入时**读取（见 [getHtmlCached]），用户把上限从 500MB 调到 30MB 后，
+     * 超出的部分要等到下一次写入才会被裁掉——设置页看起来"没生效"。调整上限时显式调用本方法。
+     */
+    fun applyCacheLimit() {
+        htmlCache.setMaxBytes(cacheMaxMbProvider().toLong() * 1024 * 1024)
+    }
+
     /** 清理磁盘缓存（[category] = null 清全部）；清全部时同时清空内存缓存。 */
     fun clearCache(category: String? = null) {
         htmlCache.clear(category)

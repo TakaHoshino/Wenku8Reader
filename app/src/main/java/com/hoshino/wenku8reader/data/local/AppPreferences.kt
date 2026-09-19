@@ -2,6 +2,26 @@ package com.hoshino.wenku8reader.data.local
 
 import android.content.Context
 
+/** 最后阅读时间戳的 key 前缀（`progress_at_{bookId}`）。 */
+internal const val KEY_PROGRESS_AT = "progress_at_"
+
+/**
+ * 从 SharedPreferences 的全量快照中挑出「最后阅读时间早于 [cutoff]」的书 id。
+ *
+ * 抽成纯函数的原因：这段逻辑**会删用户数据**，必须能脱离 Android 环境单测
+ * （见 `AppPreferencesCleanupTest`）。两条保守规则：
+ * 1. 没有时间戳的记录不返回——那是本功能上线前写入的进度，无法判断新旧；
+ * 2. 时间戳必须**严格早于** cutoff（`<`）才算过期。
+ */
+internal fun staleReadingBookIds(all: Map<String, Any?>, cutoff: Long): List<Int> =
+    all.entries
+        .filter { (key, _) -> key.startsWith(KEY_PROGRESS_AT) }
+        .mapNotNull { (key, value) ->
+            val at = value as? Long ?: return@mapNotNull null
+            if (at >= cutoff) return@mapNotNull null
+            key.removePrefix(KEY_PROGRESS_AT).toIntOrNull()
+        }
+
 /**
  * Persists per-book reading progress and lightweight UI state in SharedPreferences.
  * Replaces ad-hoc SharedPreferences access scattered across the UI layer.
@@ -23,8 +43,53 @@ class AppPreferences(context: Context) {
     fun hasProgress(bookId: Int): Boolean =
         reading.contains("progress_$bookId")
 
-    fun saveProgress(bookId: Int, cid: String) {
-        reading.edit().putString("progress_$bookId", cid).apply()
+    /**
+     * 保存阅读进度，并记录**最后阅读时间**（`progress_at_$bookId`）。
+     *
+     * 时间戳是「清理过期阅读数据」的唯一依据：没有它就只能靠猜，
+     * 而删掉用户真正在看的书是不可接受的。与进度写在同一次 edit 里，不额外落盘。
+     */
+    fun saveProgress(bookId: Int, cid: String, at: Long = System.currentTimeMillis()) {
+        reading.edit()
+            .putString("progress_$bookId", cid)
+            .putLong("${KEY_PROGRESS_AT}$bookId", at)
+            .apply()
+    }
+
+    /** 某书最后阅读时间（毫秒）；从未记录（旧版本写入的进度）返回 null。 */
+    fun lastReadAt(bookId: Int): Long? =
+        if (reading.contains("${KEY_PROGRESS_AT}$bookId")) {
+            reading.getLong("${KEY_PROGRESS_AT}$bookId", 0L)
+        } else {
+            null
+        }
+
+    /**
+     * 清理「过期阅读数据」：删除最后阅读时间早于 [keepDays] 天的书的
+     * 进度、总章节数、已读标记与时间戳。
+     *
+     * 两条保守规则：
+     * 1. **没有时间戳的记录不删**——那些是本功能上线前写入的进度，无法判断新旧，
+     *    删掉等于凭猜测销毁用户数据；
+     * 2. 只有时间戳**确实早于**截止时间才删（`<` 而非 `<=`）。
+     *
+     * @return 被清理的书本数量。
+     */
+    fun cleanupStaleReadingData(keepDays: Int = DEFAULT_KEEP_DAYS): Int {
+        if (keepDays <= 0) return 0
+        val cutoff = System.currentTimeMillis() - keepDays * 24L * 60 * 60 * 1000
+        val staleIds = staleReadingBookIds(reading.all, cutoff)
+        if (staleIds.isEmpty()) return 0
+
+        reading.edit().apply {
+            staleIds.forEach { id ->
+                remove("progress_$id")
+                remove("progress_total_$id")
+                remove("finished_$id")
+                remove("${KEY_PROGRESS_AT}$id")
+            }
+        }.apply()
+        return staleIds.size
     }
 
     /**
@@ -103,4 +168,9 @@ class AppPreferences(context: Context) {
         set(value) {
             ui.edit().putLong("last_update_check_at", value).apply()
         }
+
+    companion object {
+        /** 「清理过期阅读数据」默认保留天数。 */
+        const val DEFAULT_KEEP_DAYS = 30
+    }
 }
