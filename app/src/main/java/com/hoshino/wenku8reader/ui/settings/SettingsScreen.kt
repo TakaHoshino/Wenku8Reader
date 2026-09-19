@@ -81,6 +81,7 @@ import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.SegmentedSwitchItem
 import com.hoshino.wenku8reader.ui.theme.seedColorOptions
+import com.hoshino.wenku8reader.ui.theme.UiStyle
 import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 import java.util.Locale
 
@@ -139,6 +140,7 @@ fun SettingsPage(
                 HapticsStrengthSection(rs = rs, vm = vm)
             }
             StorageSection(onOpenStorageSettings = onOpenStorageSettings)
+            ExperimentalSection(rs = rs, vm = vm)
             NetworkSection(rs = rs, vm = vm)
             UpdateSection(rs = rs, vm = vm, version = version, updateCenter = updateCenter)
             ReadingSection(onOpenCustom = onOpenCustom)
@@ -325,6 +327,41 @@ private fun StorageSection(onOpenStorageSettings: () -> Unit) {
                         contentDescription = null,
                     )
                 },
+            )
+        },
+    )
+}
+
+/**
+ * 实验性分组：UI 风格切换（Material 3 Expressive ↔ MIUIX）。
+ *
+ * 参考 SukiSU-Ultra：整套界面代码只有一份，由 [LocalUiStyle] 决定公共组件走哪套实现，
+ * 根主题相应切换 `MaterialExpressiveTheme` / `MiuixTheme`，因此切换无需重启。
+ */
+@Composable
+private fun ExperimentalSection(
+    rs: ReaderSettingsState,
+    vm: SettingsViewModel,
+) {
+    val styles = UiStyle.entries
+    SegmentedColumn(
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+        title = stringResource(R.string.settings_section_experimental),
+        items = listOf {
+            SegmentedDropdownItem(
+                icon = Icons.Filled.Animation,
+                title = stringResource(R.string.settings_ui_style),
+                summary = stringResource(R.string.settings_ui_style_summary),
+                items = styles.map { style ->
+                    stringResource(
+                        when (style) {
+                            UiStyle.MATERIAL3 -> R.string.settings_ui_style_material3
+                            UiStyle.MIUIX -> R.string.settings_ui_style_miuix
+                        },
+                    )
+                },
+                selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
+                onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
             )
         },
     )

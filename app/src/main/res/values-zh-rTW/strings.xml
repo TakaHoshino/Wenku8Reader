@@ -181,6 +181,11 @@
     <string name="settings_account_builtin_desc">應用全程使用內建共享帳號，無需登入或切換</string>
     <string name="settings_section_appearance">外觀</string>
     <string name="settings_section_storage">儲存空間</string>
+    <string name="settings_section_experimental">實驗性</string>
+    <string name="settings_ui_style">UI 風格</string>
+    <string name="settings_ui_style_summary">切換 Material 3 Expressive 與 MIUIX（HyperOS）；實驗性功能，介面可能隨版本調整</string>
+    <string name="settings_ui_style_material3">Material 3 Expressive</string>
+    <string name="settings_ui_style_miuix">MIUIX</string>
     <string name="settings_storage">儲存設定</string>
     <string name="settings_storage_desc">快取管理、快取上限與過期紀錄清理</string>
     <string name="settings_section_general">一般</string>

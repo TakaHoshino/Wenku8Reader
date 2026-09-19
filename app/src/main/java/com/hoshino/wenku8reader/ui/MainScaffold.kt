@@ -63,6 +63,9 @@ import com.hoshino.wenku8reader.ui.settings.StorageSettingsPage
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 import com.hoshino.wenku8reader.ui.toc.TocScreen
 import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
+import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
+import top.yukonga.miuix.kmp.basic.NavigationBar as MiuixNavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem as MiuixNavigationBarItem
 import kotlinx.coroutines.delay
 
 private data class TabDest(
@@ -315,6 +318,22 @@ private fun MainPagerScreen(
 /** 底栏：NavigationBar（surfaceContainer 同色）+ 弹簧滑动切换。 */
 @Composable
 private fun MainBottomBar(mainPagerState: MainPagerState) {
+    if (isMiuixStyle()) {
+        MiuixNavigationBar {
+            TABS.forEachIndexed { index, dest ->
+                val selected = mainPagerState.selectedPage == index
+                MiuixNavigationBarItem(
+                    selected = selected,
+                    onClick = {
+                        if (!selected) mainPagerState.animateToPage(index)
+                    },
+                    icon = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                    label = stringResource(dest.labelRes),
+                )
+            }
+        }
+        return
+    }
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         windowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)

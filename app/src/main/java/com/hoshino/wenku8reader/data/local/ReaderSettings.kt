@@ -45,6 +45,8 @@ data class ReaderSettingsState(
     val cacheMaxMb: Int = 30,                  // 磁盘缓存上限（MB），默认 30
     // 动效风格：true = M3 Expressive 动效（推荐默认），false = 标准动效（线性、克制）
     val expressiveMotion: Boolean = true,
+    // 实验性 UI 风格："material3"（默认，M3 Expressive）| "miuix"（MIUIX / HyperOS 风格）
+    val uiStyle: String = "material3",
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -112,6 +114,7 @@ class ReaderSettings(context: Context) {
         appLanguage = prefs.getString("app_language", "system") ?: "system",
         cacheMaxMb = prefs.getInt("cache_max_mb", 30).coerceIn(10, 500),
         expressiveMotion = prefs.getBoolean("expressive_motion", true),
+        uiStyle = prefs.getString("ui_style", "material3") ?: "material3",
         autoPadding = prefs.getBoolean("auto_padding", true),
         topPadding = prefs.getInt("pad_top", 24),
         bottomPadding = prefs.getInt("pad_bottom", 16),
@@ -191,6 +194,7 @@ class ReaderSettings(context: Context) {
         if (next.expressiveMotion != prev.expressiveMotion) {
             e.putBoolean("expressive_motion", next.expressiveMotion)
         }
+        if (next.uiStyle != prev.uiStyle) e.putString("ui_style", next.uiStyle)
         if (next.autoPadding != prev.autoPadding) e.putBoolean("auto_padding", next.autoPadding)
         if (next.topPadding != prev.topPadding) e.putInt("pad_top", next.topPadding)
         if (next.bottomPadding != prev.bottomPadding) e.putInt("pad_bottom", next.bottomPadding)
@@ -232,6 +236,7 @@ class ReaderSettings(context: Context) {
     fun setAppLanguage(language: String) = emit { it.copy(appLanguage = language) }
     fun setCacheMaxMb(mb: Int) = emit { it.copy(cacheMaxMb = mb.coerceIn(10, 500)) }
     fun setExpressiveMotion(enabled: Boolean) = emit { it.copy(expressiveMotion = enabled) }
+    fun setUiStyle(style: String) = emit { it.copy(uiStyle = style) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }

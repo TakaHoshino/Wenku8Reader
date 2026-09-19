@@ -25,7 +25,8 @@
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
 | minSdk / target / compile | 26 / 34 / **36**（material3 1.5 的 AAR 要求 minCompileSdk ≥ 35） |
-| Gradle | Gradle 8.14.3（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 8.13.2，Kotlin 2.2.20 |
+| Gradle | Gradle 8.14.3（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 8.13.2，Kotlin 2.3.21 |
+| 备用 UI 风格 | MIUIX（`top.yukonga.miuix.kmp:miuix:0.8.8`，实验性，可在设置→实验性切换，见 §5.6） |
 
 关键 build 文件：`app/build.gradle.kts`。用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
 
@@ -214,7 +215,7 @@ Wenku8Reader/
 - `DetailScreen/ViewModel`：Flexible 大顶栏（副标题=作者）+ 封面信息卡（标签用 StatusTag 药丸）+ 56dp 高强调阅读主按钮 + tonal 目录按钮 + 离线下载卡（TXT/EPUB + 波浪进度）+ 简介卡。
 - `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计与下载入口。
 - `DownloadsScreen/ViewModel`：Flexible 大顶栏 + 下载任务卡列表（进行中用 `ActiveProgressBar` 波浪进度、完成/失败为文本），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **实验性**（UI 风格：Material 3 Expressive ↔ MIUIX，见 §5.6）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
 - `StorageSettingsPage`（`ui/settings/StorageSettingsScreen.kt`，路由 `settings/storage`）：存储设置二级页——占用合计（与系统设置同口径）/ 按类型清理（图片、更新包、WebView 与临时文件）/ 网页缓存分类明细 / 过期阅读记录清理 / 缓存上限；清理结果以 Toast 回报（`CacheActionResult`）。主设置页因此不再被十余行缓存明细撑长，且这是低频操作。
 - `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
@@ -235,6 +236,24 @@ Wenku8Reader/
 - **排版**：`theme/Type.kt` 以 `Typography()` 为基线，标题/标签改用 emphasized 字重，中文正文/标题字距收敛为 0。
 - **动效**：页面切换（`MainScaffold` NavHost 过渡）、Tab 分页弹簧（`PagerNavigation`）、按压缩放（`Anim.pressClickable`）、折叠展开（详情下载区 / 目录分卷）统一取自 `MaterialTheme.motionScheme`，不再写死 `tween`/`spring` 参数。
 - **版本约束**：`MaterialExpressiveTheme` 在 material3 **1.4.0 仍是 internal**，Expressive 组件（`MaterialShapes`/`LoadingIndicator`/`ButtonGroup`/`SplitButton`/`FloatingToolbar`）也只出现在 1.5.0-alpha；因此 `app/build.gradle.kts` 显式把 material3 钉在 `1.5.0-alpha18`（BOM 2026.05.01 之外的单点覆盖）。升级 material3 时必须同时满足 `minCompileSdk`（当前 35，取 36）与 `minAndroidGradlePluginVersion`，并复核 `@ExperimentalMaterial3ExpressiveApi` 的 opt-in（见 `app/build.gradle.kts` 的 `compilerOptions.optIn`）。
+
+### 5.6 MIUIX 备用风格与双风格切换（2026-09，实验性）
+
+**目标**：同一套页面代码同时支持 Material 3 Expressive 与 MIUIX（HyperOS 设计语言），用户在**设置 → 实验性 → UI 风格**里切换，无需重启。做法参考 SukiSU-Ultra（`manager/` 用 `UiMode` + `LocalUiMode` 分发）。
+
+| 层 | 实现 | 位置 |
+|---|---|---|
+| 风格枚举 / 分发源 | `UiStyle{MATERIAL3, MIUIX}` + `LocalUiStyle`（`staticCompositionLocalOf`） | `ui/theme/UiStyle.kt` |
+| 设置持久化 | `ReaderSettingsState.uiStyle`（prefs key `ui_style`，默认 `material3`） | `data/local/ReaderSettings.kt` |
+| 根主题分发 | `Wenku8ReaderTheme(uiStyle=…)`：M3 → `MaterialExpressiveTheme`；MIUIX → `MiuixTheme(ThemeController)` **内嵌一层由 MIUIX 色板映射的 Material 主题** | `ui/theme/Theme.kt` |
+| 组件分发 | 公共组件（Scaffold / 顶栏 / Card / 列表组 / 开关 / 分段控件 / 进度 / 空态）在 `isMiuixStyle()` 分支里走 MIUIX 实现 | `ui/components/Expressive.kt` |
+| 底部导航 | MIUIX `NavigationBar`/`NavigationBarItem`（图标+文字） | `ui/MainScaffold.kt` |
+| 入口 | 设置 → 实验性 → UI 风格（`ExperimentalSection`） | `ui/settings/SettingsScreen.kt` |
+
+- **为什么内嵌 Material 主题**：页面里仍有大量 Material 组件（`Text`、`Slider`、`DropdownMenu`、`AlertDialog`、阅读器的 `ModalBottomSheet`）。它们在 MIUIX 模式下若拿不到 M3 的 `LocalContentColor`，会退回默认黑色、深色下不可读；映射一层色板后两套组件的配色保持一致。
+- **哪些已经是真正的 miuix 组件**：`Scaffold`、`Card`、`Switch`、`SuperSwitch`（开关行）、`BasicComponent`（下拉行）、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`。顶栏与普通列表行是**按 MIUIX 取值自绘**（miuix 的顶栏/行组件要求 `String` 标题，而本项目标题与行内容大量是 composable，为一个风格切换改十几个页面签名不划算）。
+- **尚未迁移**：`Text`/图标/对话框/滑块仍是 Material 组件（配色已对齐 MIUIX）；阅读器正文排版不随风格变化（那是阅读体验，不属于设计系统）。
+- **版本选择（重要）**：miuix **0.9.0 起要求 `minCompileSdk=37`**，即需要 AGP 9 + Gradle 9 + compileSdk 37；本项目取 **0.8.8**（`minCompileSdk=36`，与本项目一致）。0.8.8 的 Kotlin 元数据由 **2.3.20** 生成，因此 Kotlin 必须 ≥ 2.3.20（本项目取 2.3.21）。升级 miuix 前先看 AAR metadata 的 `minCompileSdk`，不要连带把整个工具链拖上去。
 
 ---
 

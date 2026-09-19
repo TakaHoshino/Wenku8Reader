@@ -18,6 +18,7 @@ import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.components.HapticScope
 import com.hoshino.wenku8reader.ui.reader.VolumeKeyTurn
 import com.hoshino.wenku8reader.ui.theme.Wenku8ReaderTheme
+import com.hoshino.wenku8reader.ui.theme.UiStyle
 
 class MainActivity : ComponentActivity() {
 
@@ -88,6 +89,8 @@ class MainActivity : ComponentActivity() {
                 amoled = settings.amoled,
                 // M3 Expressive 动效（可在设置页「外观」切回标准动效）
                 expressiveMotion = settings.expressiveMotion,
+                // 实验性：Material 3 Expressive / MIUIX 风格（设置 → 实验性）
+                uiStyle = UiStyle.fromKey(settings.uiStyle),
             ) {
                 // 全局点击振动（设置开关 + 强度控制）
                 HapticScope(

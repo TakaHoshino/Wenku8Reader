@@ -111,6 +111,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material:material-icons-extended")
+    // MIUIX（第三方 HyperOS/MIUI 设计语言实现，作者 yukonga）：实验性 UI 风格可切换，
+    // 见 ui/theme/UiStyle.kt。取 0.8.8 而不是 0.9.x：0.9.x 起要求 compileSdk 37
+    //（进而要求 AGP 9 + Gradle 9），0.8.8 只要求 compileSdk 36，与本项目工具链一致。
+    implementation("top.yukonga.miuix.kmp:miuix:0.8.8")
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
