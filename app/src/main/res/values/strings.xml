@@ -180,6 +180,9 @@
     <string name="settings_builtin_account_hint">使用内置账户访问内容</string>
     <string name="settings_account_builtin_desc">应用全程使用内置共享账号，无需登录或切换</string>
     <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_storage">存储</string>
+    <string name="settings_storage">存储设置</string>
+    <string name="settings_storage_desc">缓存管理、缓存上限与过期记录清理</string>
     <string name="settings_section_general">通用</string>
     <string name="settings_section_reading">阅读设置</string>
     <string name="settings_section_about">关于</string>

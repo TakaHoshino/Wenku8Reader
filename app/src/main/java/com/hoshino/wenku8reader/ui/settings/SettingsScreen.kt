@@ -97,6 +97,7 @@ fun SettingsPage(
     onOpenCustom: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenStorageSettings: () -> Unit,
     vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val rs by vm.ui.collectAsStateWithLifecycle()
@@ -113,30 +114,6 @@ fun SettingsPage(
     LaunchedEffect(Unit) {
         updateCenter.notices.collect { msg -> android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show() }
     }
-    // 缓存清理结果：ViewModel 只回传"发生了什么 + 释放了多少"，文案在此渲染
-    LaunchedEffect(Unit) {
-        vm.cacheResults.collect { result ->
-            val text = when (result.kind) {
-                CacheActionResult.Kind.READING_HISTORY ->
-                    if (result.affectedBooks > 0) {
-                        context.getString(R.string.settings_cache_reading_cleaned, result.affectedBooks)
-                    } else {
-                        context.getString(R.string.settings_cache_reading_nothing)
-                    }
-
-                else ->
-                    if (result.freedSomething) {
-                        context.getString(R.string.settings_cache_freed, formatSize(result.freedBytes))
-                    } else {
-                        context.getString(R.string.settings_cache_nothing)
-                    }
-            }
-            android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-    // 进入设置页时刷新存储占用统计（统计在 ViewModel 的 IO 线程执行）
-    LaunchedEffect(Unit) { vm.refreshStorageStats() }
-
     // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
         topBar = {
@@ -150,8 +127,8 @@ fun SettingsPage(
                 .padding(inner)
                 .verticalScroll(rememberScrollState()),
         ) {
-            // 分组顺序与原实现完全一致：
-            // 账号 → 外观 →（手动取色）→ 通用 →（振动强度）→ 缓存 → 网络 → 更新 → 阅读 → 关于
+            // 分组顺序：
+            // 账号 → 外观 →（手动取色）→ 通用 →（振动强度）→ 存储 → 网络 → 更新 → 阅读 → 关于
             AccountSection()
             AppearanceSection(rs = rs, vm = vm, context = context)
             if (!rs.dynamicColor) {
@@ -161,7 +138,7 @@ fun SettingsPage(
             if (rs.hapticsEnabled) {
                 HapticsStrengthSection(rs = rs, vm = vm)
             }
-            CacheManagementSection(vm = vm, rs = rs)
+            StorageSection(onOpenStorageSettings = onOpenStorageSettings)
             NetworkSection(rs = rs, vm = vm)
             UpdateSection(rs = rs, vm = vm, version = version, updateCenter = updateCenter)
             ReadingSection(onOpenCustom = onOpenCustom)
@@ -318,6 +295,35 @@ private fun ManualColorSection(
                             )
                         }
                     }
+                },
+            )
+        },
+    )
+}
+
+/**
+ * 存储分组：只放一个入口行，明细在独立的存储设置页（[StorageSettingsPage]）。
+ *
+ * 为什么拆出去：存储明细（占用合计 + 6 类缓存 + 分类明细 + 上限）有十余行，
+ * 内联在主设置页会把「账号 / 外观 / 网络 / 更新 / 阅读 / 关于」挤到很长，
+ * 而它是低频操作；入口行还能顺带承担页面标题与描述。
+ */
+@Composable
+private fun StorageSection(onOpenStorageSettings: () -> Unit) {
+    SegmentedColumn(
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+        title = stringResource(R.string.settings_section_storage),
+        items = listOf {
+            SegmentedListItem(
+                onClick = onOpenStorageSettings,
+                leadingContent = { Icon(Icons.Filled.Storage, contentDescription = null) },
+                headlineContent = { Text(stringResource(R.string.settings_storage)) },
+                supportingContent = { Text(stringResource(R.string.settings_storage_desc)) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                    )
                 },
             )
         },
@@ -538,306 +544,6 @@ private fun TopBar(
     )
 }
 
-/**
- * 磁盘缓存类别：`key` 必须与 `HtmlDiskCache` 的文件名前缀一致（`{category}_{md5}.html`，
- * 见 `HtmlDiskCache.put`），类别名集中在此定义，避免魔法字符串散落在统计展示与清理两处。
- */
-private enum class CacheCategory(val key: String, @StringRes val labelRes: Int) {
-    HOME("home", R.string.settings_cache_home),
-    BOOK("book", R.string.settings_cache_book),
-    CHAPTER("chapter", R.string.settings_cache_chapter),
-    TAG("tag", R.string.settings_cache_tag),
-    OTHER("other", R.string.settings_cache_other),
-    LEGACY("legacy", R.string.settings_cache_legacy),
-}
-
-/**
- * 缓存与存储管理分组。
- *
- * 关键点：**口径必须和系统设置一致**。系统「应用信息 → 存储」把 `cacheDir` 记为「缓存」、
- * 数据目录记为「用户数据」；旧实现只统计 `filesDir/html_cache` 一个目录，于是出现
- * "系统 33MB/36MB、应用内 2.8MB"的落差。这里先给出两个合计值（可与系统设置直接对照），
- * 再按类型列出可清理项与单项清理入口。
- */
-@Composable
-private fun CacheManagementSection(
-    vm: SettingsViewModel,
-    rs: ReaderSettingsState,
-) {
-    val cacheSizes by vm.cacheSizes.collectAsStateWithLifecycle()
-    val stats by vm.storageStats.collectAsStateWithLifecycle()
-    var confirmClearAll by remember { mutableStateOf(false) }
-    var confirmCleanupHistory by remember { mutableStateOf(false) }
-    // 上限选项：默认 30 含在其中，其余按常用档位
-    val maxOptions = listOf(30, 50, 100, 200, 500)
-
-    // ---- 占用合计（与系统设置对照）----
-    SegmentedColumn(
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-        title = stringResource(R.string.settings_cache_storage_title),
-        items = listOf(
-            {
-                SegmentedListItem(
-                    leadingContent = { Icon(Icons.Filled.Storage, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.settings_cache_total_cache)) },
-                    supportingContent = {
-                        Text(
-                            formatSize(stats.cacheDirTotal) + " · " +
-                                stringResource(R.string.settings_cache_total_cache_desc),
-                        )
-                    },
-                )
-            },
-            {
-                SegmentedListItem(
-                    headlineContent = { Text(stringResource(R.string.settings_cache_total_data)) },
-                    supportingContent = {
-                        Text(
-                            formatSize(stats.dataDirTotal) + " · " +
-                                stringResource(R.string.settings_cache_total_data_desc),
-                        )
-                    },
-                )
-            },
-            {
-                SegmentedListItem(
-                    headlineContent = { Text(stringResource(R.string.settings_cache_code_cache)) },
-                    supportingContent = {
-                        Text(
-                            formatSize(stats.codeCache) + " · " +
-                                stringResource(R.string.settings_cache_code_cache_desc),
-                        )
-                    },
-                )
-            },
-        ),
-    )
-
-    // ---- 按类型清理 ----
-    SegmentedColumn(
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-        title = stringResource(R.string.settings_cache),
-        items = buildList {
-            add {
-                SegmentedListItem(
-                    leadingContent = { Icon(Icons.Filled.Image, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.settings_cache_images)) },
-                    supportingContent = {
-                        Text(
-                            formatSize(stats.imageCache) + " · " +
-                                stringResource(R.string.settings_cache_images_desc),
-                        )
-                    },
-                    trailingContent = {
-                        TextButton(onClick = { vm.clearImageCache() }) {
-                            Text(stringResource(R.string.settings_cache_clear))
-                        }
-                    },
-                )
-            }
-            add {
-                SegmentedListItem(
-                    leadingContent = { Icon(Icons.Filled.SystemUpdate, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.settings_cache_updates)) },
-                    supportingContent = {
-                        Text(
-                            formatSize(stats.updatePackage) + " · " +
-                                stringResource(R.string.settings_cache_updates_desc),
-                        )
-                    },
-                    trailingContent = {
-                        TextButton(onClick = { vm.clearUpdatePackages() }) {
-                            Text(stringResource(R.string.settings_cache_clear))
-                        }
-                    },
-                )
-            }
-            add {
-                SegmentedListItem(
-                    leadingContent = { Icon(Icons.Filled.Public, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.settings_cache_other_title)) },
-                    supportingContent = {
-                        Text(
-                            formatSize(stats.webViewCache + stats.tempFiles + stats.otherCache) + " · " +
-                                stringResource(R.string.settings_cache_other_desc),
-                        )
-                    },
-                    trailingContent = {
-                        TextButton(onClick = { vm.clearOtherCaches() }) {
-                            Text(stringResource(R.string.settings_cache_clear))
-                        }
-                    },
-                )
-            }
-            add {
-                SegmentedListItem(
-                    leadingContent = { Icon(Icons.Filled.History, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.settings_cache_reading_data)) },
-                    supportingContent = {
-                        Text(
-                            formatSize(stats.preferences) + " · " +
-                                stringResource(R.string.settings_cache_reading_data_desc),
-                        )
-                    },
-                )
-            }
-            add {
-                // 与上一行分开：上一行是"这类数据占了多少"，这一行才是"能清理什么"。
-                // 只清理过期记录（本地数据里的书架、设置、Cookie 一律不动）。
-                SegmentedListItem(
-                    headlineContent = { Text(stringResource(R.string.settings_cache_cleanup_reading)) },
-                    supportingContent = {
-                        Text(
-                            stringResource(
-                                R.string.settings_cache_cleanup_reading_desc,
-                                AppPreferences.DEFAULT_KEEP_DAYS,
-                            ),
-                        )
-                    },
-                    trailingContent = {
-                        TextButton(onClick = { confirmCleanupHistory = true }) {
-                            Text(stringResource(R.string.settings_cache_clear))
-                        }
-                    },
-                )
-            }
-            add {
-                SegmentedListItem(
-                    onClick = { confirmClearAll = true },
-                    leadingContent = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.settings_cache_clear_all)) },
-                    supportingContent = { Text(stringResource(R.string.settings_cache_clear_all_desc)) },
-                )
-            }
-            add {
-                SegmentedDropdownItem(
-                    icon = Icons.Filled.Storage,
-                    title = stringResource(R.string.settings_cache_max),
-                    summary = stringResource(R.string.settings_cache_max_summary),
-                    items = maxOptions.map { "$it MB" },
-                    selectedIndex = maxOptions.indexOfKey(rs.cacheMaxMb),
-                    onItemSelected = { index -> vm.setCacheMaxMb(maxOptions[index]) },
-                )
-            }
-        },
-    )
-
-    // ---- 网页离线缓存分类明细（可单项清理）----
-    SegmentedColumn(
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-        title = stringResource(R.string.settings_cache_html_detail),
-        items = buildList {
-            // 分类顺序固定展示；缺失/为 0 的类别显示 0B
-            CacheCategory.entries.forEach { category ->
-                add {
-                    SegmentedListItem(
-                        headlineContent = { Text(stringResource(category.labelRes)) },
-                        supportingContent = { Text(formatSize(cacheSizes[category.key] ?: 0L)) },
-                        trailingContent = {
-                            TextButton(onClick = { vm.clearCache(category.key) }) {
-                                Text(stringResource(R.string.settings_cache_clear))
-                            }
-                        },
-                    )
-                }
-            }
-            add {
-                SegmentedListItem(
-                    headlineContent = { Text(stringResource(R.string.settings_cache_size)) },
-                    supportingContent = {
-                        Text(stringResource(R.string.settings_cache_size_summary, formatSize(stats.htmlCache), rs.cacheMaxMb))
-                    },
-                    trailingContent = {
-                        TextButton(onClick = { vm.clearCache(null) }) {
-                            Text(stringResource(R.string.settings_cache_clear))
-                        }
-                    },
-                )
-            }
-        },
-    )
-
-    if (confirmClearAll) {
-        AlertDialog(
-            onDismissRequest = { confirmClearAll = false },
-            title = { Text(stringResource(R.string.settings_cache_confirm_clear_all_title)) },
-            text = { Text(stringResource(R.string.settings_cache_confirm_clear_all_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmClearAll = false
-                        vm.clearAllCaches()
-                    },
-                ) { Text(stringResource(R.string.action_confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmClearAll = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    if (confirmCleanupHistory) {
-        AlertDialog(
-            onDismissRequest = { confirmCleanupHistory = false },
-            title = { Text(stringResource(R.string.settings_cache_confirm_cleanup_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.settings_cache_confirm_cleanup_message,
-                        AppPreferences.DEFAULT_KEEP_DAYS,
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmCleanupHistory = false
-                        vm.cleanupReadingHistory()
-                    },
-                ) { Text(stringResource(R.string.action_confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmCleanupHistory = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-}
-
-// ------------------------------------------------------------------ //
-// helpers
-// ------------------------------------------------------------------ //
-
-/**
- * 人类可读的文件大小：B / KB / MB / GB。
- *
- * 数字格式显式固定 [Locale.US]：`ar`/`fa` 等区域的默认 Locale 会输出本地化数字字符，
- * 既不符合这里的展示语义（与 MB/GB 单位混排），也让同一份缓存大小在不同语言下形态不一致。
- */
-private fun formatSize(bytes: Long): String = when {
-    bytes >= 1024L * 1024 * 1024 ->
-        "%.1f GB".format(Locale.US, bytes / (1024f * 1024 * 1024))
-    bytes >= 1024L * 1024 ->
-        "%.1f MB".format(Locale.US, bytes / (1024f * 1024))
-    bytes >= 1024L ->
-        "%.0f KB".format(Locale.US, bytes / 1024f)
-    else -> "$bytes B"
-}
-
-/**
- * 下拉选项的选中下标：找不到时回退 0。
- *
- * `SegmentedDropdownItem.selectedIndex` 不接受负值，而设置值可能来自旧版本或被移除的选项，
- * 统一在此收敛为 -1 → 0，避免每个调用点都重复写一遍 `coerceAtLeast(0)`。
- */
-private fun <T> List<T>.indexOfKey(key: T): Int = indexOf(key).coerceAtLeast(0)
-
-/** 同上，但选项以 `(key, value)` 对存放：按 key 匹配而不是按整个 Pair 匹配。 */
-private fun <T> List<Pair<String, T>>.indexOfKey(key: String): Int =
-    indexOfFirst { it.first == key }.coerceAtLeast(0)
 
 /**
  * 递归解包 ContextWrapper 找宿主 Activity。

@@ -180,6 +180,9 @@
     <string name="settings_builtin_account_hint">使用內建帳戶存取內容</string>
     <string name="settings_account_builtin_desc">應用全程使用內建共享帳號，無需登入或切換</string>
     <string name="settings_section_appearance">外觀</string>
+    <string name="settings_section_storage">儲存空間</string>
+    <string name="settings_storage">儲存設定</string>
+    <string name="settings_storage_desc">快取管理、快取上限與過期紀錄清理</string>
     <string name="settings_section_general">一般</string>
     <string name="settings_section_reading">閱讀設定</string>
     <string name="settings_section_about">關於</string>

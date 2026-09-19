@@ -59,6 +59,7 @@ import com.hoshino.wenku8reader.ui.navigation.Routes
 import com.hoshino.wenku8reader.ui.reader.ReaderScreen
 import com.hoshino.wenku8reader.ui.settings.CustomizationScreen
 import com.hoshino.wenku8reader.ui.settings.SettingsPage
+import com.hoshino.wenku8reader.ui.settings.StorageSettingsPage
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 import com.hoshino.wenku8reader.ui.toc.TocScreen
 import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
@@ -165,6 +166,7 @@ fun MainScaffold() {
                     onOpenStats = { nav.navigate(Routes.STATS) { launchSingleTop = true } },
                     onOpenCustom = { nav.navigate(Routes.SETTINGS_CUSTOM) },
                     onOpenAbout = { nav.navigate(Routes.ABOUT) },
+                    onOpenStorageSettings = { nav.navigate(Routes.STORAGE_SETTINGS) },
                 )
             }
             composable(
@@ -199,6 +201,9 @@ fun MainScaffold() {
             }
             composable(Routes.SETTINGS_CUSTOM) {
                 CustomizationScreen(onBack = { nav.popBackStack() })
+            }
+            composable(Routes.STORAGE_SETTINGS) {
+                StorageSettingsPage(onBack = { nav.popBackStack() })
             }
             composable(Routes.ABOUT) {
                 AboutScreen(onBack = { nav.popBackStack() })
@@ -274,6 +279,7 @@ private fun MainPagerScreen(
     onOpenStats: () -> Unit,
     onOpenCustom: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenStorageSettings: () -> Unit,
 ) {
     HorizontalPager(
         state = pagerState,
@@ -298,6 +304,7 @@ private fun MainPagerScreen(
                 onOpenCustom = onOpenCustom,
                 onOpenDownloads = onOpenDownloads,
                 onOpenAbout = onOpenAbout,
+                onOpenStorageSettings = onOpenStorageSettings,
             )
             // 显式兜底：新增 Tab 时若忘记补分支，这里会立刻暴露而不是静默渲染空白页
             else -> error("未知的 Tab 索引：$page（TABS 与 when 分支不一致）")

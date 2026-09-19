@@ -7,6 +7,7 @@ object Routes {
     /** 主界面（分页式三个 Tab 的宿主路由） */
     const val MAIN = "main"
     const val SETTINGS_CUSTOM = "settings/custom"
+    const val STORAGE_SETTINGS = "settings/storage"
     const val ABOUT = "about"
     const val DOWNLOADS = "downloads"
     const val STATS = "stats"
