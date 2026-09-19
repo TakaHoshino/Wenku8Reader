@@ -52,11 +52,15 @@ class UpdateCenter(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 2)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
-    /** 当前应用版本名（packageManager），用于旧发布（无 versionCode 字段）回退比较。 */
+    /**
+     * 当前应用版本名（packageManager），用于旧发布（无 versionCode 字段）回退比较。
+     * compileSdk 36 的 SDK 存根把 PackageInfo.versionName 标为 @Nullable，
+     * 因此这里显式兜底为 "1.0.0"（旧实现在该字段为空时会得到 null）。
+     */
     val currentVersionName: String =
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrDefault("1.0.0")
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "1.0.0"
 
     /** 当前应用 versionCode（packageManager），更新检查的主依据（严格单调递增）。 */
     val currentVersionCode: Long =

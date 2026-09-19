@@ -25,7 +25,10 @@ val useReleaseSigning = System.getenv("KEYSTORE_PATH") != null
 
 android {
     namespace = "com.hoshino.wenku8reader"
-    compileSdk = 34
+    // compileSdk 35 是 material3 1.5.0-alpha / compose 1.11 的硬性下限（AAR metadata
+    // minCompileSdk=35）；取 36 与已安装的 build-tools 36.0.0 对齐。
+    // targetSdk 暂不动：升到 35+ 会强制开启 edge-to-edge 与新的前台行为，属于另一轮改动。
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hoshino.wenku8reader"
@@ -77,17 +80,27 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
     }
 }
 
+// Kotlin 2.2 起 `kotlinOptions` 已弃用，改用类型安全的 compilerOptions（等价配置）
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        // Material 3 Expressive 组件在 material3 1.5 中仍标注 @ExperimentalMaterial3ExpressiveApi。
+        // 本项目的 UI 层整体采用该设计语言（组件层已另行注明来源），故在此统一 opt-in，
+        // 避免每个页面都要重复一遍注解。升级 material3 时需要按 release notes 复核一次。
+        optIn.add("androidx.compose.material3.ExperimentalMaterial3ExpressiveApi")
+    }
+}
+
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2024.09.02"))
+    // Compose BOM 统一 ui/foundation/material 系列版本；material3 单列覆盖到 Expressive 版本
+    // （BOM 内的 material3 是 1.4.0，其 MaterialExpressiveTheme 仍为 internal，不可用）
+    implementation(platform("androidx.compose:compose-bom:2026.05.01"))
+    implementation("androidx.compose.material3:material3:1.5.0-alpha18")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
@@ -97,7 +110,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
