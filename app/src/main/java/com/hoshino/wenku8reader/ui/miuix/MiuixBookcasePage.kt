@@ -107,7 +107,12 @@ fun MiuixBookcasePage(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),
-                contentPadding = MiuixPagePadding,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 4.dp,
+                    bottom = 24.dp + LocalFloatingBarInset.current,
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item(key = "sort") {

@@ -123,7 +123,8 @@ fun MiuixSettingsPage(
             MiuixUpdateSection(rs = rs, vm = vm, version = version, updateCenter = updateCenter)
             MiuixReadingSection(onOpenCustom = onOpenCustom)
             MiuixAboutSection(onOpenAbout = onOpenAbout, version = version)
-            Spacer(Modifier.height(24.dp))
+            // 悬浮底栏覆盖在内容之上：把余量放进滚动内容的末尾，内容才能滚到胶囊下方
+            Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
         }
     }
 

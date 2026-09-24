@@ -203,7 +203,7 @@ fun MiuixStoragePage(
                     onClick = { confirmCleanupHistory = true },
                 )
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
         }
     }
 

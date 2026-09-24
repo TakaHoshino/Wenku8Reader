@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -384,3 +385,13 @@ fun MiuixEmptyState(
  * 注意：不用 `WindowInsets.safeDrawing`——miuix 顶栏/底栏自带 windowInsets padding。
  */
 val MiuixPagePadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp)
+
+/**
+ * 悬浮底栏覆盖在内容之上时，页面**滚动内容**需要预留的底部余量。
+ *
+ * 为什么是"滚动内容的内边距"而不是页面级 padding：页面级 padding 会把整页缩短，
+ * 底栏位置就永远空着一条（看起来像固定底栏的槽位）；放进滚动内容里，
+ * 内容可以滚到胶囊下方（玻璃模糊才有东西可糊），最后一项也能完整滚出来看到。
+ * 由 `MainScaffold` 在 MIUIX + 悬浮底栏时提供（其余情况为 0）。
+ */
+val LocalFloatingBarInset = staticCompositionLocalOf { 0.dp }

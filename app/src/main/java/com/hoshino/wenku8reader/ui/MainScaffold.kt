@@ -33,6 +33,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -76,6 +77,7 @@ import com.hoshino.wenku8reader.ui.components.miuixGlass
 import com.hoshino.wenku8reader.ui.miuix.MiuixSettingsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStoragePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixBookcasePage
+import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -190,7 +192,7 @@ fun MainScaffold() {
             composable(Routes.MAIN) {
                 MainPagerScreen(
                     pagerState = pagerState,
-                    bottomContentPadding = if (floatingBar) 88.dp else 0.dp,
+                    floatingBarInset = if (floatingBar) 88.dp else 0.dp,
                     onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
                     onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
                     onOpenDownloads = {
@@ -322,8 +324,8 @@ fun MainScaffold() {
 @Composable
 private fun MainPagerScreen(
     pagerState: PagerState,
-    /** 悬浮底栏覆盖在内容之上，页面需要这段底部余量才能把最后一项滚动到胶囊之外。 */
-    bottomContentPadding: Dp = 0.dp,
+    /** 悬浮底栏覆盖在内容之上时，各页把它加进**滚动内容**的底部内边距（见 LocalFloatingBarInset）。 */
+    floatingBarInset: Dp = 0.dp,
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
     onOpenDownloads: () -> Unit,
@@ -333,9 +335,9 @@ private fun MainPagerScreen(
     onOpenAbout: () -> Unit,
     onOpenStorageSettings: () -> Unit,
 ) {
+    CompositionLocalProvider(LocalFloatingBarInset provides floatingBarInset) {
     HorizontalPager(
         state = pagerState,
-        modifier = Modifier.padding(bottom = bottomContentPadding),
         // 只预组合相邻 1 页：原值 2 会让三个主 Tab 在启动瞬间**同时组合**，
         // Explore/Bookcase/Settings 的 LaunchedEffect 与 ViewModel 一并初始化
         //（含书架的全量 JSON 读取与设置页的缓存统计），明显拖慢冷启动。
@@ -383,6 +385,7 @@ private fun MainPagerScreen(
             // 显式兜底：新增 Tab 时若忘记补分支，这里会立刻暴露而不是静默渲染空白页
             else -> error("未知的 Tab 索引：$page（TABS 与 when 分支不一致）")
         }
+    }
     }
 }
 
