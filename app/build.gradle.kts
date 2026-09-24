@@ -101,7 +101,11 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.05.01"))
     implementation("androidx.compose.material3:material3:1.5.0-alpha18")
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.activity:activity-compose:1.9.2")
+    // 必须 ≥1.11：miuix 的弹层（下拉/对话框/底部弹层）用 NavigationEvent 处理返回键，
+    // 需要宿主提供 LocalNavigationEventDispatcherOwner，而它由该版本的 ComponentActivity 提供。
+    // 旧版（1.9.x）下打开任意 miuix 弹层都会抛
+    // "No NavigationEventDispatcher was provided via LocalNavigationEventDispatcherOwner"。
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
