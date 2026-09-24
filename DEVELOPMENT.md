@@ -24,13 +24,13 @@
 | 依赖注入 | 手写 `AppContainer`（`di/AppContainer.kt`） |
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
-| minSdk / target / compile | 26 / 34 / **36**（material3 1.5 的 AAR 要求 minCompileSdk ≥ 35） |
-| Gradle | Gradle 8.14.3（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 8.13.2，Kotlin 2.3.21 |
-| 备用 UI 风格 | MIUIX（`top.yukonga.miuix.kmp:miuix:0.8.8`，实验性，可在设置→实验性切换，见 §5.6） |
+| minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
+| Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
+| 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
 
 关键 build 文件：`app/build.gradle.kts`。用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
 
-> ⚠️ **JDK 版本要求 17–21（CI 用 17）**：Gradle 8.14.3 支持 JDK 17–24，JDK 25 仍不受支持。若 `JAVA_HOME` 指向过新的 JDK（例如 25），构建会在启动阶段直接失败并只打印版本号（`What went wrong: 25.0.2`）。此时把 `JAVA_HOME` 指到 JDK 17/21（如 Android Studio 自带 JBR 或 `C:\Users\<用户>\.jdks\jbr-21.x`）即可：
+> ⚠️ **JDK 版本要求 17–21（CI 用 21）**：Gradle 9.7.1 支持 JDK 17–24，JDK 25 仍不受支持。若 `JAVA_HOME` 指向过新的 JDK（例如 25），构建会在启动阶段直接失败并只打印版本号（`What went wrong: 25.0.2`）。此时把 `JAVA_HOME` 指到 JDK 17/21（如 Android Studio 自带 JBR 或 `C:\Users\<用户>\.jdks\jbr-21.x`）即可：
 > ```powershell
 > $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"; $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
 > .\gradlew.bat :app:assembleDebug
@@ -247,13 +247,21 @@ Wenku8Reader/
 | 设置持久化 | `ReaderSettingsState.uiStyle`（prefs key `ui_style`，默认 `material3`） | `data/local/ReaderSettings.kt` |
 | 根主题分发 | `Wenku8ReaderTheme(uiStyle=…)`：M3 → `MaterialExpressiveTheme`；MIUIX → `MiuixTheme(ThemeController)` **内嵌一层由 MIUIX 色板映射的 Material 主题** | `ui/theme/Theme.kt` |
 | 组件分发 | 公共组件（Scaffold / 顶栏 / Card / 列表组 / 开关 / 分段控件 / 进度 / 空态）在 `isMiuixStyle()` 分支里走 MIUIX 实现 | `ui/components/Expressive.kt` |
-| 底部导航 | MIUIX `NavigationBar`/`NavigationBarItem`（图标+文字） | `ui/MainScaffold.kt` |
+| 排版适配 | MIUIX `TextStyles` → Material `Typography` 槽位映射，**所有既有 `MaterialTheme.typography.*` 调用点自动变成 HyperOS 字号** | `ui/theme/Theme.kt`（`miuixTypography`） |
+| 底部导航 | MIUIX `NavigationBar`（固定）或 `FloatingNavigationBar`（悬浮，HyperOS 胶囊底栏）+ `FloatingNavigationBarItem` | `ui/MainScaffold.kt` |
+| 液态玻璃 | `miuix-blur`：`rememberLayerBackdrop` + `Modifier.layerBackdrop`（页面内容作模糊源）+ `drawBackdrop { blur() }`，封装为 `Modifier.miuixGlass` | `ui/components/MiuixGlass.kt` |
 | 入口 | 设置 → 实验性 → UI 风格（`ExperimentalSection`） | `ui/settings/SettingsScreen.kt` |
 
 - **为什么内嵌 Material 主题**：页面里仍有大量 Material 组件（`Text`、`Slider`、`DropdownMenu`、`AlertDialog`、阅读器的 `ModalBottomSheet`）。它们在 MIUIX 模式下若拿不到 M3 的 `LocalContentColor`，会退回默认黑色、深色下不可读；映射一层色板后两套组件的配色保持一致。
-- **哪些已经是真正的 miuix 组件**：`Scaffold`、`Card`、`Switch`、`SuperSwitch`（开关行）、`BasicComponent`（下拉行）、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`。顶栏与普通列表行是**按 MIUIX 取值自绘**（miuix 的顶栏/行组件要求 `String` 标题，而本项目标题与行内容大量是 composable，为一个风格切换改十几个页面签名不划算）。
-- **尚未迁移**：`Text`/图标/对话框/滑块仍是 Material 组件（配色已对齐 MIUIX）；阅读器正文排版不随风格变化（那是阅读体验，不属于设计系统）。
-- **版本选择（重要）**：miuix **0.9.0 起要求 `minCompileSdk=37`**，即需要 AGP 9 + Gradle 9 + compileSdk 37；本项目取 **0.8.8**（`minCompileSdk=36`，与本项目一致）。0.8.8 的 Kotlin 元数据由 **2.3.20** 生成，因此 Kotlin 必须 ≥ 2.3.20（本项目取 2.3.21）。升级 miuix 前先看 AAR metadata 的 `minCompileSdk`，不要连带把整个工具链拖上去。
+- **哪些是真正的 miuix 组件**：`Scaffold`、`Card`、`Switch`、`SwitchPreference`（开关行）、`BasicComponent`（下拉行）、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`、`NavigationBar`/`FloatingNavigationBar`。顶栏与普通列表行是**按 MIUIX 取值自绘**（miuix 的顶栏/行组件要求 `String` 标题，而本项目标题与行内容大量是 composable）。
+- **三种实验性外观开关**（设置 → 实验性）：UI 风格（Material 3 Expressive ↔ MIUIX）、悬浮底栏、底栏液态玻璃（后两者仅 MIUIX 生效；玻璃还要求 Android 12L+，低版本自动退化为半透明纯色）。
+- **工具链（本次一并升级）**：compileSdk **37** + **AGP 9.4.1** + **Gradle 9.7.1**，CI 的 JDK 由 17 提到 **21**。三个坑与对策：
+  1. **AGP 9 内置 Kotlin**，不能再应用 `org.jetbrains.kotlin.android`（会直接报 "not compatible"）；内置默认 KGP 2.2.10 读不了 miuix 的 2.3.20 元数据 → 在根 `build.gradle.kts` 用 `buildscript { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21") }` 提升 KGP（官方文档做法）。
+  2. **cronet-embedded / cronet-api / cronet-common 共用 `org.chromium.net` namespace**，AGP 9 将其从警告升级为错误；三者的类缺一不可，故用 `android.uniquePackageNames=false` 放行。
+  3. **miuix-blur 声明 minSdk 32**，项目仍保留 minSdk 26：manifest 用 `tools:overrideLibrary="top.yukonga.miuix.kmp.blur"` 放行合并，代码侧由 `isMiuixGlassSupported` 做运行时门控，低版本不触碰任何模糊 API。
+- **构建内存**：`gradle.properties` 调整为 `-Xmx1536m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC` + `kotlin.compiler.execution.strategy=in-process`（本机页面文件小，G1 + 独立 Kotlin 守护进程会因提交内存不足直接崩 JVM；这套配置在本地与 CI 都够用）。
+- **尚未迁移**：`Text`/图标/滑块/对话框仍是 Material 组件——但**配色与字号都已映射到 MIUIX**（见上表"排版适配"），观感已基本对齐；把它们逐个换成 miuix 版本属于"逐页扫一遍"的机械工作，需要时按 §7 的清单推进。
+- **维护提示**：升级 miuix 前先看 AAR metadata 的 `minCompileSdk` 与 pom 里的 kotlin-stdlib 版本（决定是否需要再提 KGP）；0.9.x 起 `extra` 包改名为 `preference`（`SuperSwitch` → `SwitchPreference`）。
 
 ---
 

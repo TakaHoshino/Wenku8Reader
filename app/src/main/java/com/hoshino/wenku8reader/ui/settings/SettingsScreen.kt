@@ -347,23 +347,45 @@ private fun ExperimentalSection(
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_experimental),
-        items = listOf {
-            SegmentedDropdownItem(
-                icon = Icons.Filled.Animation,
-                title = stringResource(R.string.settings_ui_style),
-                summary = stringResource(R.string.settings_ui_style_summary),
-                items = styles.map { style ->
-                    stringResource(
-                        when (style) {
-                            UiStyle.MATERIAL3 -> R.string.settings_ui_style_material3
-                            UiStyle.MIUIX -> R.string.settings_ui_style_miuix
-                        },
-                    )
-                },
-                selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
-                onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
-            )
-        },
+        items = listOf(
+            {
+                SegmentedDropdownItem(
+                    icon = Icons.Filled.Animation,
+                    title = stringResource(R.string.settings_ui_style),
+                    summary = stringResource(R.string.settings_ui_style_summary),
+                    items = styles.map { style ->
+                        stringResource(
+                            when (style) {
+                                UiStyle.MATERIAL3 -> R.string.settings_ui_style_material3
+                                UiStyle.MIUIX -> R.string.settings_ui_style_miuix
+                            },
+                        )
+                    },
+                    selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
+                    onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
+                )
+            },
+            {
+                // 悬浮底栏 + 液态玻璃：仅 MIUIX 风格有意义，但仍常显（关掉 MIUIX 时切换不影响 M3 底栏）
+                SegmentedSwitchItem(
+                    icon = Icons.Filled.Vibration,
+                    title = stringResource(R.string.settings_floating_bottom_bar),
+                    summary = stringResource(R.string.settings_floating_bottom_bar_summary),
+                    checked = rs.floatingBottomBar,
+                    onCheckedChange = vm::setFloatingBottomBar,
+                )
+            },
+            {
+                SegmentedSwitchItem(
+                    icon = Icons.Filled.Palette,
+                    title = stringResource(R.string.settings_bottom_bar_glass),
+                    summary = stringResource(R.string.settings_bottom_bar_glass_summary),
+                    checked = rs.bottomBarGlass,
+                    enabled = rs.floatingBottomBar,
+                    onCheckedChange = vm::setBottomBarGlass,
+                )
+            },
+        ),
     )
 }
 

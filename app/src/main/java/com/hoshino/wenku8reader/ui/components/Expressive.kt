@@ -90,7 +90,7 @@ import top.yukonga.miuix.kmp.basic.LinearProgressIndicator as MiuixLinearProgres
 import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
 import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
 import top.yukonga.miuix.kmp.basic.TabRow as MiuixTabRow
-import top.yukonga.miuix.kmp.extra.SuperSwitch as MiuixSuperSwitch
+import top.yukonga.miuix.kmp.preference.SwitchPreference as MiuixSuperSwitch
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 

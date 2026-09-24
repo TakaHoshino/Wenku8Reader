@@ -47,6 +47,9 @@ data class ReaderSettingsState(
     val expressiveMotion: Boolean = true,
     // 实验性 UI 风格："material3"（默认，M3 Expressive）| "miuix"（MIUIX / HyperOS 风格）
     val uiStyle: String = "material3",
+    // 实验性（仅 MIUIX 风格生效）：悬浮底栏（HyperOS 的胶囊式底栏）与其液态玻璃背景
+    val floatingBottomBar: Boolean = true,
+    val bottomBarGlass: Boolean = true,
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -115,6 +118,8 @@ class ReaderSettings(context: Context) {
         cacheMaxMb = prefs.getInt("cache_max_mb", 30).coerceIn(10, 500),
         expressiveMotion = prefs.getBoolean("expressive_motion", true),
         uiStyle = prefs.getString("ui_style", "material3") ?: "material3",
+        floatingBottomBar = prefs.getBoolean("floating_bottom_bar", true),
+        bottomBarGlass = prefs.getBoolean("bottom_bar_glass", true),
         autoPadding = prefs.getBoolean("auto_padding", true),
         topPadding = prefs.getInt("pad_top", 24),
         bottomPadding = prefs.getInt("pad_bottom", 16),
@@ -195,6 +200,12 @@ class ReaderSettings(context: Context) {
             e.putBoolean("expressive_motion", next.expressiveMotion)
         }
         if (next.uiStyle != prev.uiStyle) e.putString("ui_style", next.uiStyle)
+        if (next.floatingBottomBar != prev.floatingBottomBar) {
+            e.putBoolean("floating_bottom_bar", next.floatingBottomBar)
+        }
+        if (next.bottomBarGlass != prev.bottomBarGlass) {
+            e.putBoolean("bottom_bar_glass", next.bottomBarGlass)
+        }
         if (next.autoPadding != prev.autoPadding) e.putBoolean("auto_padding", next.autoPadding)
         if (next.topPadding != prev.topPadding) e.putInt("pad_top", next.topPadding)
         if (next.bottomPadding != prev.bottomPadding) e.putInt("pad_bottom", next.bottomPadding)
@@ -237,6 +248,8 @@ class ReaderSettings(context: Context) {
     fun setCacheMaxMb(mb: Int) = emit { it.copy(cacheMaxMb = mb.coerceIn(10, 500)) }
     fun setExpressiveMotion(enabled: Boolean) = emit { it.copy(expressiveMotion = enabled) }
     fun setUiStyle(style: String) = emit { it.copy(uiStyle = style) }
+    fun setFloatingBottomBar(enabled: Boolean) = emit { it.copy(floatingBottomBar = enabled) }
+    fun setBottomBarGlass(enabled: Boolean) = emit { it.copy(bottomBarGlass = enabled) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }

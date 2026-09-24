@@ -7,11 +7,14 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -32,10 +35,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -64,6 +69,13 @@ import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 import com.hoshino.wenku8reader.ui.toc.TocScreen
 import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
+import com.hoshino.wenku8reader.ui.components.isMiuixGlassSupported
+import com.hoshino.wenku8reader.ui.components.miuixGlass
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
+import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.NavigationBar as MiuixNavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem as MiuixNavigationBarItem
 import kotlinx.coroutines.delay
@@ -106,6 +118,11 @@ fun MainScaffold() {
     // 启动时按设置检查更新（静默，有新版本才弹窗）
     val appContext = LocalContext.current.applicationContext as Wenku8Application
     val container = appContext.container
+    // 底栏形态与液态玻璃来自设置（仅 MIUIX 风格生效）
+    val appSettings by container.readerSettings.flow.collectAsStateWithLifecycle()
+    val floatingBar = isMiuixStyle() && appSettings.floatingBottomBar
+    val glassEnabled = floatingBar && appSettings.bottomBarGlass && isMiuixGlassSupported
+    val backdrop = rememberLayerBackdrop()
     val updateState by container.updateCenter.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
         delay(STARTUP_UPDATE_CHECK_DELAY_MS)
@@ -133,7 +150,11 @@ fun MainScaffold() {
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         bottomBar = {
             if (isMain) {
-                MainBottomBar(mainPagerState)
+                MainBottomBar(
+                    mainPagerState = mainPagerState,
+                    backdrop = if (glassEnabled) backdrop else null,
+                    floating = floatingBar,
+                )
             }
         },
     ) { inner ->
@@ -143,7 +164,10 @@ fun MainScaffold() {
         NavHost(
             navController = nav,
             startDestination = Routes.MAIN,
-            modifier = Modifier.padding(bottom = inner.calculateBottomPadding()),
+            modifier = Modifier
+                .padding(bottom = inner.calculateBottomPadding())
+                // 悬浮底栏的模糊源：把页面内容登记进 backdrop，底栏再对它做实时模糊
+                .then(if (glassEnabled) Modifier.layerBackdrop(backdrop) else Modifier),
             enterTransition = {
                 fadeIn(motion.defaultEffectsSpec()) +
                     slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 }
@@ -315,10 +339,27 @@ private fun MainPagerScreen(
     }
 }
 
-/** 底栏：NavigationBar（surfaceContainer 同色）+ 弹簧滑动切换。 */
+/**
+ * 底栏：
+ * - Material 3 风格 → `NavigationBar`（与页面背景同色）；
+ * - MIUIX 风格 → miuix `NavigationBar`（固定）或 `FloatingNavigationBar`（悬浮，HyperOS 的胶囊式底栏）；
+ *   悬浮时若开启液态玻璃，则用 [miuixGlass] 对页面内容做实时模糊。
+ * 切换选中页统一走弹簧动画（[MainPagerState.animateToPage]）。
+ */
 @Composable
-private fun MainBottomBar(mainPagerState: MainPagerState) {
+private fun MainBottomBar(
+    mainPagerState: MainPagerState,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop? = null,
+    floating: Boolean = false,
+) {
     if (isMiuixStyle()) {
+        if (floating) {
+            MiuixFloatingBottomBar(
+                mainPagerState = mainPagerState,
+                backdrop = backdrop,
+            )
+            return
+        }
         MiuixNavigationBar {
             TABS.forEachIndexed { index, dest ->
                 val selected = mainPagerState.selectedPage == index
@@ -362,6 +403,48 @@ private fun MainBottomBar(mainPagerState: MainPagerState) {
                     )
                 },
             )
+        }
+    }
+}
+
+/**
+ * MIUIX 悬浮底栏（HyperOS 风格胶囊底栏）。
+ *
+ * 玻璃效果分两步：`layerBackdrop` 把页面内容登记为模糊源（在 MainScaffold 里作用于 NavHost），
+ * 这里用 [miuixGlass] 把该源实时模糊后绘制在胶囊形状内；未开启或系统 < Android 12L 时
+ * 退化为半透明底色（不调用任何模糊 API）。
+ */
+@Composable
+private fun MiuixFloatingBottomBar(
+    mainPagerState: MainPagerState,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+) {
+    val cornerRadius = 28.dp
+    val shape = RoundedCornerShape(cornerRadius)
+    val glass = backdrop != null
+    Box(
+        Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        FloatingNavigationBar(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .miuixGlass(backdrop = backdrop, shape = shape),
+            // 玻璃态用半透明容器，模糊才有"透出来"的观感；降级时用不透明容器保证可读性
+            color = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = if (glass) 0.72f else 1f),
+            cornerRadius = cornerRadius,
+        ) {
+            TABS.forEachIndexed { index, dest ->
+                val selected = mainPagerState.selectedPage == index
+                FloatingNavigationBarItem(
+                    selected = selected,
+                    onClick = {
+                        if (!selected) mainPagerState.animateToPage(index)
+                    },
+                    icon = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                    label = stringResource(dest.labelRes),
+                )
+            }
         }
     }
 }

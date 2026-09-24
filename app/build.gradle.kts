@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -25,10 +24,10 @@ val useReleaseSigning = System.getenv("KEYSTORE_PATH") != null
 
 android {
     namespace = "com.hoshino.wenku8reader"
-    // compileSdk 35 是 material3 1.5.0-alpha / compose 1.11 的硬性下限（AAR metadata
-    // minCompileSdk=35）；取 36 与已安装的 build-tools 36.0.0 对齐。
+    // compileSdk 37：material3 1.5 要求 ≥35，而 miuix 0.9.x 的 AAR metadata 要求 37
+    //（0.9.x 起 minCompileSdk=37，需要 AGP ≥ 9.1；0.8.8 才是 36）。
     // targetSdk 暂不动：升到 35+ 会强制开启 edge-to-edge 与新的前台行为，属于另一轮改动。
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.hoshino.wenku8reader"
@@ -112,9 +111,12 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material:material-icons-extended")
     // MIUIX（第三方 HyperOS/MIUI 设计语言实现，作者 yukonga）：实验性 UI 风格可切换，
-    // 见 ui/theme/UiStyle.kt。取 0.8.8 而不是 0.9.x：0.9.x 起要求 compileSdk 37
-    //（进而要求 AGP 9 + Gradle 9），0.8.8 只要求 compileSdk 36，与本项目工具链一致。
-    implementation("top.yukonga.miuix.kmp:miuix:0.8.8")
+    // 见 ui/theme/UiStyle.kt。0.9.1 的 kotlin-stdlib 与项目一致（2.3.21）；
+    // miuix-blur 提供悬浮组件的液态玻璃（背景模糊 + 高光描边），SukiSU-Ultra 同款。
+    implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.1")
+    implementation("top.yukonga.miuix.kmp:miuix-blur:0.9.1")
+    // 0.9.x 起设置行/下拉等"偏好项"组件被拆到 miuix-preference（原 extra 包）
+    implementation("top.yukonga.miuix.kmp:miuix-preference:0.9.1")
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

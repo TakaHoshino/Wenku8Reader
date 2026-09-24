@@ -186,6 +186,8 @@ class SettingsViewModel(
     fun setAmoled(enabled: Boolean) = readerSettings.setAmoled(enabled)
     fun setExpressiveMotion(enabled: Boolean) = readerSettings.setExpressiveMotion(enabled)
     fun setUiStyle(style: String) = readerSettings.setUiStyle(style)
+    fun setFloatingBottomBar(enabled: Boolean) = readerSettings.setFloatingBottomBar(enabled)
+    fun setBottomBarGlass(enabled: Boolean) = readerSettings.setBottomBarGlass(enabled)
     fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
     fun setHapticsStrength(value: Int) = readerSettings.setHapticsStrength(value)
     fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)

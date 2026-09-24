@@ -111,7 +111,8 @@ jobs:
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: 17
+          # AGP 9 / Gradle 9.7 工具链（见 DEVELOPMENT.md §5.6）
+          java-version: 21
 
       # ---- 签名密钥：必须存在，否则直接失败（不发布 debug 签名包）----
       - name: 校验签名密钥已配置

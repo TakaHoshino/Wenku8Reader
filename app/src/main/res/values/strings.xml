@@ -186,6 +186,10 @@
     <string name="settings_ui_style_summary">切换 Material 3 Expressive 与 MIUIX（HyperOS）；实验性功能，界面可能随版本调整</string>
     <string name="settings_ui_style_material3">Material 3 Expressive</string>
     <string name="settings_ui_style_miuix">MIUIX</string>
+    <string name="settings_floating_bottom_bar">悬浮底栏</string>
+    <string name="settings_floating_bottom_bar_summary">HyperOS 风格的胶囊式底栏（仅 MIUIX 风格生效）</string>
+    <string name="settings_bottom_bar_glass">底栏液态玻璃</string>
+    <string name="settings_bottom_bar_glass_summary">对底栏背后内容做实时模糊（仅悬浮底栏、Android 12L+ 生效）</string>
     <string name="settings_storage">存储设置</string>
     <string name="settings_storage_desc">缓存管理、缓存上限与过期记录清理</string>
     <string name="settings_section_general">通用</string>

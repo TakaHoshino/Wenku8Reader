@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -117,9 +118,63 @@ private fun MiuixRootTheme(
     MiuixTheme(controller = controller) {
         MaterialTheme(
             colorScheme = MiuixTheme.colorScheme.toMaterialColorScheme(darkTheme),
-            typography = Wenku8Typography,
+            // 文字体系也整体切到 MIUIX：这样**所有**已存在的 `MaterialTheme.typography.*`
+            // 调用点无需改动就渲染成 HyperOS 的字号/字重（见 miuixTypography 的槽位映射）。
+            typography = miuixTypography(),
             shapes = Wenku8Shapes,
             content = content,
+        )
+    }
+}
+
+/**
+ * MIUIX 文字样式 → Material 排版的槽位映射。
+ *
+ * 为什么需要它：页面里 `MaterialTheme.typography.xxx` 的调用点有上百处，
+ * 逐个换成 `MiuixTheme.textStyles.yyy` 既容易漏、又把两套风格耦进每个页面；
+ * 反过来把 MIUIX 的字号体系"适配"成 M3 的槽位，调用点一行都不用动，
+ * 切到 MIUIX 时全应用文字立刻是 HyperOS 的字号/字重/行高。
+ *
+ * 对应关系（MIUI 的层级由大到小）：
+ * display/headline ← headline1/headline2；title ← title1/title2/title3；
+ * body ← body1/body2/footnote1；label ← button/footnote1/footnote2。
+ * emphasized 变体沿用同一字号（MIUI 的字重已包含强调感，不再叠加）。
+ */
+@Composable
+private fun miuixTypography(): Typography {
+    val miuix = MiuixTheme.textStyles
+    return remember(miuix) {
+        Typography(
+            displayLarge = miuix.headline1,
+            displayMedium = miuix.headline1,
+            displaySmall = miuix.headline2,
+            headlineLarge = miuix.headline1,
+            headlineMedium = miuix.headline2,
+            headlineSmall = miuix.title1,
+            titleLarge = miuix.title1,
+            titleMedium = miuix.title2,
+            titleSmall = miuix.title3,
+            bodyLarge = miuix.body1,
+            bodyMedium = miuix.body2,
+            bodySmall = miuix.footnote1,
+            labelLarge = miuix.button,
+            labelMedium = miuix.footnote1,
+            labelSmall = miuix.footnote2,
+            displayLargeEmphasized = miuix.headline1,
+            displayMediumEmphasized = miuix.headline1,
+            displaySmallEmphasized = miuix.headline2,
+            headlineLargeEmphasized = miuix.headline1,
+            headlineMediumEmphasized = miuix.headline2,
+            headlineSmallEmphasized = miuix.title1,
+            titleLargeEmphasized = miuix.title1,
+            titleMediumEmphasized = miuix.title2,
+            titleSmallEmphasized = miuix.title3,
+            bodyLargeEmphasized = miuix.body1,
+            bodyMediumEmphasized = miuix.body2,
+            bodySmallEmphasized = miuix.footnote1,
+            labelLargeEmphasized = miuix.button,
+            labelMediumEmphasized = miuix.footnote1,
+            labelSmallEmphasized = miuix.footnote2,
         )
     }
 }

@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+      miuix-blur 自身声明 minSdk 32，但项目最低支持 26。
+      模糊能力只在 Android 12L (API 32) 及以上使用，代码里由
+      BlurSupport.isSupported 做运行时门控（低版本自动降级为半透明底栏），
+      因此这里放行合并检查是安全的。
+    -->
+    <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
 
     <application
         android:name=".Wenku8Application"
