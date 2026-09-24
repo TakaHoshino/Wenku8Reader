@@ -97,7 +97,13 @@ class MainActivity : ComponentActivity() {
                     enabled = settings.hapticsEnabled,
                     strength = settings.hapticsStrength,
                 ) {
-                    MainScaffold()
+                    // MIUIX 模式下再包一层 miuix 根宿主：给 miuix 的下拉/对话框提供
+                    // 不随页面切换而销毁的 popup host（详见 ui/miuix/MiuixComponents.kt）
+                    if (settings.uiStyle == com.hoshino.wenku8reader.ui.theme.UiStyle.MIUIX.key) {
+                        com.hoshino.wenku8reader.ui.miuix.MiuixRootHost { MainScaffold() }
+                    } else {
+                        MainScaffold()
+                    }
                 }
             }
         }

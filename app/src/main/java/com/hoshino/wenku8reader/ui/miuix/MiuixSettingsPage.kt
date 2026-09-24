@@ -3,21 +3,12 @@ package com.hoshino.wenku8reader.ui.miuix
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -37,11 +28,10 @@ import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -56,7 +46,6 @@ import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
 import com.hoshino.wenku8reader.ui.theme.UiStyle
-import com.hoshino.wenku8reader.ui.theme.seedColorOptions
 import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -192,63 +181,9 @@ private fun MiuixAppearanceSection(
                 .coerceAtLeast(0),
             onSelected = { index -> vm.setDarkMode(darkModeOptions[index].first) },
         )
-        MiuixRowDivider()
-        MiuixSwitchRow(
-            title = stringResource(R.string.settings_amoled),
-            summary = stringResource(R.string.settings_amoled_summary),
-            icon = Icons.Filled.DarkMode,
-            checked = rs.amoled,
-            onCheckedChange = vm::setAmoled,
-        )
-        MiuixRowDivider()
-        MiuixSwitchRow(
-            title = stringResource(R.string.settings_dynamic_color),
-            summary = stringResource(R.string.settings_dynamic_color_summary),
-            icon = Icons.Filled.Palette,
-            checked = rs.dynamicColor,
-            onCheckedChange = vm::setDynamicColor,
-        )
-        if (!rs.dynamicColor) {
-            MiuixRowDivider()
-            MiuixColorSwatchRow(
-                colors = seedColorOptions,
-                selected = rs.seedColor,
-                onSelect = vm::setSeedColor,
-            )
-        }
-    }
-}
-
-/** 手动取色：一行圆点（HyperOS 里也是这种"色板行"）。 */
-@Composable
-private fun MiuixColorSwatchRow(
-    colors: List<Long>,
-    selected: Long,
-    onSelect: (Long) -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        colors.forEach { color ->
-            val isSelected = color == selected
-            Box(
-                Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(Color(color))
-                    .border(
-                        width = 2.dp,
-                        color = if (isSelected) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.outline,
-                        shape = CircleShape,
-                    )
-                    .clickable { onSelect(color) },
-            )
-        }
+        // 说明：MIUIX 不使用动态取色，配色由 miuix 自己的色板决定（HyperOS 默认蓝），
+        // 因此这里**不展示**「动态取色 / 手动主题色 / 纯黑模式」这些 MD3 专属设置项；
+        // 它们只在 Material 3 风格的设置页出现，两套设置互不干扰。
     }
 }
 
@@ -305,6 +240,9 @@ private fun MiuixStorageEntrySection(
 @Composable
 private fun MiuixExperimentalSection(rs: ReaderSettingsState, vm: SettingsViewModel) {
     val styles = UiStyle.entries
+    // UI 风格的切换会替换整棵界面（含 miuix 根宿主），必须等下拉弹层收起后再应用，
+    // 否则弹层宿主会在显示过程中被销毁（表现为闪退）。
+    var pendingStyleIndex by remember { mutableStateOf<Int?>(null) }
     MiuixSection(
         title = stringResource(R.string.settings_section_experimental),
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
@@ -322,7 +260,15 @@ private fun MiuixExperimentalSection(rs: ReaderSettingsState, vm: SettingsViewMo
                 )
             },
             selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
-            onSelected = { index -> vm.setUiStyle(styles[index].key) },
+            onSelected = { index -> pendingStyleIndex = index },
+            onExpandedChange = { expanded ->
+                if (!expanded) {
+                    pendingStyleIndex?.let { index ->
+                        pendingStyleIndex = null
+                        vm.setUiStyle(styles[index].key)
+                    }
+                }
+            },
         )
         MiuixRowDivider()
         MiuixSwitchRow(

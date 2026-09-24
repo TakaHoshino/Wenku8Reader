@@ -249,6 +249,12 @@ Wenku8Reader/
 | `ui/miuix/MiuixSettingsPage.kt` | MIUIX 设置主 Tab（账号/外观/通用/存储入口/实验性/网络/更新/阅读/关于），逻辑复用 `SettingsViewModel` |
 | `ui/miuix/MiuixStoragePage.kt` | MIUIX 存储二级页（占用合计、按类型清理、网页缓存明细、上限、过期记录），确认弹窗用 miuix `WindowDialog` |
 
+**MIUIX 与 MD3 的解耦（2026-09）**：
+- **不使用动态取色**：MIUIX 模式的配色完全由 miuix 自己的色板决定（`ThemeController` 不传 keyColor，即 HyperOS 默认蓝），不读 Material 侧的 `dynamicColor`/`seedColor`；深浅色仍跟随应用设置。
+- **MD3 专属设置项在 MIUIX 下隐藏**：动态取色、手动主题色、纯黑模式只在 Material 风格的设置页出现（MIUIX 设置页不渲染这些行），避免"能点但无效"的误导。
+- **弹层宿主**：MIUIX 模式在 `MainActivity` 里用 `MiuixRootHost`（miuix 根 Scaffold）包住整个界面，给 miuix 下拉/对话框一个不随页面切换而销毁的 popup host；下拉统一用覆盖层版 `OverlayDropdownPreference`（不再用窗口版）。
+- **切换 UI 风格延后生效**：`MiuixSettingsPage` 的"UI 风格"下拉把选择结果暂存，等弹层收起（`onExpandedChange(false)`）后再写设置——避免在弹层显示过程中替换整棵界面导致宿主被销毁。
+
 | 层 | 实现 | 位置 |
 |---|---|---|
 | 风格枚举 / 分发源 | `UiStyle{MATERIAL3, MIUIX}` + `LocalUiStyle`（`staticCompositionLocalOf`） | `ui/theme/UiStyle.kt` |

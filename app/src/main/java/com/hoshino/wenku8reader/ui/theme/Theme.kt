@@ -53,8 +53,6 @@ fun Wenku8ReaderTheme(
         if (uiStyle == UiStyle.MIUIX) {
             MiuixRootTheme(
                 darkTheme = darkTheme,
-                dynamicColor = dynamicColor,
-                seedColor = seedColor,
                 content = content,
             )
             return@CompositionLocalProvider
@@ -85,9 +83,9 @@ fun Wenku8ReaderTheme(
 /**
  * MIUIX 根主题。
  *
- * 配色来源：`ThemeController`。
- * - 开启动态取色（Android 12+）→ `Monet*` 模式，取系统壁纸色；
- * - 否则用设置里的种子色（MIUIX 由单个 key color 推导整套色板）。
+ * 配色来源：miuix 自己的色板（HyperOS 默认蓝），**刻意不使用动态取色、也不读取
+ * Material 侧的种子色**——MIUIX 模式与 MD3 的主题设置完全解耦，切换风格不会互相影响。
+ * 深色/浅色仍跟随应用设置（[ColorSchemeMode]）。
  *
  * 内层再套一个由 MIUIX 色板映射的 Material 主题：本项目还有大量 Material 组件
  * （Slider、DropdownMenu、AlertDialog、阅读器的 ModalBottomSheet…），
@@ -97,21 +95,12 @@ fun Wenku8ReaderTheme(
 @Composable
 private fun MiuixRootTheme(
     darkTheme: Boolean,
-    dynamicColor: Boolean,
-    seedColor: Color,
     content: @Composable () -> Unit,
 ) {
-    val monetSupported = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val mode = when {
-        monetSupported && darkTheme -> ColorSchemeMode.MonetDark
-        monetSupported -> ColorSchemeMode.MonetLight
-        darkTheme -> ColorSchemeMode.Dark
-        else -> ColorSchemeMode.Light
-    }
-    val controller = remember(mode, seedColor) {
+    val mode = if (darkTheme) ColorSchemeMode.Dark else ColorSchemeMode.Light
+    val controller = remember(mode) {
         ThemeController(
             colorSchemeMode = mode,
-            keyColor = seedColor,
             isDark = darkTheme,
         )
     }

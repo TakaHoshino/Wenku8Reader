@@ -36,8 +36,8 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
-import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -228,7 +228,13 @@ fun MiuixSwitchRow(
     )
 }
 
-/** 下拉项，miuix `WindowDropdownPreference`（HyperOS 圆角弹层）。 */
+/**
+ * 下拉项，miuix `OverlayDropdownPreference`（HyperOS 圆角弹层）。
+ *
+ * 用**覆盖层**版而不是 `Window*`（窗口）版：覆盖层渲染在 miuix 根 Scaffold 的 popup host 里
+ * （见 `MiuixRootHost`），不额外创建 Dialog 窗口；窗口版在"弹层显示期间页面被替换"的
+ * 场景（例如切换 UI 风格）更容易因宿主被销毁而崩溃。
+ */
 @Composable
 fun MiuixDropdownRow(
     title: String,
@@ -239,8 +245,9 @@ fun MiuixDropdownRow(
     summary: String? = null,
     icon: ImageVector? = null,
     enabled: Boolean = true,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
-    WindowDropdownPreference(
+    OverlayDropdownPreference(
         items = items,
         selectedIndex = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
         title = title,
@@ -248,8 +255,29 @@ fun MiuixDropdownRow(
         modifier = modifier,
         startAction = icon?.let { vector -> { MiuixRowIcon(vector) } },
         enabled = enabled,
+        onExpandedChange = onExpandedChange,
         onSelectedIndexChange = onSelected,
     )
+}
+
+/**
+ * MIUIX 根宿主：在 MIUIX 模式下包住整个导航内容，提供**不会随页面切换而销毁**的 miuix 弹层宿主。
+ *
+ * 为什么需要：miuix 的弹层会优先挂到"根 Scaffold"（`LocalRootPopupStates`）。
+ * 若没有这一层，弹层就挂在页面自己的 Scaffold 上——而"设置 → 实验性 → UI 风格"
+ * 这类选项会在**弹层收起的同时替换整个页面实现**，宿主被销毁就可能闪退。
+ * `contentWindowInsets = 0` 是刻意的：安全区由各页自己的顶栏/底栏处理，这里不加内边距。
+ */
+@Composable
+fun MiuixRootHost(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Scaffold(
+        modifier = modifier,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { content() }
 }
 
 /** 滑块项：标题 + 数值 + miuix `Slider`（HyperOS 的刻度与按压反馈）。 */
