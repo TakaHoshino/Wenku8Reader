@@ -73,6 +73,7 @@ import com.hoshino.wenku8reader.ui.components.isMiuixGlassSupported
 import com.hoshino.wenku8reader.ui.components.miuixGlass
 import com.hoshino.wenku8reader.ui.miuix.MiuixSettingsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStoragePage
+import com.hoshino.wenku8reader.ui.miuix.MiuixBookcasePage
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -329,11 +330,21 @@ private fun MainPagerScreen(
                 onOpenDownloads = onOpenDownloads,
                 onSearch = onSearch,
             )
-            1 -> BookcasePage(
-                onOpenBook = onOpenBook,
-                onOpenDownloads = onOpenDownloads,
-                onOpenStats = onOpenStats,
-            )
+            1 ->
+                // MIUIX 模式下书架是独立的 miuix 实现
+                if (isMiuixStyle()) {
+                    MiuixBookcasePage(
+                        onOpenBook = onOpenBook,
+                        onOpenDownloads = onOpenDownloads,
+                        onOpenStats = onOpenStats,
+                    )
+                } else {
+                    BookcasePage(
+                        onOpenBook = onOpenBook,
+                        onOpenDownloads = onOpenDownloads,
+                        onOpenStats = onOpenStats,
+                    )
+                }
             2 ->
                 // MIUIX 模式下设置页是独立的 miuix 实现（不与 Material 版共用任何 UI 代码）
                 if (isMiuixStyle()) {
