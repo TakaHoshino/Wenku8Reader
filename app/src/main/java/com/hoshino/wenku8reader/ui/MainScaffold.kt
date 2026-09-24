@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
@@ -41,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -152,7 +154,9 @@ fun MainScaffold() {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         bottomBar = {
-            if (isMain) {
+            // 悬浮底栏**不占用** bottomBar 槽位（它是覆盖在内容之上的浮层，见下方 Box）：
+            // 否则槽位高度（胶囊 + miuix 内部余量 + 系统栏 inset）会在内容下方留下一条空白带。
+            if (isMain && !floatingBar) {
                 MainBottomBar(
                     mainPagerState = mainPagerState,
                     backdrop = if (glassEnabled) backdrop else null,
@@ -164,6 +168,7 @@ fun MainScaffold() {
         // 页面切换动效统一取自主题的 motion scheme：
         // Expressive 主题下是带弹性空间感的滑动，标准主题下自动退化为线性过渡。
         val motion = MaterialTheme.motionScheme
+        Box(Modifier.fillMaxSize()) {
         NavHost(
             navController = nav,
             startDestination = Routes.MAIN,
@@ -185,6 +190,7 @@ fun MainScaffold() {
             composable(Routes.MAIN) {
                 MainPagerScreen(
                     pagerState = pagerState,
+                    bottomContentPadding = if (floatingBar) 88.dp else 0.dp,
                     onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
                     onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
                     onOpenDownloads = {
@@ -300,6 +306,15 @@ fun MainScaffold() {
                 ReaderScreen(onBack = { nav.popBackStack() })
             }
         }
+        // MIUIX 悬浮底栏：覆盖在内容之上——玻璃模糊采样的正是它背后的页面内容
+        if (isMain && floatingBar) {
+            MiuixFloatingBottomBar(
+                mainPagerState = mainPagerState,
+                backdrop = if (glassEnabled) backdrop else null,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        }
     }
 }
 
@@ -307,6 +322,8 @@ fun MainScaffold() {
 @Composable
 private fun MainPagerScreen(
     pagerState: PagerState,
+    /** 悬浮底栏覆盖在内容之上，页面需要这段底部余量才能把最后一项滚动到胶囊之外。 */
+    bottomContentPadding: Dp = 0.dp,
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
     onOpenDownloads: () -> Unit,
@@ -318,6 +335,7 @@ private fun MainPagerScreen(
 ) {
     HorizontalPager(
         state = pagerState,
+        modifier = Modifier.padding(bottom = bottomContentPadding),
         // 只预组合相邻 1 页：原值 2 会让三个主 Tab 在启动瞬间**同时组合**，
         // Explore/Bookcase/Settings 的 LaunchedEffect 与 ViewModel 一并初始化
         //（含书架的全量 JSON 读取与设置页的缓存统计），明显拖慢冷启动。
@@ -447,12 +465,13 @@ private fun MainBottomBar(
 private fun MiuixFloatingBottomBar(
     mainPagerState: MainPagerState,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    modifier: Modifier = Modifier,
 ) {
     val cornerRadius = 28.dp
     val shape = RoundedCornerShape(cornerRadius)
     val glass = backdrop != null
     Box(
-        Modifier.fillMaxWidth(),
+        modifier.fillMaxWidth(),
         contentAlignment = Alignment.BottomCenter,
     ) {
         FloatingNavigationBar(
