@@ -538,6 +538,9 @@ private fun MiuixFloatingBottomBar(
             // 玻璃态用半透明容器，模糊才有"透出来"的观感；降级时用不透明容器保证可读性
             color = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = if (glass) 0.72f else 1f),
             cornerRadius = cornerRadius,
+            // 去掉悬浮底栏自带的分隔线与投影：用户明确要求"不要边框"
+            showDivider = false,
+            shadowElevation = 0.dp,
         ) {
             TABS.forEachIndexed { index, dest ->
                 val selected = mainPagerState.selectedPage == index

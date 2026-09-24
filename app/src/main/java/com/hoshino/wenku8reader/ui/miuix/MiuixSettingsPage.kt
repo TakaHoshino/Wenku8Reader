@@ -89,49 +89,49 @@ fun MiuixSettingsPage(
             MiuixSection {
                 MiuixArrowRow(
                     title = stringResource(R.string.settings_section_appearance),
-                    summary = stringResource(R.string.settings_ui_style_summary),
+                    summary = stringResource(R.string.settings_category_appearance_summary),
                     icon = Icons.Filled.DarkMode,
                     onClick = onOpenAppearance,
                 )
                 MiuixRowDivider()
                 MiuixArrowRow(
                     title = stringResource(R.string.settings_section_reading),
-                    summary = stringResource(R.string.settings_custom_desc),
+                    summary = stringResource(R.string.settings_category_reading_summary),
                     icon = Icons.Filled.Tune,
                     onClick = onOpenReading,
                 )
                 MiuixRowDivider()
                 MiuixArrowRow(
                     title = stringResource(R.string.settings_section_network),
-                    summary = stringResource(R.string.settings_primary_mirror_summary),
+                    summary = stringResource(R.string.settings_category_network_summary),
                     icon = Icons.Filled.Public,
                     onClick = onOpenNetwork,
                 )
                 MiuixRowDivider()
                 MiuixArrowRow(
                     title = stringResource(R.string.settings_section_update),
-                    summary = stringResource(R.string.settings_check_on_startup_summary),
+                    summary = stringResource(R.string.settings_category_update_summary),
                     icon = Icons.Filled.SystemUpdate,
                     onClick = onOpenUpdate,
                 )
                 MiuixRowDivider()
                 MiuixArrowRow(
                     title = stringResource(R.string.settings_section_storage),
-                    summary = stringResource(R.string.settings_storage_desc),
+                    summary = stringResource(R.string.settings_category_storage_summary),
                     icon = Icons.Filled.Storage,
                     onClick = onOpenStorageSettings,
                 )
                 MiuixRowDivider()
                 MiuixArrowRow(
                     title = stringResource(R.string.settings_section_experimental),
-                    summary = stringResource(R.string.settings_expressive_motion_summary),
+                    summary = stringResource(R.string.settings_category_experimental_summary),
                     icon = Icons.Filled.Animation,
                     onClick = onOpenExperimental,
                 )
                 MiuixRowDivider()
                 MiuixArrowRow(
                     title = stringResource(R.string.settings_section_about),
-                    summary = stringResource(R.string.app_name),
+                    summary = stringResource(R.string.settings_category_about_summary),
                     icon = Icons.Filled.Info,
                     onClick = onOpenAbout,
                 )

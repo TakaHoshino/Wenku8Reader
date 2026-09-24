@@ -204,10 +204,32 @@ fun ExpressiveTopAppBar(
 /**
  * 子页顶部滚动行为：滚动时折叠到 64dp。
  * 需要配合内容区的 `Modifier.nestedScroll(behavior.nestedScrollConnection)` 使用。
+ *
+ * ⚠️ MIUIX 模式下返回一个**不消费滚动**的空实现：miuix 顶栏不吃 M3 的滚动状态，
+ * 若这里仍返回真正的折叠行为，它挂在 `nestedScroll` 上会把滚动事件吞掉，
+ * 表现为"页面滚不动"（阅读设置页在 MIUIX 下就是这样）。
  */
 @Composable
-fun rememberExpressiveScrollBehavior(): TopAppBarScrollBehavior =
-    TopAppBarDefaults.exitUntilCollapsedScrollBehavior(state = rememberTopAppBarState())
+fun rememberExpressiveScrollBehavior(): TopAppBarScrollBehavior {
+    val miuix = isMiuixStyle()
+    val state = rememberTopAppBarState()
+    if (miuix) {
+        // MIUIX 顶栏自己处理折叠；这里只提供一个不消费滚动的空行为
+        return remember(state) { MiuixNoopScrollBehavior(state) }
+    }
+    return TopAppBarDefaults.exitUntilCollapsedScrollBehavior(state = state)
+}
+
+/** 不消费任何滚动的 [TopAppBarScrollBehavior]（MIUIX 模式下由 miuix 顶栏自己处理）。 */
+private class MiuixNoopScrollBehavior(
+    override val state: androidx.compose.material3.TopAppBarState,
+) : TopAppBarScrollBehavior {
+    override val isPinned: Boolean = true
+    override val snapAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float>? = null
+    override val flingAnimationSpec: androidx.compose.animation.core.DecayAnimationSpec<Float>? = null
+    override val nestedScrollConnection: androidx.compose.ui.input.nestedscroll.NestedScrollConnection =
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {}
+}
 
 /**
  * 大顶栏（Expressive Flexible 版）：展开态两行（标题 + 可选副标题），

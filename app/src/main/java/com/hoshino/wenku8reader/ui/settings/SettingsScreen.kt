@@ -192,7 +192,7 @@ private fun CategoryEntriesSection(
                 CategoryEntry(
                     icon = Icons.Filled.DarkMode,
                     title = stringResource(R.string.settings_section_appearance),
-                    summary = stringResource(R.string.settings_dynamic_color_summary),
+                    summary = stringResource(R.string.settings_category_appearance_summary),
                     onClick = onOpenAppearance,
                 )
             },
@@ -200,7 +200,7 @@ private fun CategoryEntriesSection(
                 CategoryEntry(
                     icon = Icons.Filled.Tune,
                     title = stringResource(R.string.settings_section_reading),
-                    summary = stringResource(R.string.settings_custom_desc),
+                    summary = stringResource(R.string.settings_category_reading_summary),
                     onClick = onOpenReading,
                 )
             },
@@ -208,7 +208,7 @@ private fun CategoryEntriesSection(
                 CategoryEntry(
                     icon = Icons.Filled.Public,
                     title = stringResource(R.string.settings_section_network),
-                    summary = stringResource(R.string.settings_primary_mirror_summary),
+                    summary = stringResource(R.string.settings_category_network_summary),
                     onClick = onOpenNetwork,
                 )
             },
@@ -216,7 +216,7 @@ private fun CategoryEntriesSection(
                 CategoryEntry(
                     icon = Icons.Filled.SystemUpdate,
                     title = stringResource(R.string.settings_section_update),
-                    summary = stringResource(R.string.settings_version, version ?: "-"),
+                    summary = stringResource(R.string.settings_category_update_summary),
                     onClick = onOpenUpdate,
                 )
             },
@@ -224,7 +224,7 @@ private fun CategoryEntriesSection(
                 CategoryEntry(
                     icon = Icons.Filled.Storage,
                     title = stringResource(R.string.settings_section_storage),
-                    summary = stringResource(R.string.settings_storage_desc),
+                    summary = stringResource(R.string.settings_category_storage_summary),
                     onClick = onOpenStorageSettings,
                 )
             },
@@ -232,7 +232,7 @@ private fun CategoryEntriesSection(
                 CategoryEntry(
                     icon = Icons.Filled.Animation,
                     title = stringResource(R.string.settings_section_experimental),
-                    summary = stringResource(R.string.settings_expressive_motion_summary),
+                    summary = stringResource(R.string.settings_category_experimental_summary),
                     onClick = onOpenExperimental,
                 )
             },
@@ -240,7 +240,7 @@ private fun CategoryEntriesSection(
                 CategoryEntry(
                     icon = Icons.Filled.Info,
                     title = stringResource(R.string.settings_section_about),
-                    summary = stringResource(R.string.app_name),
+                    summary = stringResource(R.string.settings_category_about_summary),
                     onClick = onOpenAbout,
                 )
             },

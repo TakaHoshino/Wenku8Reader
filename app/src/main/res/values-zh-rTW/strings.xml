@@ -182,6 +182,13 @@
     <string name="settings_section_appearance">外觀</string>
     <string name="settings_section_storage">儲存空間</string>
     <string name="settings_section_experimental">實驗性</string>
+    <string name="settings_category_appearance_summary">深色模式、主題色與震動回饋</string>
+    <string name="settings_category_reading_summary">字號、字體、行距與翻頁方式</string>
+    <string name="settings_category_network_summary">主站鏡像與存取方式</string>
+    <string name="settings_category_update_summary">更新通道、更新來源與檢查頻率</string>
+    <string name="settings_category_storage_summary">快取佔用與清理</string>
+    <string name="settings_category_experimental_summary">UI 風格、懸浮底欄與液態玻璃</string>
+    <string name="settings_category_about_summary">版本、開源倉庫與回饋管道</string>
     <string name="settings_ui_style">UI 風格</string>
     <string name="settings_ui_style_summary">切換 Material 3 Expressive 與 MIUIX（HyperOS）；實驗性功能，介面可能隨版本調整</string>
     <string name="settings_ui_style_material3">Material 3 Expressive</string>

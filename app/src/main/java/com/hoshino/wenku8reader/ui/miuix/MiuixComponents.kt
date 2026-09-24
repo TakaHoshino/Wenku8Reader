@@ -1,6 +1,10 @@
 package com.hoshino.wenku8reader.ui.miuix
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -324,15 +328,26 @@ fun MiuixSliderRow(
     }
 }
 
-/** 行内小图标（统一尺寸与配色，避免每个调用点各写一遍）。 */
+/**
+ * 行内图标容器：HyperOS 设置页的每行图标都是"浅色圆角方块 + 主题色图标"，
+ * 这里统一成一个 helper，避免每个调用点各写一遍尺寸/圆角/配色。
+ */
 @Composable
 fun MiuixRowIcon(icon: ImageVector) {
-    Icon(
-        imageVector = icon,
-        contentDescription = null,
-        modifier = Modifier.width(24.dp).height(24.dp),
-        tint = MiuixTheme.colorScheme.primary,
-    )
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MiuixTheme.colorScheme.primary,
+        )
+    }
 }
 
 /** MIUIX 加载态。 */
