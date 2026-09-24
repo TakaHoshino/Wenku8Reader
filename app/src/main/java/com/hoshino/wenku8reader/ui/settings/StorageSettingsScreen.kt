@@ -96,7 +96,7 @@ fun StorageSettingsPage(
     ExpressiveScaffold(
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = { Text(stringResource(R.string.settings_storage)) },
+                title = stringResource(R.string.settings_storage),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

@@ -57,13 +57,7 @@ fun AuthorBooksScreen(
     ExpressiveScaffold(
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = {
-                    Text(
-                        stringResource(R.string.author_books_title, authorName),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
+                title = stringResource(R.string.author_books_title, authorName),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))

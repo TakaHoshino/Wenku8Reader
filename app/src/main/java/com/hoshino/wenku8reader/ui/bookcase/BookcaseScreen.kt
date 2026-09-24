@@ -83,7 +83,7 @@ fun BookcasePage(
     ExpressiveScaffold(
         topBar = {
             ExpressiveTopAppBar(
-                title = { Text(stringResource(R.string.bookcase_title)) },
+                title = stringResource(R.string.bookcase_title),
                 actions = {
                     IconButton(onClick = onOpenStats) {
                         Icon(Icons.Filled.CalendarMonth, contentDescription = stringResource(R.string.action_stats))

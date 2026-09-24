@@ -113,6 +113,7 @@ import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.components.ExpressiveSwitch
+import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
 import java.io.File
 import java.util.Date
@@ -1214,7 +1215,7 @@ private fun SettingSliderRow(
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
-        Slider(value = value, onValueChange = onValueChange, valueRange = valueRange)
+        ExpressiveSlider(value = value, onValueChange = onValueChange, valueRange = valueRange)
     }
 }
 

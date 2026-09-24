@@ -62,7 +62,7 @@ fun TagBooksScreen(
     ExpressiveScaffold(
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = { Text(vm.tag, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = vm.tag,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

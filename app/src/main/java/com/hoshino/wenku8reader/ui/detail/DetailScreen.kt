@@ -108,24 +108,13 @@ fun DetailScreen(
     val scrollBehavior = rememberExpressiveScrollBehavior()
 
     // 大顶栏副标题：作者（无作者时不显示，避免出现空行）
-    val authorSubtitle: (@Composable () -> Unit)? =
-        if (info != null && info.author.isNotBlank()) {
-            { Text(info.author, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        } else {
-            null
-        }
+    val authorSubtitle: String? = info?.author?.takeIf { it.isNotBlank() }
 
     ExpressiveScaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = {
-                    Text(
-                        info?.title ?: stringResource(R.string.detail_title_default),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
+                title = info?.title ?: stringResource(R.string.detail_title_default),
                 subtitle = authorSubtitle,
                 navigationIcon = {
                     IconButton(onClick = onBack) {

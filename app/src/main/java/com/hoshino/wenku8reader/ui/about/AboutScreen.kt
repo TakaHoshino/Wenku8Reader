@@ -75,8 +75,8 @@ fun AboutScreen(
     ExpressiveScaffold(
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = { Text(stringResource(R.string.about_title)) },
-                subtitle = { Text(stringResource(R.string.app_name)) },
+                title = stringResource(R.string.about_title),
+                subtitle = stringResource(R.string.app_name),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack,

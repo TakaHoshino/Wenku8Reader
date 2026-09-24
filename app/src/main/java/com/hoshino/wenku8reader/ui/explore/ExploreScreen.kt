@@ -84,7 +84,7 @@ fun ExplorePage(
     ExpressiveScaffold(
         topBar = {
             ExpressiveTopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                title = stringResource(R.string.app_name),
                 actions = {
                     IconButton(onClick = onOpenDownloads) {
                         Icon(
@@ -249,7 +249,7 @@ fun SearchScreen(
     ExpressiveScaffold(
         topBar = {
             ExpressiveTopAppBar(
-                title = { Text(stringResource(R.string.action_search)) },
+                title = stringResource(R.string.action_search),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

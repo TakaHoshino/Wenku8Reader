@@ -78,13 +78,7 @@ fun TocScreen(
     ExpressiveScaffold(
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = {
-                    Text(
-                        if (ui.title.isNotBlank()) ui.title else stringResource(R.string.toc_title),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
+                title = if (ui.title.isNotBlank()) ui.title else stringResource(R.string.toc_title),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))

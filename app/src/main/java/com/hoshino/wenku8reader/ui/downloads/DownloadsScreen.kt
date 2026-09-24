@@ -65,7 +65,7 @@ fun DownloadsScreen(
     ExpressiveScaffold(
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = { Text(stringResource(R.string.downloads_title)) },
+                title = stringResource(R.string.downloads_title),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

@@ -253,14 +253,15 @@ Wenku8Reader/
 | 入口 | 设置 → 实验性 → UI 风格（`ExperimentalSection`） | `ui/settings/SettingsScreen.kt` |
 
 - **为什么内嵌 Material 主题**：页面里仍有大量 Material 组件（`Text`、`Slider`、`DropdownMenu`、`AlertDialog`、阅读器的 `ModalBottomSheet`）。它们在 MIUIX 模式下若拿不到 M3 的 `LocalContentColor`，会退回默认黑色、深色下不可读；映射一层色板后两套组件的配色保持一致。
-- **哪些是真正的 miuix 组件**：`Scaffold`、`Card`、`Switch`、`SwitchPreference`（开关行）、`BasicComponent`（下拉行）、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`、`NavigationBar`/`FloatingNavigationBar`。顶栏与普通列表行是**按 MIUIX 取值自绘**（miuix 的顶栏/行组件要求 `String` 标题，而本项目标题与行内容大量是 composable）。
+- **哪些是真正的 miuix 组件**：`Scaffold`、`SmallTopAppBar`/`TopAppBar`（大标题 + 副标题）、`Card`、`Switch`、`SwitchPreference`（开关行）、`WindowDropdownPreference`（下拉行，HyperOS 圆角弹层）、`Slider`、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`、`NavigationBar`/`FloatingNavigationBar`。只有"行内容任意 composable"的普通列表行仍按 MIUIX 取值自绘（miuix 的行组件要求 `String` 标题，而封面/色点/Slider 这类内容无法字符串化）。
+- **两套风格不追求一致**：MIUIX 模式以 HyperOS 观感为准（大标题顶栏、胶囊底栏、分组卡片 + 缩进分隔线、miuix 滑块/下拉），不刻意与 M3 对齐；`Expressive*` 门面只负责"同一调用点分派到哪套实现"。为此顶栏门面签名从 `@Composable` 标题改为 `String` 标题 + `String?` 副标题（miuix 顶栏要求字符串），13 个调用点已同步。
 - **三种实验性外观开关**（设置 → 实验性）：UI 风格（Material 3 Expressive ↔ MIUIX）、悬浮底栏、底栏液态玻璃（后两者仅 MIUIX 生效；玻璃还要求 Android 12L+，低版本自动退化为半透明纯色）。
 - **工具链（本次一并升级）**：compileSdk **37** + **AGP 9.4.1** + **Gradle 9.7.1**，CI 的 JDK 由 17 提到 **21**。三个坑与对策：
   1. **AGP 9 内置 Kotlin**，不能再应用 `org.jetbrains.kotlin.android`（会直接报 "not compatible"）；内置默认 KGP 2.2.10 读不了 miuix 的 2.3.20 元数据 → 在根 `build.gradle.kts` 用 `buildscript { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21") }` 提升 KGP（官方文档做法）。
   2. **cronet-embedded / cronet-api / cronet-common 共用 `org.chromium.net` namespace**，AGP 9 将其从警告升级为错误；三者的类缺一不可，故用 `android.uniquePackageNames=false` 放行。
   3. **miuix-blur 声明 minSdk 32**，项目仍保留 minSdk 26：manifest 用 `tools:overrideLibrary="top.yukonga.miuix.kmp.blur"` 放行合并，代码侧由 `isMiuixGlassSupported` 做运行时门控，低版本不触碰任何模糊 API。
 - **构建内存**：`gradle.properties` 调整为 `-Xmx1536m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC` + `kotlin.compiler.execution.strategy=in-process`（本机页面文件小，G1 + 独立 Kotlin 守护进程会因提交内存不足直接崩 JVM；这套配置在本地与 CI 都够用）。
-- **尚未迁移**：`Text`/图标/滑块/对话框仍是 Material 组件——但**配色与字号都已映射到 MIUIX**（见上表"排版适配"），观感已基本对齐；把它们逐个换成 miuix 版本属于"逐页扫一遍"的机械工作，需要时按 §7 的清单推进。
+- **尚未迁移**（下一步清单，按收益排序）：① 设置类列表行 → `ArrowPreference`（带 chevron 的跳转行）；② 对话框 → `SuperDialog`（存储页两个确认框、更新弹窗）；③ 阅读器底部弹层 → `SuperBottomSheet`；④ 长列表 → miuix `ScrollBar`；⑤ 探索页搜索框 → miuix `TextField`/`SearchBar`；⑥ `Text`/`Icon` 换 miuix 版本（配色与字号已映射，收益最低）。这些都不影响现有双风格切换，属于逐页替换的机械工作。
 - **维护提示**：升级 miuix 前先看 AAR metadata 的 `minCompileSdk` 与 pom 里的 kotlin-stdlib 版本（决定是否需要再提 KGP）；0.9.x 起 `extra` 包改名为 `preference`（`SuperSwitch` → `SwitchPreference`）。
 
 ---

@@ -49,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
@@ -88,8 +89,12 @@ import top.yukonga.miuix.kmp.basic.CardDefaults as MiuixCardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator as MiuixCircularProgress
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator as MiuixLinearProgress
 import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
+import top.yukonga.miuix.kmp.basic.Slider as MiuixSlider
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar as MiuixSmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
 import top.yukonga.miuix.kmp.basic.TabRow as MiuixTabRow
+import top.yukonga.miuix.kmp.basic.TopAppBar as MiuixTopAppBar
+import top.yukonga.miuix.kmp.preference.WindowDropdownPreference as MiuixDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference as MiuixSuperSwitch
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
@@ -170,7 +175,7 @@ fun expressiveTopAppBarColors(
 /** 静态小顶栏（64dp）：主 Tab 用，滚动时不做高度动画，避免逐帧布局级联。 */
 @Composable
 fun ExpressiveTopAppBar(
-    title: @Composable () -> Unit,
+    title: String,
     modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
@@ -178,11 +183,16 @@ fun ExpressiveTopAppBar(
     colors: TopAppBarColors = expressiveTopAppBarColors(),
 ) {
     if (isMiuixStyle()) {
-        MiuixTopBar(title = title, navigationIcon = navigationIcon, actions = actions, windowInsets = windowInsets)
+        MiuixSmallTopAppBar(
+            title = title,
+            modifier = modifier,
+            navigationIcon = navigationIcon,
+            actions = actions,
+        )
         return
     }
     TopAppBar(
-        title = title,
+        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         modifier = modifier,
         navigationIcon = navigationIcon,
         actions = actions,
@@ -205,9 +215,9 @@ fun rememberExpressiveScrollBehavior(): TopAppBarScrollBehavior =
  */
 @Composable
 fun ExpressiveLargeTopAppBar(
-    title: @Composable () -> Unit,
+    title: String,
     modifier: Modifier = Modifier,
-    subtitle: @Composable (() -> Unit)? = null,
+    subtitle: String? = null,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
     colors: TopAppBarColors = expressiveTopAppBarColors(),
@@ -215,77 +225,31 @@ fun ExpressiveLargeTopAppBar(
     scrollBehavior: TopAppBarScrollBehavior? = null,
 ) {
     if (isMiuixStyle()) {
-        // MIUIX 的大标题栏：展开态主标题用 headline 字号，收起态由主题的大标题栏承担；
-        // 这里按 MIUIX 的视觉（surface 背景 + 大标题 + 副标题）自绘，避免为了 String 标题
-        // 把 13 个调用点的 @Composable 标题全部改签名。
-        MiuixTopBar(
+        // MIUIX 原生大标题栏（HyperOS 的"大标题 + 副标题"）：与 M3 的折叠顶栏是两套设计，
+        // 这里直接用 miuix 组件，不再模仿 M3 的观感。
+        MiuixTopAppBar(
             title = title,
-            subtitle = subtitle,
+            largeTitle = title,
+            // miuix 的 subtitle 是非空 String（空串表示不显示）
+            subtitle = subtitle.orEmpty(),
+            modifier = modifier,
             navigationIcon = navigationIcon,
             actions = actions,
-            windowInsets = windowInsets,
-            large = true,
         )
         return
     }
     LargeFlexibleTopAppBar(
-        title = title,
+        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         modifier = modifier,
-        subtitle = subtitle,
+        subtitle = subtitle?.let { text ->
+            { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        },
         navigationIcon = navigationIcon,
         actions = actions,
         colors = colors,
         windowInsets = windowInsets,
         scrollBehavior = scrollBehavior,
     )
-}
-
-/**
- * MIUIX 风格顶栏（自绘）。
- *
- * 为什么不用 miuix 的 `SmallTopAppBar`：它的 `title` 是 `String`，而本项目的顶栏标题
- * 都是 `@Composable`（含 `stringResource`）。为了一个风格切换去改十几个页面的签名
- * 不划算，这里按 MIUIX 的取值（surface 背景、56/96dp 高度、title/headline 字号、
- * onSurface 文字）自绘，视觉与 `SmallTopAppBar` 对齐。
- */
-@Composable
-private fun MiuixTopBar(
-    title: @Composable () -> Unit,
-    modifier: Modifier = Modifier,
-    subtitle: (@Composable () -> Unit)? = null,
-    navigationIcon: @Composable () -> Unit = {},
-    actions: @Composable RowScope.() -> Unit = {},
-    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
-    large: Boolean = false,
-) {
-    val colors = MiuixTheme.colorScheme
-    Surface(color = colors.surface, contentColor = colors.onSurface, modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(windowInsets)
-                .height(if (large) 96.dp else 56.dp)
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            navigationIcon()
-            Column(Modifier.weight(1f)) {
-                ProvideTextStyle(
-                    if (large) MiuixTheme.textStyles.headline1 else MiuixTheme.textStyles.title1,
-                ) { title() }
-                if (subtitle != null) {
-                    ProvideTextStyle(
-                        MiuixTheme.textStyles.footnote1.copy(color = colors.onSurfaceSecondary),
-                    ) { subtitle() }
-                }
-            }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                content = actions,
-            )
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -617,6 +581,43 @@ fun expressiveSwitchColors(
     disabledUncheckedBorderColor = disabledUncheckedBorderColor,
     disabledUncheckedIconColor = disabledUncheckedIconColor,
 )
+
+/**
+ * 滑块：M3 用 Expressive `Slider`，MIUIX 用 miuix 原生 `Slider`（带 HyperOS 的刻度与按压反馈）。
+ * 两套风格的滑块外观本就不同，这里不做统一——MIUIX 模式以 HyperOS 观感为准。
+ */
+@Composable
+fun ExpressiveSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    if (isMiuixStyle()) {
+        MiuixSlider(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = modifier,
+            enabled = enabled,
+            valueRange = valueRange,
+            steps = steps,
+            onValueChangeFinished = onValueChangeFinished,
+        )
+        return
+    }
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        valueRange = valueRange,
+        steps = steps,
+        onValueChangeFinished = onValueChangeFinished,
+    )
+}
 
 /** 状态小标签（书籍 Tags、格式标记等）。 */
 @Composable
@@ -964,42 +965,16 @@ fun SegmentedDropdownItem(
     val safeIndex = if (items.isNotEmpty()) selectedIndex.coerceIn(0, items.lastIndex) else -1
 
     if (isMiuixStyle()) {
-        Box {
-            BasicComponent(
-                title = title,
-                summary = summary,
-                onClick = if (enabled) {
-                    { expanded = true }
-                } else {
-                    null
-                },
-                enabled = enabled,
-                startAction = icon?.let { vector -> { Icon(vector, contentDescription = null) } },
-                endActions = {
-                    Text(
-                        text = if (safeIndex >= 0) items[safeIndex] else "",
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-            )
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                items.forEachIndexed { index, text ->
-                    DropdownMenuItem(
-                        text = { Text(text) },
-                        trailingIcon = {
-                            if (index == safeIndex) Icon(Icons.Filled.Check, contentDescription = null)
-                        },
-                        onClick = {
-                            onItemSelected(index)
-                            expanded = false
-                        },
-                    )
-                }
-            }
-        }
+        // MIUIX 原生下拉偏好项：点开是 HyperOS 的圆角弹层（与 M3 的 DropdownMenu 是两套观感）
+        MiuixDropdownPreference(
+            items = items,
+            selectedIndex = if (safeIndex >= 0) safeIndex else 0,
+            title = title,
+            summary = summary,
+            enabled = enabled,
+            startAction = icon?.let { vector -> { Icon(vector, contentDescription = null) } },
+            onSelectedIndexChange = onItemSelected,
+        )
         return
     }
 

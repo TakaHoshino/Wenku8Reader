@@ -75,6 +75,7 @@ import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
@@ -440,7 +441,7 @@ private fun HapticsStrengthSection(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Slider(
+                        ExpressiveSlider(
                             value = rs.hapticsStrength.toFloat(),
                             onValueChange = { vm.setHapticsStrength(it.toInt()) },
                             valueRange = 0f..100f,
@@ -590,7 +591,7 @@ private fun TopBar(
     onOpenDownloads: () -> Unit,
 ) {
     ExpressiveTopAppBar(
-        title = { Text(stringResource(R.string.tab_settings)) },
+        title = stringResource(R.string.tab_settings),
         actions = {
             IconButton(onClick = onOpenDownloads) {
                 Icon(

@@ -61,6 +61,7 @@ import coil.compose.AsyncImage
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.components.ExpressiveSwitch
 import com.hoshino.wenku8reader.ui.components.ExpressiveToggleGroup
 import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
@@ -129,7 +130,7 @@ fun CustomizationScreen(
     ExpressiveScaffold(
         topBar = {
             ExpressiveLargeTopAppBar(
-                title = { Text(stringResource(R.string.settings_custom)) },
+                title = stringResource(R.string.settings_custom),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack,
@@ -265,7 +266,7 @@ fun CustomizationScreen(
                 stringResource(R.string.settings_font_size) + " · " +
                     stringResource(R.string.settings_font_size_value, rs.fontSize)
             )
-            Slider(
+            ExpressiveSlider(
                 value = rs.fontSize.toFloat(),
                 onValueChange = { vm.setFontSize(it.roundToInt()) },
                 valueRange = 14f..28f,
@@ -278,7 +279,7 @@ fun CustomizationScreen(
                 stringResource(R.string.settings_font_weight) + " · " +
                     stringResource(R.string.settings_font_weight_value, rs.fontWeight)
             )
-            Slider(
+            ExpressiveSlider(
                 value = rs.fontWeight.toFloat(),
                 onValueChange = { vm.setFontWeight(it.roundToInt()) },
                 valueRange = 300f..700f,
@@ -291,7 +292,7 @@ fun CustomizationScreen(
                 stringResource(R.string.settings_line_spacing) + " · " +
                     stringResource(R.string.settings_line_spacing_value, rs.lineSpacing)
             )
-            Slider(
+            ExpressiveSlider(
                 value = rs.lineSpacing,
                 onValueChange = { vm.setLineSpacing((it * 10f).roundToInt() / 10f) },
                 valueRange = 1.2f..2.5f,
