@@ -8,6 +8,11 @@ object Routes {
     const val MAIN = "main"
     const val SETTINGS_CUSTOM = "settings/custom"
     const val STORAGE_SETTINGS = "settings/storage"
+    // PiliPlus 式分类二级页（设置主页只放分类入口）
+    const val SETTINGS_APPEARANCE = "settings/appearance"
+    const val SETTINGS_NETWORK = "settings/network"
+    const val SETTINGS_UPDATE = "settings/update"
+    const val SETTINGS_EXPERIMENTAL = "settings/experimental"
     const val ABOUT = "about"
     const val DOWNLOADS = "downloads"
     const val STATS = "stats"

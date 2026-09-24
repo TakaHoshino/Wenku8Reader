@@ -67,6 +67,10 @@ import com.hoshino.wenku8reader.ui.navigation.Routes
 import com.hoshino.wenku8reader.ui.reader.ReaderScreen
 import com.hoshino.wenku8reader.ui.settings.CustomizationScreen
 import com.hoshino.wenku8reader.ui.settings.SettingsPage
+import com.hoshino.wenku8reader.ui.settings.AppearanceSettingsPage
+import com.hoshino.wenku8reader.ui.settings.NetworkSettingsPage
+import com.hoshino.wenku8reader.ui.settings.UpdateSettingsPage
+import com.hoshino.wenku8reader.ui.settings.ExperimentalSettingsPage
 import com.hoshino.wenku8reader.ui.settings.StorageSettingsPage
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 import com.hoshino.wenku8reader.ui.toc.TocScreen
@@ -77,6 +81,10 @@ import com.hoshino.wenku8reader.ui.components.miuixGlass
 import com.hoshino.wenku8reader.ui.miuix.MiuixSettingsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStoragePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixBookcasePage
+import com.hoshino.wenku8reader.ui.miuix.MiuixAppearancePage
+import com.hoshino.wenku8reader.ui.miuix.MiuixNetworkPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixUpdatePage
+import com.hoshino.wenku8reader.ui.miuix.MiuixExperimentalPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
@@ -205,6 +213,11 @@ fun MainScaffold() {
                     onOpenCustom = { nav.navigate(Routes.SETTINGS_CUSTOM) },
                     onOpenAbout = { nav.navigate(Routes.ABOUT) },
                     onOpenStorageSettings = { nav.navigate(Routes.STORAGE_SETTINGS) },
+                    // 设置分类入口（PiliPlus 模式：主页只放分类，具体设置在二级页）
+                    onOpenAppearance = { nav.navigate(Routes.SETTINGS_APPEARANCE) },
+                    onOpenNetwork = { nav.navigate(Routes.SETTINGS_NETWORK) },
+                    onOpenUpdate = { nav.navigate(Routes.SETTINGS_UPDATE) },
+                    onOpenExperimental = { nav.navigate(Routes.SETTINGS_EXPERIMENTAL) },
                 )
             }
             composable(
@@ -246,6 +259,35 @@ fun MainScaffold() {
                     MiuixStoragePage(onBack = { nav.popBackStack() })
                 } else {
                     StorageSettingsPage(onBack = { nav.popBackStack() })
+                }
+            }
+            // 设置分类二级页：同一路由按风格走各自独立的实现
+            composable(Routes.SETTINGS_APPEARANCE) {
+                if (isMiuixStyle()) {
+                    MiuixAppearancePage(onBack = { nav.popBackStack() })
+                } else {
+                    AppearanceSettingsPage(onBack = { nav.popBackStack() })
+                }
+            }
+            composable(Routes.SETTINGS_NETWORK) {
+                if (isMiuixStyle()) {
+                    MiuixNetworkPage(onBack = { nav.popBackStack() })
+                } else {
+                    NetworkSettingsPage(onBack = { nav.popBackStack() })
+                }
+            }
+            composable(Routes.SETTINGS_UPDATE) {
+                if (isMiuixStyle()) {
+                    MiuixUpdatePage(onBack = { nav.popBackStack() })
+                } else {
+                    UpdateSettingsPage(onBack = { nav.popBackStack() })
+                }
+            }
+            composable(Routes.SETTINGS_EXPERIMENTAL) {
+                if (isMiuixStyle()) {
+                    MiuixExperimentalPage(onBack = { nav.popBackStack() })
+                } else {
+                    ExperimentalSettingsPage(onBack = { nav.popBackStack() })
                 }
             }
             composable(Routes.ABOUT) {
@@ -334,6 +376,10 @@ private fun MainPagerScreen(
     onOpenCustom: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenStorageSettings: () -> Unit,
+    onOpenAppearance: () -> Unit,
+    onOpenNetwork: () -> Unit,
+    onOpenUpdate: () -> Unit,
+    onOpenExperimental: () -> Unit,
 ) {
     CompositionLocalProvider(LocalFloatingBarInset provides floatingBarInset) {
     HorizontalPager(
@@ -369,14 +415,22 @@ private fun MainPagerScreen(
                 // MIUIX 模式下设置页是独立的 miuix 实现（不与 Material 版共用任何 UI 代码）
                 if (isMiuixStyle()) {
                     MiuixSettingsPage(
-                        onOpenCustom = onOpenCustom,
+                        onOpenAppearance = onOpenAppearance,
+                        onOpenReading = onOpenCustom,
+                        onOpenNetwork = onOpenNetwork,
+                        onOpenUpdate = onOpenUpdate,
+                        onOpenStorageSettings = onOpenStorageSettings,
+                        onOpenExperimental = onOpenExperimental,
                         onOpenDownloads = onOpenDownloads,
                         onOpenAbout = onOpenAbout,
-                        onOpenStorageSettings = onOpenStorageSettings,
                     )
                 } else {
                     SettingsPage(
-                        onOpenCustom = onOpenCustom,
+                        onOpenAppearance = onOpenAppearance,
+                        onOpenReading = onOpenCustom,
+                        onOpenNetwork = onOpenNetwork,
+                        onOpenUpdate = onOpenUpdate,
+                        onOpenExperimental = onOpenExperimental,
                         onOpenDownloads = onOpenDownloads,
                         onOpenAbout = onOpenAbout,
                         onOpenStorageSettings = onOpenStorageSettings,
