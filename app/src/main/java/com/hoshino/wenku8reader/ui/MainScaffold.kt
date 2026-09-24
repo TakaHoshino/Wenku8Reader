@@ -71,6 +71,8 @@ import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import com.hoshino.wenku8reader.ui.components.isMiuixGlassSupported
 import com.hoshino.wenku8reader.ui.components.miuixGlass
+import com.hoshino.wenku8reader.ui.miuix.MiuixSettingsPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixStoragePage
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -230,7 +232,12 @@ fun MainScaffold() {
                 CustomizationScreen(onBack = { nav.popBackStack() })
             }
             composable(Routes.STORAGE_SETTINGS) {
-                StorageSettingsPage(onBack = { nav.popBackStack() })
+                // MIUIX 模式使用完全独立的 miuix 存储页（不复用 Material 版）
+                if (isMiuixStyle()) {
+                    MiuixStoragePage(onBack = { nav.popBackStack() })
+                } else {
+                    StorageSettingsPage(onBack = { nav.popBackStack() })
+                }
             }
             composable(Routes.ABOUT) {
                 AboutScreen(onBack = { nav.popBackStack() })
@@ -327,12 +334,23 @@ private fun MainPagerScreen(
                 onOpenDownloads = onOpenDownloads,
                 onOpenStats = onOpenStats,
             )
-            2 -> SettingsPage(
-                onOpenCustom = onOpenCustom,
-                onOpenDownloads = onOpenDownloads,
-                onOpenAbout = onOpenAbout,
-                onOpenStorageSettings = onOpenStorageSettings,
-            )
+            2 ->
+                // MIUIX 模式下设置页是独立的 miuix 实现（不与 Material 版共用任何 UI 代码）
+                if (isMiuixStyle()) {
+                    MiuixSettingsPage(
+                        onOpenCustom = onOpenCustom,
+                        onOpenDownloads = onOpenDownloads,
+                        onOpenAbout = onOpenAbout,
+                        onOpenStorageSettings = onOpenStorageSettings,
+                    )
+                } else {
+                    SettingsPage(
+                        onOpenCustom = onOpenCustom,
+                        onOpenDownloads = onOpenDownloads,
+                        onOpenAbout = onOpenAbout,
+                        onOpenStorageSettings = onOpenStorageSettings,
+                    )
+                }
             // 显式兜底：新增 Tab 时若忘记补分支，这里会立刻暴露而不是静默渲染空白页
             else -> error("未知的 Tab 索引：$page（TABS 与 when 分支不一致）")
         }

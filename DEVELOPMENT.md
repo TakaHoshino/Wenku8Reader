@@ -239,7 +239,15 @@ Wenku8Reader/
 
 ### 5.6 MIUIX 备用风格与双风格切换（2026-09，实验性）
 
-**目标**：同一套页面代码同时支持 Material 3 Expressive 与 MIUIX（HyperOS 设计语言），用户在**设置 → 实验性 → UI 风格**里切换，无需重启。做法参考 SukiSU-Ultra（`manager/` 用 `UiMode` + `LocalUiMode` 分发）。
+**目标**：Material 3 Expressive 与 MIUIX（HyperOS 设计语言）**两套界面各自独立**，用户在**设置 → 实验性 → UI 风格**里切换，无需重启。
+
+⚠️ **重要约定（2026-09 起）**：MIUIX 模式**不再复用 Material 版的界面代码**。Material 版在 `ui/<模块>/`（`ui/components/Expressive.kt` 那套门面），MIUIX 版在 **`ui/miuix/`**，两边只共享 ViewModel 与数据层，UI 层零复用；路由处按风格二选一（见 `MainScaffold`）。`ui/components/Expressive.kt` 里的 `isMiuixStyle()` 分支只服务于**尚未迁移**的旧页面，迁移完成后会逐步移除。
+
+| MIUIX 专属文件 | 作用 |
+|---|---|
+| `ui/miuix/MiuixComponents.kt` | MIUIX 基础件：`MiuixPage`/`MiuixSubPage`（miuix Scaffold + 大标题/小标题顶栏）、`MiuixSection`（分组卡片）、`MiuixRow`/`MiuixArrowRow`/`MiuixSwitchRow`/`MiuixDropdownRow`/`MiuixSliderRow`、`MiuixRowDivider`、`MiuixLoading`、`MiuixEmptyState`。**只用 miuix 组件**，颜色/字号只取 `MiuixTheme`（图标仍用 material-icons：miuix-icons 图标集太小） |
+| `ui/miuix/MiuixSettingsPage.kt` | MIUIX 设置主 Tab（账号/外观/通用/存储入口/实验性/网络/更新/阅读/关于），逻辑复用 `SettingsViewModel` |
+| `ui/miuix/MiuixStoragePage.kt` | MIUIX 存储二级页（占用合计、按类型清理、网页缓存明细、上限、过期记录），确认弹窗用 miuix `WindowDialog` |
 
 | 层 | 实现 | 位置 |
 |---|---|---|
