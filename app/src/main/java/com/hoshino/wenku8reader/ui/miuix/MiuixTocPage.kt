@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,6 +89,7 @@ fun MiuixTocPage(
                 title = ui.error?.asString(LocalContext.current)
                     ?: stringResource(R.string.toc_empty),
                 error = ui.error != null,
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 actionText = if (ui.error != null) stringResource(R.string.action_retry) else null,
                 onAction = if (ui.error != null) ({ vm.load() }) else null,
                 modifier = Modifier.fillMaxSize().padding(inner),

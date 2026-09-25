@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,6 +67,7 @@ fun MiuixAuthorBooksPage(
                 title = ui.error?.asString(LocalContext.current)
                     ?: stringResource(R.string.author_books_empty),
                 error = ui.error != null,
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 actionText = if (ui.error != null) stringResource(R.string.action_retry) else null,
                 onAction = if (ui.error != null) ({ vm.load() }) else null,
                 modifier = Modifier.fillMaxSize().padding(inner),
@@ -103,6 +106,7 @@ fun MiuixTagBooksPage(
             ui.error != null && ui.books.isEmpty() -> MiuixEmptyState(
                 title = ui.error?.asString(LocalContext.current) ?: "",
                 error = true,
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 actionText = stringResource(R.string.action_retry),
                 onAction = { vm.load() },
                 modifier = Modifier.fillMaxSize().padding(inner),
@@ -110,6 +114,7 @@ fun MiuixTagBooksPage(
 
             ui.books.isEmpty() -> MiuixEmptyState(
                 title = stringResource(R.string.home_empty),
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 modifier = Modifier.fillMaxSize().padding(inner),
             )
 

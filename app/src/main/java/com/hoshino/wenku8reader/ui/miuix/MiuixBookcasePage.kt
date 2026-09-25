@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
@@ -89,6 +90,7 @@ fun MiuixBookcasePage(
             ui.error != null && ui.entries.isEmpty() -> MiuixEmptyState(
                 title = ui.error?.asString(androidx.compose.ui.platform.LocalContext.current) ?: "",
                 error = true,
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 actionText = stringResource(R.string.action_retry),
                 onAction = { vm.load() },
                 modifier = Modifier
@@ -98,6 +100,7 @@ fun MiuixBookcasePage(
 
             ui.entries.isEmpty() -> MiuixEmptyState(
                 title = stringResource(R.string.bookcase_empty_local),
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),

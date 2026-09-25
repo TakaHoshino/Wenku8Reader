@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -60,6 +61,8 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.VerticalScrollBar
+import top.yukonga.miuix.kmp.basic.rememberScrollBarAdapter
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -284,6 +287,7 @@ private fun MiuixHomeBody(
                 ui.homeError?.asString(LocalContext.current) ?: "",
             ),
             error = true,
+            icon = Icons.Filled.Refresh,
             actionText = stringResource(R.string.action_retry),
             onAction = onRefresh,
             modifier = Modifier.fillMaxSize(),
@@ -291,37 +295,45 @@ private fun MiuixHomeBody(
 
         ui.sections.isEmpty() -> MiuixEmptyState(
             title = stringResource(R.string.home_empty),
+            icon = Icons.AutoMirrored.Filled.MenuBook,
             modifier = Modifier.fillMaxSize(),
         )
 
-        else -> LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            state = listState,
-        ) {
-            item(key = "subtitle") {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.home_subtitle),
-                        style = MiuixTheme.textStyles.subtitle,
-                        color = MiuixTheme.colorScheme.onBackground,
-                        modifier = Modifier.weight(1f),
-                    )
-                    MiuixIconButton(
-                        icon = Icons.Filled.Refresh,
-                        contentDescription = stringResource(R.string.action_refresh),
-                        onClick = onRefresh,
-                    )
+        else -> Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+            ) {
+                item(key = "subtitle") {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.home_subtitle),
+                            style = MiuixTheme.textStyles.subtitle,
+                            color = MiuixTheme.colorScheme.onBackground,
+                            modifier = Modifier.weight(1f),
+                        )
+                        MiuixIconButton(
+                            icon = Icons.Filled.Refresh,
+                            contentDescription = stringResource(R.string.action_refresh),
+                            onClick = onRefresh,
+                        )
+                    }
                 }
+                items(ui.sections, key = { it.title }, contentType = { "section" }) { section ->
+                    MiuixHomeSectionBlock(section = section, onOpenBook = onOpenBook)
+                }
+                item(key = "tail") { Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current)) }
             }
-            items(ui.sections, key = { it.title }, contentType = { "section" }) { section ->
-                MiuixHomeSectionBlock(section = section, onOpenBook = onOpenBook)
-            }
-            item(key = "tail") { Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current)) }
+            // 长列表右侧的 miuix 滚动条（与目录页、书单页一致）
+            VerticalScrollBar(
+                adapter = rememberScrollBarAdapter(listState),
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
         }
     }
 }
@@ -414,6 +426,7 @@ private fun MiuixTagsBody(
         ui.tagsError != null -> MiuixEmptyState(
             title = ui.tagsError?.asString(LocalContext.current) ?: "",
             error = true,
+            icon = Icons.Filled.Refresh,
             actionText = stringResource(R.string.action_retry),
             onAction = onRetryTags,
             modifier = Modifier.fillMaxSize(),
@@ -421,22 +434,34 @@ private fun MiuixTagsBody(
 
         ui.tags.isEmpty() -> MiuixEmptyState(
             title = stringResource(R.string.explore_tags_empty),
+            icon = Icons.AutoMirrored.Filled.MenuBook,
             modifier = Modifier.fillMaxSize(),
         )
 
-        else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(ui.tags, key = { "tag_$it" }) { tag ->
-                MiuixTagRow(
-                    tag = tag,
-                    books = ui.tagBooks[tag].orEmpty(),
-                    loading = tag in ui.loadingTags,
-                    generation = ui.tagsGeneration,
-                    onLoadTagPreview = onLoadTagPreview,
-                    onOpenBook = onOpenBook,
-                    onOpenTag = onOpenTag,
+        else -> {
+            val listState = rememberLazyListState()
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState) {
+                    items(ui.tags, key = { "tag_$it" }) { tag ->
+                        MiuixTagRow(
+                            tag = tag,
+                            books = ui.tagBooks[tag].orEmpty(),
+                            loading = tag in ui.loadingTags,
+                            generation = ui.tagsGeneration,
+                            onLoadTagPreview = onLoadTagPreview,
+                            onOpenBook = onOpenBook,
+                            onOpenTag = onOpenTag,
+                        )
+                    }
+                    item(key = "tail") {
+                        Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
+                    }
+                }
+                VerticalScrollBar(
+                    adapter = rememberScrollBarAdapter(listState),
+                    modifier = Modifier.align(Alignment.CenterEnd),
                 )
             }
-            item(key = "tail") { Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current)) }
         }
     }
 }
@@ -551,6 +576,7 @@ private fun MiuixSearchBody(ui: ExploreUiState, onOpenBook: (Int) -> Unit) {
 
         else -> MiuixEmptyState(
             title = stringResource(R.string.search_press_to_search),
+            icon = Icons.Filled.Search,
             modifier = Modifier.fillMaxSize(),
         )
     }

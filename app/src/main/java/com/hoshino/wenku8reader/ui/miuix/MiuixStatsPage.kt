@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -48,6 +49,8 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.VerticalScrollBar
+import top.yukonga.miuix.kmp.basic.rememberScrollBarAdapter
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val CellSize = 14.dp
@@ -95,15 +98,18 @@ fun MiuixStatsPage(
             if (!ui.hasAnyData) {
                 MiuixEmptyState(
                     title = stringResource(R.string.stats_empty),
+                    icon = Icons.Filled.CalendarMonth,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             } else {
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
-                ) {
+                val scrollState = rememberScrollState()
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState)
+                            .padding(horizontal = 16.dp),
+                    ) {
                     Spacer(Modifier.height(4.dp))
                     MiuixSummaryRow(ui)
                     Spacer(Modifier.height(10.dp))
@@ -134,6 +140,11 @@ fun MiuixStatsPage(
                         }
                     }
                     Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
+                    }
+                    VerticalScrollBar(
+                        adapter = rememberScrollBarAdapter(scrollState),
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    )
                 }
             }
         }

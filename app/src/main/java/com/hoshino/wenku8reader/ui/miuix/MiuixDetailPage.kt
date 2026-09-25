@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -103,6 +104,7 @@ fun MiuixDetailPage(
             book == null -> MiuixEmptyState(
                 title = ui.error?.asString(context) ?: stringResource(R.string.error_book_info),
                 error = true,
+                icon = Icons.Filled.ErrorOutline,
                 actionText = stringResource(R.string.action_retry),
                 onAction = { vm.load() },
                 modifier = Modifier.fillMaxSize().padding(inner),

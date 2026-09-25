@@ -52,6 +52,7 @@ fun MiuixDownloadsPage(
         if (jobs.isEmpty()) {
             MiuixEmptyState(
                 title = stringResource(R.string.downloads_empty),
+                icon = Icons.Filled.Download,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),

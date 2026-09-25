@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Slider
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -132,6 +134,10 @@ fun MiuixIconButton(
 /**
  * MIUIX 分组卡片：一张圆角卡片 + 标题 + 内部若干行（行之间由调用方插入 [MiuixRowDivider]）。
  * 对应 HyperOS 设置页里"一组设置项一张卡"的形态。
+ *
+ * 标题用 miuix 自己的 [SmallTitle]：HyperOS 的分组标题是**小号次要色文字**、且缩进与卡片内
+ * 行首对齐（比卡片左边多一个内边距），而不是自绘的主题色大标题。这样字号/颜色/缩进都由
+ * miuix 主题决定，跟随系统换肤也一致。
  */
 @Composable
 fun MiuixSection(
@@ -141,12 +147,7 @@ fun MiuixSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         if (!title.isNullOrEmpty()) {
-            Text(
-                text = title,
-                style = MiuixTheme.textStyles.title4,
-                color = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 26.dp, bottom = 8.dp),
-            )
+            SmallTitle(text = title, modifier = Modifier.padding(bottom = 6.dp))
         }
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -411,13 +412,20 @@ fun MiuixLoading(modifier: Modifier = Modifier) {
     }
 }
 
-/** MIUIX 空态/错误态（标题 + 说明 + 可选操作）。 */
+/**
+ * MIUIX 空态/错误态（插图 + 标题 + 说明 + 可选操作）。
+ *
+ * 插图是 HyperOS 空页面的习惯做法：一个浅色圆形底 + 主题色图标（错误态换成错误色），
+ * 比只有一行文字的空白页更像系统自带的应用。图标仍取 material-icons-extended 的
+ * `ImageVector`——miuix-icons 自带的图标集只有 search/check/arrow 等几个，覆盖不了书籍/日历。
+ */
 @Composable
 fun MiuixEmptyState(
     title: String,
     modifier: Modifier = Modifier,
     description: String? = null,
     error: Boolean = false,
+    icon: ImageVector? = null,
     actionText: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
@@ -426,6 +434,33 @@ fun MiuixEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        if (icon != null) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (error) {
+                            MiuixTheme.colorScheme.errorContainer
+                        } else {
+                            MiuixTheme.colorScheme.surfaceContainer
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(44.dp),
+                    tint = if (error) {
+                        MiuixTheme.colorScheme.error
+                    } else {
+                        MiuixTheme.colorScheme.primary
+                    },
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+        }
         Text(
             text = title,
             style = MiuixTheme.textStyles.title2,
