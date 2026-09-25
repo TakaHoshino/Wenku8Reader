@@ -57,6 +57,18 @@ class LibraryStore internal constructor(
     }
 
     /**
+     * 观察某本书的整条书架条目。
+     *
+     * 详情页既要判断"在不在书架"，也要知道"在哪个书架"——取消收藏时的确认弹窗要用勾选框
+     * 指出它当前的位置（见 `ShelfPickerDialog`）。一个 Flow 同时满足两件事，
+     * 不必再单独订一次 [observeContains]。
+     */
+    fun observeBook(bookId: Int): Flow<LibraryBook?> = flow {
+        migration.ensure()
+        emitAll(dao.observeBook(bookId).map { it?.toLibraryBook() })
+    }
+
+    /**
      * 加入书架。已存在时**保留原来的入架时间**（否则书架排序会把它当成新书跳到最前），
      * 书目快照则用新数据覆盖——与旧 `LocalLibraryStore.add` 的语义一致。
      */

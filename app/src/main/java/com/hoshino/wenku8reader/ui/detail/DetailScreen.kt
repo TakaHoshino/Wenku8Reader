@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.local.DEFAULT_SHELF
 import com.hoshino.wenku8reader.data.JobStatus
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
@@ -97,8 +98,10 @@ fun DetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
-    // 多书架：收藏前选择目标书架（仅开关开启且尚未收藏时用得到）
+    // 多书架：收藏前选择目标书架；取消收藏前也要确认（并指出它当前在哪个书架）。
+    // pickingForRemoval 区分这两件事——两者共用同一个弹窗（需求要求复用同一样式）。
     var showShelfPicker by remember { mutableStateOf(false) }
+    var pickingForRemoval by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.favoriteMessages.collect { msg ->
@@ -127,8 +130,12 @@ fun DetailScreen(
                     IconButton(
                         // 多书架开启且尚未收藏 → 先选书架；其余情况（含关闭开关）走原来的收藏/移出
                         onClick = {
-                            if (ui.multiShelfEnabled && !ui.inLocalLibrary) showShelfPicker = true
-                            else vm.toggleLocalFavorite()
+                            if (ui.multiShelfEnabled) {
+                                pickingForRemoval = ui.inLocalLibrary
+                                showShelfPicker = true
+                            } else {
+                                vm.toggleLocalFavorite()
+                            }
                         },
                         enabled = info != null,
                     ) {
@@ -369,13 +376,24 @@ fun DetailScreen(
 
     if (showShelfPicker) {
         ShelfPickerDialog(
-            title = stringResource(R.string.shelf_picker_add_title),
+            title = stringResource(
+                if (pickingForRemoval) R.string.shelf_picker_remove_title
+                else R.string.shelf_picker_add_title,
+            ),
             shelves = ui.shelves,
-            current = null,
+            // 收藏默认预勾选默认书架（不挑就直接进默认，沿用旧习惯）
+            initial = if (pickingForRemoval) ui.currentShelf else DEFAULT_SHELF,
+            confirmLabel = stringResource(
+                if (pickingForRemoval) R.string.shelf_picker_remove_title
+                else R.string.action_confirm,
+            ),
+            message = if (pickingForRemoval) stringResource(R.string.shelf_picker_remove_message) else null,
+            // 取消收藏是"确认"而不是"选择"：勾选框只指出当前位置，动作交给确认按钮
+            interactive = !pickingForRemoval,
             onDismiss = { showShelfPicker = false },
-            onPick = { shelf ->
+            onConfirm = { shelf ->
                 showShelfPicker = false
-                vm.addToShelf(shelf)
+                if (pickingForRemoval || shelf == null) vm.toggleLocalFavorite() else vm.addToShelf(shelf)
             },
         )
     }

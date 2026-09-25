@@ -13,6 +13,7 @@ import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.shelfNames
+import com.hoshino.wenku8reader.data.local.shelfOf
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
 import com.hoshino.wenku8reader.ui.common.toUiText
@@ -44,6 +45,11 @@ data class DetailUiState(
      */
     val multiShelfEnabled: Boolean = false,
     val shelves: List<String> = listOf(DEFAULT_SHELF),
+    /**
+     * 该书当前所在的书架（不在书架里时为 null）。
+     * 取消收藏的确认弹窗用它预勾选，让用户看清"从哪个书架取消"。
+     */
+    val currentShelf: String? = null,
 )
 
 class DetailViewModel(
@@ -99,16 +105,18 @@ class DetailViewModel(
     private fun observeLocalState() {
         viewModelScope.launch {
             combine(
-                libraryStore.observeContains(bookId),
+                // 用整条条目而不是观察 contains：一次订阅同时拿到"在不在书架"与"在哪个书架"
+                libraryStore.observeBook(bookId),
                 progressStore.observe(bookId),
                 shelfStore.observe(),
                 readerSettings.flow.map { it.multiShelfEnabled },
-            ) { inLibrary, progress, customShelves, multiShelf ->
+            ) { book, progress, customShelves, multiShelf ->
                 LocalState(
-                    inLocalLibrary = inLibrary,
+                    inLocalLibrary = book != null,
                     hasProgress = progress.isStarted,
                     multiShelfEnabled = multiShelf,
                     shelves = shelfNames(customShelves),
+                    currentShelf = book?.let { shelfOf(it.shelf, customShelves) },
                 )
             }
                 .collect { local ->
@@ -118,6 +126,7 @@ class DetailViewModel(
                             hasProgress = local.hasProgress,
                             multiShelfEnabled = local.multiShelfEnabled,
                             shelves = local.shelves,
+                            currentShelf = local.currentShelf,
                         )
                     }
                 }
@@ -129,6 +138,7 @@ class DetailViewModel(
         val hasProgress: Boolean,
         val multiShelfEnabled: Boolean,
         val shelves: List<String>,
+        val currentShelf: String?,
     )
 
     fun download(format: String, encoding: String = "utf8") {
