@@ -1,0 +1,83 @@
+package com.hoshino.wenku8reader.data.local.db
+
+import androidx.room.Dao
+import androidx.room.Query
+import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * 书架与阅读进度的唯一数据访问入口。
+ *
+ * 读接口同时提供 suspend（一次性）与 [Flow]（观察）两种形态：
+ * 页面首帧用一次性读取即可，而「加入/移出书架后详情页按钮要立刻变」「阅读器记录进度后
+ * 书架进度条要跟着变」这类跨页面联动只有靠 Flow 才能自动刷新——旧实现靠
+ * `refreshLocalState()` 这种手动回调，漏调用就会显示过期状态。
+ */
+@Dao
+interface LibraryDao {
+
+    // ---------------------------------------------------------------- //
+    // 书架
+    // ---------------------------------------------------------------- //
+
+    /** 按入架时间倒序（新入架在前），与旧书架页的 `sortedByDescending { addedAt }` 一致。 */
+    @Query("SELECT * FROM books ORDER BY addedAt DESC")
+    suspend fun books(): List<BookEntity>
+
+    @Query("SELECT * FROM books ORDER BY addedAt DESC")
+    fun observeBooks(): Flow<List<BookEntity>>
+
+    @Query("SELECT * FROM books WHERE id = :bookId")
+    suspend fun book(bookId: Int): BookEntity?
+
+    @Query("SELECT * FROM books WHERE id = :bookId")
+    fun observeBook(bookId: Int): Flow<BookEntity?>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM books WHERE id = :bookId)")
+    suspend fun containsBook(bookId: Int): Boolean
+
+    @Upsert
+    suspend fun upsertBook(book: BookEntity)
+
+    /** 批量写入（迁移导入用）；空列表直接返回，避免无意义的空事务。 */
+    @Upsert
+    suspend fun upsertBooks(books: List<BookEntity>)
+
+    @Query("DELETE FROM books WHERE id = :bookId")
+    suspend fun deleteBook(bookId: Int)
+
+    @Query("SELECT COUNT(*) FROM books")
+    suspend fun bookCount(): Int
+
+    // ---------------------------------------------------------------- //
+    // 阅读进度
+    // ---------------------------------------------------------------- //
+
+    @Query("SELECT * FROM reading_progress WHERE bookId = :bookId")
+    suspend fun progress(bookId: Int): ReadingProgressEntity?
+
+    @Query("SELECT * FROM reading_progress WHERE bookId = :bookId")
+    fun observeProgress(bookId: Int): Flow<ReadingProgressEntity?>
+
+    @Query("SELECT * FROM reading_progress")
+    suspend fun allProgress(): List<ReadingProgressEntity>
+
+    @Upsert
+    suspend fun upsertProgress(progress: ReadingProgressEntity)
+
+    /** 批量写入（迁移导入用）；空列表直接返回。 */
+    @Upsert
+    suspend fun upsertProgressAll(items: List<ReadingProgressEntity>)
+
+    @Query("DELETE FROM reading_progress WHERE bookId = :bookId")
+    suspend fun deleteProgress(bookId: Int)
+
+    /**
+     * 清理过期阅读数据：只删**有时间戳且严格早于 cutoff**的记录。
+     *
+     * `lastReadAt IS NOT NULL` 是硬性要求——没有时间戳的记录写于本功能上线之前，
+     * 无法判断新旧，删掉等于凭猜测销毁用户数据（与旧的 `staleReadingBookIds` 同规则）。
+     */
+    @Query("DELETE FROM reading_progress WHERE lastReadAt IS NOT NULL AND lastReadAt < :cutoff")
+    suspend fun deleteStaleProgress(cutoff: Long): Int
+}
