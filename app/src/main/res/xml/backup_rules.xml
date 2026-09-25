@@ -6,10 +6,13 @@
   - account：账号凭据
   - cookies：会话 / cf_clearance 令牌（泄露即等于账号被接管）
   - library：本地书架快照
+  另排除 DataStore 里的**书架清单**（多书架功能）：它与 library 同属书架数据，
+  只备份"书架名"而不备份"书"会得到一堆空书架，恢复后反而让用户以为书丢了。
   其余偏好（settings/ui/reading）体积小、恢复体验友好，保留备份。
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="account.xml" />
     <exclude domain="sharedpref" path="cookies.xml" />
     <exclude domain="sharedpref" path="library.xml" />
+    <exclude domain="file" path="datastore/shelves.preferences_pb" />
 </full-backup-content>

@@ -164,7 +164,28 @@ Wenku8Reader/
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
 - `DefaultAccount`：**内置共享账号，本应用唯一且全程使用的账号**——不提供登录/退出/切换入口，首启与切换镜像时静默登录。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录）。
 
+### 4.6.1 多书架（实验性，2026-09）
+
+- **开关**：`ReaderSettingsState.multiShelfEnabled`（DataStore 键 `multi_shelf_enabled`，**默认 false**），
+  位于设置 → 实验性，Material 与 MIUIX 各一个开关。关闭时书架页与收藏路径与单书架版本逐像素一致，
+  且**不删任何数据**，重新开启即恢复。
+- **数据**：书的归属复用 `BookEntity.shelf` 列（迁移时就已带上，老用户零迁移）；**书架清单**
+  （只存用户自建的，默认书架隐式存在）存独立的 DataStore 文件
+  `files/datastore/shelves.preferences_pb`，键 `list` = JSON 数组（保序）。
+  不放 Room 是刻意的：那需要 `AppDatabase` 升版 + 手写 Migration，而本工程没有
+  Robolectric/instrumentation，迁移无法自动化验证，而书架清单只是个短字符串数组。
+- **纯逻辑**：`data/local/ShelfOps.kt`（重名校验、增删改、归属兜底）与 `ShelfStore` 的编解码
+  都是可单测的纯函数（`ShelfOpsTest` / `ShelfStoreCodecTest`）。
+  「默认书架不可删、不可改名、永远至少一个书架」由"默认隐式存在"这一结构保证。
+- **顺序约束**（两处都是先动书、再动清单，反了会让书架凭空清空）：
+  删除书架 → 先 `UPDATE books SET shelf='默认'`，再移除清单项；
+  重命名 → 先批量改书的归属，再改清单。
+- **UI**：书架页顶部切换条（Material 用 `FilterChip` 横滚、MIUIX 用主题色胶囊文字）、
+  「管理书架」二级页（两套独立实现，共用 `ShelfManageViewModel`）、
+  长按卡片 → 移动到其他书架、详情页收藏时可选择目标书架。
+
 ### 4.7 阅读统计（`ReadingStatsStore` / `ui/stats/`）
+
 - **埋点**：`ReaderScreen` 内 `ReadingTimeTracker`——仅应用前台（Lifecycle RESUMED）且正文可见时累计，每 60s 整段写入并持久化，退出阅读器时冲刷余量（不丢最后不足 60s 的阅读）；1s 定时器仅在组合期内存在，开销可忽略。
 - **存储**：按「书 + 日期」聚合秒数（一书一天一条），SharedPreferences JSON；`persist()` 后 `version` 流 +1，UI 据此重算。
 - **聚合算法**：先按天/按书**分别累计秒数**，再统一 `ceil(秒/60)` 成分钟（不足 1 分钟按 1 分钟）——逐条 ceil 再求和会有累加误差（两条 30s 同日应计 1 分钟而非 2 分钟）；聚合在 `Dispatchers.Default` 执行。
@@ -404,7 +425,8 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - **滚动模式长章节**：`ScrollContent` 用单个 `Text(chapter.text)` 一次性排版整章，超长章节打开时首帧排版偏慢；可改为按段落 `LazyColumn` 增量排版（注意保持阅读位置语义）。
 - 章节进度条在非沉浸时可能覆盖正文最后约 1~2 行（浮动层叠于文本之上），如需避免可调整其位置/透明度。
 - 无自动化测试；分页算法 `paginateChapter` 是纯函数，适合补单测（当前无 test 源集）。
-- 未做：日/周排行榜、书单、多书架分组、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
+- 未做：日/周排行榜、书单、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
+  （**多书架分组已实现**，见 §4.6.1；实验性开关默认关闭。）
 
 ### 7.7 2026-09 功能增强（dev 分支开发，fast-forward 合并回 master）
 - **阅读热力图**（`ui/stats/`，书架顶栏日历图标入口）：GitHub 风格周列矩阵 + 时间尺度切换（本周/本月/本年/全部）+ 汇总卡（累计/本周/连续天数/日均）+ 当日详情卡 + 工作日绿/周末蓝双色阶 + 图例（参考 LNR）。
