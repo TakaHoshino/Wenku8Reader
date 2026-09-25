@@ -1,5 +1,5 @@
 #  轻小说文库（Wenku8Reader）
-![w8r.png](w8r.png)
+![w8r.png](.github/assets/w8r.png)
 
 > 一款面向轻小说爱好者的 Android 阅读客户端，数据来自 wenku8.net 轻小说文库。
 
