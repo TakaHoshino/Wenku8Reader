@@ -5,39 +5,21 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -56,8 +38,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
@@ -65,22 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.dropShadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.shadow.Shadow
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.util.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -136,19 +101,14 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixTocPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAuthorBooksPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixTagBooksPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStatsPage
-import com.hoshino.wenku8reader.ui.miuix.lens
-import com.hoshino.wenku8reader.ui.miuix.InnerShadow
-import com.hoshino.wenku8reader.ui.miuix.innerShadow
-import com.hoshino.wenku8reader.ui.miuix.rememberTiltBrightHighlight
-import com.hoshino.wenku8reader.ui.miuix.vibrancy
+import com.hoshino.wenku8reader.ui.miuix.MiuixLiquidBottomBar
+import com.hoshino.wenku8reader.ui.miuix.FloatingBottomBarItem
 import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.blur
-import top.yukonga.miuix.kmp.blur.drawBackdrop
-import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
@@ -157,7 +117,6 @@ import top.yukonga.miuix.kmp.basic.NavigationBarItem as MiuixNavigationBarItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlin.math.roundToInt
 
 private data class TabDest(
     val labelRes: Int,
@@ -266,8 +225,6 @@ fun MainScaffold() {
             if (isMain && !floatingBar) {
                 MainBottomBar(
                     mainPagerState = mainPagerState,
-                    backdrop = if (glassEnabled) backdrop else null,
-                    floating = floatingBar,
                 )
             }
         },
@@ -511,10 +468,14 @@ fun MainScaffold() {
         }
         // MIUIX 悬浮底栏：覆盖在内容之上——玻璃模糊采样的正是它背后的页面内容
         if (isMain && floatingBar) {
-            MiuixFloatingBottomBar(
+            MiuixMainFloatingBar(
                 mainPagerState = mainPagerState,
-                backdrop = if (glassEnabled) backdrop else null,
-                modifier = Modifier.align(Alignment.BottomCenter),
+                backdrop = backdrop,
+                glassEnabled = glassEnabled,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    // 浮在手势条之上（HyperOS 的做法）
+                    .navigationBarsPadding(),
             )
         }
         }
@@ -615,25 +576,19 @@ private fun MainPagerScreen(
 
 /**
  * 底栏：
- * - Material 3 风格 → `NavigationBar`（与页面背景同色）；
- * - MIUIX 风格 → miuix `NavigationBar`（固定）或 `FloatingNavigationBar`（悬浮，HyperOS 的胶囊式底栏）；
- *   悬浮时若开启液态玻璃，则用 miuix-blur 的 `textureBlur` 对页面内容做实时模糊（见 [MiuixFloatingBottomBar]）。
+ * - Material 3 风格 → M3 `NavigationBar`（与页面背景同色）；
+ * - MIUIX 风格 → miuix `NavigationBar`（固定形态）。
+ *
+ * 悬浮形态（液态玻璃胶囊）不在这里：它作为**覆盖层**绘制在内容之上（见外层 Box 里的
+ * [MiuixMainFloatingBar]），因为胶囊浮在内容上方时才谈得上"对背后的内容做实时模糊+折射"，
+ * 而且不占 bottomBar 槽位就不会在底部留下一条空白带。
  * 切换选中页统一走弹簧动画（[MainPagerState.animateToPage]）。
  */
 @Composable
 private fun MainBottomBar(
     mainPagerState: MainPagerState,
-    backdrop: top.yukonga.miuix.kmp.blur.Backdrop? = null,
-    floating: Boolean = false,
 ) {
     if (isMiuixStyle()) {
-        if (floating) {
-            MiuixFloatingBottomBar(
-                mainPagerState = mainPagerState,
-                backdrop = backdrop,
-            )
-            return
-        }
         MiuixNavigationBar {
             TABS.forEachIndexed { index, dest ->
                 val selected = mainPagerState.selectedPage == index
@@ -682,295 +637,55 @@ private fun MainBottomBar(
 }
 
 /**
- * MIUIX 悬浮底栏（HyperOS 风格的液态玻璃胶囊底栏）。
+ * 主界面悬浮底栏（MIUIX）：把本项目的三个 Tab 接到移植来的 SukiSU 液态玻璃底栏上。
  *
- * 形态与效果照 SukiSU-Ultra 的悬浮底栏（其实现改编自 miuix 官方示例
- * `IosLiquidGlassNavigationBar`），但**不搬运**它的自定义着色器（vibrancy/lens 都是那边
- * 自己带的一套 `liquid/` 源码），只使用 miuix-blur 0.9.1 自带的公开能力：
- *
- * - 玻璃：`layerBackdrop` 把内容层登记为模糊源（登记在包住内容与底栏的那一层），这里用
- *   `drawBackdrop` 绘制：先模糊，再用 `BlurColors` 提亮/提对比/提饱和（近似 SukiSU 的
- *   vibrancy，替换掉它自带的着色器），最后用 `onDrawSurface` 铺一层**半透明**底色并加
- *   miuix 自带的玻璃高光描边（`Highlight.GlassStroke*`）模拟边缘反光。
- *   **底色必须足够透**（约 0.4）：早期版本用了 0.6~0.72 的主题色，肉眼看就是一块实色胶囊，
- *   模糊被完全盖住 —— 这正是"开了开关却没有液态玻璃效果"的原因；
- * - 滑块：选中项后面有一条随分页位置移动的胶囊滑块，位置直接读 `PagerState` 的连续偏移，
- *   所以拖动页面时滑块**跟手**，点击底栏时由弹簧收敛；
- * - 触感层级：选中项图标轻微放大 + 换主题色，未选中项降低不透明度。
- *
- * 未开启液态玻璃或系统 < Android 12L（`RenderEffect` 不可用）时，不调用任何模糊 API，
- * 退化为不透明容器 + 半透明滑块，保证可读性。
+ * 玻璃/折射/高光/拖拽全部由 [MiuixLiquidBottomBar] 负责（那套实现是从 SukiSU-Ultra
+ * 整段移植的，见该文件头部说明）；这里只做适配：
+ * - 选中态与切换都交给 [MainPagerState]（它与 HorizontalPager 双向同步）；
+ * - 深浅色取自 miuix 主题，避免与系统主题设置不一致。
  */
 @Composable
-private fun MiuixFloatingBottomBar(
+private fun MiuixMainFloatingBar(
     mainPagerState: MainPagerState,
-    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop,
+    glassEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val glass = backdrop != null
-    // 胶囊用圆角矩形而不是 CircleShape：折射着色器只认 CornerBasedShape，
-    // CircleShape 会让 lens 直接跳过（这也是"照 SukiSU 写了 lens 却没效果"的常见原因）。
-    // 半径取高度的一半，外形与 CircleShape 完全一致。
-    val shape = RoundedCornerShape(FloatingBarHeight / 2)
-    val accent = MiuixTheme.colorScheme.primary
-    val container = MiuixTheme.colorScheme.surfaceContainer
-    val barContent = MiuixTheme.colorScheme.onSurface
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
-    val density = LocalDensity.current
-    // 模糊半径按密度换算成 px（miuix 的 blur 取像素值）。这里刻意只取 4dp：
-    // "看得见背景内容"是液态玻璃的前提，糊得太狠就只剩一块毛玻璃色块了；
-    // 边缘的"液态感"主要由下面的折射（lens）负责。
-    val blurRadiusPx = with(density) { 4.dp.toPx() }
-    // 折射：边缘向内挤压背景模拟厚玻璃透镜；高度/强度取玻璃厚度的量级（约 18dp）。
-    val refractionPx = with(density) { 18.dp.toPx() }
-    // 滑块的折射高度/强度（SukiSU 用 10dp/14dp；这里按胶囊高度略放大，按下才拉满）
-    val pillRefractionPx = with(density) { 12.dp.toPx() }
-    // 橡皮筋位移幅度（SukiSU 用 4dp）
-    val rubberBandPx = with(density) { 4.dp.toPx() }
-    // 玻璃底色：必须够透（深色下略高一点保证可读）。这个不透明度就是"看不看得见玻璃"的关键——
-    // 早期版本用 0.6~0.72 的主题色，肉眼就等同实色胶囊，模糊被完全盖住。
-    val glassSurface = container.copy(alpha = if (isDark) 0.46f else 0.38f)
-    var barWidthPx by remember { mutableFloatStateOf(0f) }
-    // 当前被按下的 Tab（null = 没有按下）：驱动滑块"滑到手指处 + 膨胀"与选中项放大
-    var pressedIndex by remember { mutableStateOf<Int?>(null) }
-    // 按压进度 0→1：滑块位移/放大、玻璃加深（色散折射）、表面提亮都读它
-    val pressProgress by animateFloatAsState(
-        targetValue = if (pressedIndex != null) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = 480f),
-        label = "floatingBarPressProgress",
-    )
-    // 边缘镜面高光跟随手机倾角（SukiSU 的做法），倾斜时高光会移动
-    val tiltHighlight = rememberTiltBrightHighlight(extraDegrees = -45f)
-    // 滑块自己的高光（SukiSU 给滑块单独一份、偏 90°，按下才淡入）
-    val pillHighlight = rememberTiltBrightHighlight(extraDegrees = 90f)
-    // 按住底栏左右拖动：dragValue 是以"格"为单位的连续位置，跟手移动后松手切到最近的标签
-    var dragValue by remember { mutableFloatStateOf(0f) }
-    var dragging by remember { mutableStateOf(false) }
-    val innerPaddingPx = with(density) { FloatingBarInnerPadding.toPx() }
-    val tabWidthPx = ((barWidthPx - innerPaddingPx * 2f) / TABS.size).coerceAtLeast(0f)
-
+    // 胶囊外留白：SukiSU 的胶囊本身宽度由内容决定（IntrinsicSize.Min），这里用外层 padding
+    // 控制它离屏幕底边与手势条的距离。
     Box(
-        // 悬浮胶囊要浮在系统手势条之上（HyperOS 的做法），否则会与导航条叠在一起
-        modifier
-            .fillMaxWidth()
-            .navigationBarsPadding(),
-        contentAlignment = Alignment.BottomCenter,
+        modifier = modifier.padding(
+            start = FloatingBarOuterPadding,
+            end = FloatingBarOuterPadding,
+            bottom = FloatingBarVerticalPadding,
+        ),
     ) {
-        Box(
-            modifier = Modifier
-                .padding(horizontal = FloatingBarOuterPadding, vertical = FloatingBarVerticalPadding)
-                .fillMaxWidth()
-                .height(FloatingBarHeight)
-                .onGloballyPositioned { barWidthPx = it.size.width.toFloat() }
-                .dropShadow(
-                    shape = shape,
-                    shadow = Shadow(
-                        radius = 12.dp,
-                        color = Color.Black,
-                        alpha = if (isDark) 0.26f else 0.12f,
-                    ),
-                )
-                // 按住拖动切换标签（SukiSU 同款交互）：横向拖动超过触摸阈值后由这里接管，
-                // 滑块跟手移动、整条底栏做橡皮筋位移，松手切到最近的标签。
-                // 用 detectHorizontalDragGestures 而不是长按序列：按下即拖即可触发，
-                // 轻点仍由各 Tab 的 clickable 处理（拖动一旦被消费，clickable 就不会触发）。
-                .pointerInput(tabWidthPx, TABS.size) {
-                    if (tabWidthPx <= 0f) return@pointerInput
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            val pager = mainPagerState.pagerState
-                            dragValue = pager.currentPage + pager.currentPageOffsetFraction
-                            dragging = true
-                            // 拖动优先于"按压高亮"，否则手指滑过时会出现两处高亮
-                            pressedIndex = null
-                        },
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            dragValue = (dragValue + dragAmount / tabWidthPx)
-                                .coerceIn(0f, (TABS.size - 1).toFloat())
-                        },
-                        onDragEnd = {
-                            val target = dragValue.roundToInt().coerceIn(0, TABS.size - 1)
-                            dragging = false
-                            if (target != mainPagerState.selectedPage) {
-                                mainPagerState.animateToPage(target)
-                            }
-                        },
-                        onDragCancel = { dragging = false },
-                    )
-                }
-                // 橡皮筋：拖动时整条底栏沿拖动方向轻微位移，松手回落（幅度 4dp，克制不突兀）
-                .graphicsLayer {
-                    if (!dragging) return@graphicsLayer
-                    val pager = mainPagerState.pagerState
-                    val following = pager.currentPage + pager.currentPageOffsetFraction
-                    val span = (TABS.size - 1).coerceAtLeast(1).toFloat()
-                    val fraction = ((dragValue - following) / span).coerceIn(-1f, 1f)
-                    translationX = rubberBandPx * fraction
-                }
-                .clip(shape)
-                .then(
-                    if (glass) {
-                        Modifier.drawBackdrop(
-                            backdrop = backdrop,
-                            shape = { shape },
-                            effects = {
-                                // 顺序沿用 SukiSU：先增艳，再模糊，最后折射
-                                vibrancy()
-                                blur(blurRadiusPx, blurRadiusPx)
-                                // 折射只在 Android 13+ 的 RuntimeShader 上生效，
-                                // 低版本会自动跳过（模糊与高光仍在）
-                                lens(
-                                    refractionHeight = refractionPx,
-                                    refractionAmount = refractionPx,
-                                )
-                                // 按下时再叠一层"色散折射"：边缘出现轻微彩色分离 + 深度感，
-                                // 像玻璃被手指压厚了一层（SukiSU 压下滑块用的是同一组参数）
-                                if (pressProgress > 0.01f) {
-                                    lens(
-                                        refractionHeight = refractionPx * 0.6f * pressProgress,
-                                        refractionAmount = refractionPx * 0.8f * pressProgress,
-                                        depthEffect = true,
-                                        chromaticAberration = 0.5f * pressProgress,
-                                    )
-                                }
-                            },
-                            highlight = {
-                                // 跟倾角的镜面高光；暗色下用同一份（白色高光在深底上更明显）
-                                tiltHighlight.copy(alpha = if (isDark) 0.75f else 0.6f)
-                            },
-                            // 底色要足够透，模糊才透得出来：0.6 以上在肉眼上等同实色胶囊
-                            onDrawSurface = {
-                                drawRect(glassSurface)
-                                // 按住时整块玻璃轻微提亮（Plus 叠加，避免变灰）
-                                if (pressProgress > 0f) {
-                                    drawRect(
-                                        color = Color.White.copy(alpha = 0.06f * pressProgress),
-                                        blendMode = BlendMode.Plus,
-                                    )
-                                }
-                            },
-                        )
-                    } else {
-                        Modifier.background(container, shape)
-                    },
-                )
-                .padding(FloatingBarInnerPadding),
+        MiuixLiquidBottomBar(
+            selectedIndex = { mainPagerState.selectedPage },
+            onSelected = { index -> mainPagerState.animateToPage(index) },
+            backdrop = backdrop,
+            tabsCount = TABS.size,
+            isDark = isDark,
+            isBlurEnabled = glassEnabled,
         ) {
-            // 滑块：位置在 offset 的 lambda 里读取，避免拖动时每帧重组整条底栏
-            if (tabWidthPx > 0f) {
-                Box(
-                    Modifier
-                        .fillMaxHeight()
-                        .width(with(density) { tabWidthPx.toDp() })
-                        .offset {
-                            val pager = mainPagerState.pagerState
-                            val following = pager.currentPage + pager.currentPageOffsetFraction
-                            val position = when {
-                                // 正在拖动：滑块完全跟手
-                                dragging -> dragValue
-                                else -> {
-                                    val pressed =
-                                        (pressedIndex ?: mainPagerState.selectedPage).toFloat()
-                                    lerp(following, pressed, pressProgress)
-                                }
-                            }
-                            IntOffset((position * tabWidthPx).roundToInt(), 0)
-                        }
-                        // 按下/拖动时滑块放大：观感上像"玻璃被手指压得鼓起来"。
-                        // 拖动时取 SukiSU 的 pressedScale（78/56 ≈ 1.39），按下取 1.16。
-                        .graphicsLayer {
-                            val s = if (dragging) 1.39f else 1f + 0.16f * pressProgress
-                            scaleX = s
-                            scaleY = s
-                        }
-                        .clip(shape)
-                        .then(
-                            if (glass) {
-                                // 滑块是一层**独立的透镜玻璃**：只折射、不模糊（比磨砂底更清透），
-                                // 按下时叠上色散与内阴影，边缘出现彩色分离与"被压下去"的深度。
-                                // 这正是 SukiSU 悬浮底栏滑块的画法。
-                                Modifier
-                                    .drawBackdrop(
-                                        backdrop = backdrop,
-                                        shape = { shape },
-                                        effects = {
-                                            // 注意：折射系数**不能**整项乘 pressProgress，
-                                            // 否则未按下时 lens() 会因 refractionHeight <= 0 直接返回，
-                                            // 当前标签就只剩一层纯色底（"当前标签没有玻璃效果"）。
-                                            // 这里留 35% 的常驻折射做"透镜底子"，按下再拉到 100%。
-                                            val lensWeight = 0.35f + 0.65f * pressProgress
-                                            lens(
-                                                refractionHeight = pillRefractionPx * lensWeight,
-                                                refractionAmount = pillRefractionPx * 1.4f * lensWeight,
-                                                depthEffect = true,
-                                                chromaticAberration = 0.5f * pressProgress,
-                                            )
-                                        },
-                                        highlight = {
-                                            // 高光平时淡一点、按下变亮
-                                            pillHighlight.copy(alpha = 0.25f + 0.55f * pressProgress)
-                                        },
-                                        onDrawSurface = {
-                                            // 主题色标记"当前标签"
-                                            drawRect(
-                                                accent.copy(alpha = 0.16f + 0.08f * pressProgress),
-                                            )
-                                            // SukiSU 的薄纱：浅色主题压暗 10%、深色主题提亮 10%。
-                                            // 这正是"当前标签看起来是一块玻璃"的关键——没有它，
-                                            // 底下那层磨砂玻璃的纹理会被主题色盖平。
-                                            drawRect(
-                                                color = if (isDark) {
-                                                    Color.White.copy(alpha = 0.10f)
-                                                } else {
-                                                    Color.Black.copy(alpha = 0.10f)
-                                                },
-                                                alpha = 1f - 0.6f * pressProgress,
-                                            )
-                                        },
-                                    )
-                                    .innerShadow(shape = shape) {
-                                        if (pressProgress <= 0.01f) {
-                                            null
-                                        } else {
-                                            InnerShadow(
-                                                radius = 8.dp * pressProgress,
-                                                color = Color.Black.copy(alpha = 0.15f),
-                                                alpha = pressProgress,
-                                            )
-                                        }
-                                    }
-                            } else {
-                                Modifier.background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            accent.copy(alpha = 0.18f + 0.1f * pressProgress),
-                                            accent.copy(alpha = 0.1f + 0.08f * pressProgress),
-                                        ),
-                                    ),
-                                )
-                            },
-                        ),
-                )
-            }
-            Row(
-                Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TABS.forEachIndexed { index, dest ->
-                    val selected = mainPagerState.selectedPage == index
-                    MiuixFloatingBarTab(
-                        selected = selected,
-                        // 拖动时离手指最近的那一格也放大到按压态
-                        emphasized = dragging && index == dragValue.roundToInt(),
-                        icon = if (selected) dest.selectedIcon else dest.unselectedIcon,
-                        label = stringResource(dest.labelRes),
-                        accent = accent,
-                        contentColor = barContent,
-                        onPressChange = { pressed ->
-                            pressedIndex = if (pressed) index else null
-                        },
-                        onClick = { if (!selected) mainPagerState.animateToPage(index) },
+            TABS.forEachIndexed { index, dest ->
+                val selected = mainPagerState.selectedPage == index
+                FloatingBottomBarItem(
+                    onClick = { mainPagerState.animateToPage(index) },
+                    // SukiSU 的胶囊宽度由内容撑开（IntrinsicSize.Min），它的标签更长所以够宽；
+                    // 本项目三个 Tab 都只有两个字，不加下限会挤成一团。76dp 是它的单格宽度量级。
+                    modifier = Modifier.widthIn(min = 76.dp),
+                ) {
+                    MiuixIcon(
+                        imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                        contentDescription = stringResource(dest.labelRes),
+                        modifier = Modifier.size(24.dp),
+                    )
+                    MiuixText(
+                        text = stringResource(dest.labelRes),
+                        style = MiuixTheme.textStyles.footnote2,
+                        maxLines = 1,
                     )
                 }
             }
@@ -978,106 +693,6 @@ private fun MiuixFloatingBottomBar(
     }
 }
 
-/** 悬浮底栏尺寸（与 SukiSU 一致：64dp 胶囊 + 4dp 内缩 + 12dp 外边距）。 */
-private val FloatingBarHeight = 64.dp
-private val FloatingBarInnerPadding = 4.dp
+/** 悬浮胶囊相对屏幕左右的外留白。 */
 private val FloatingBarOuterPadding = 12.dp
 private val FloatingBarVerticalPadding = 8.dp
-
-/**
- * 单个 Tab：选中放大 1.1 倍并换主题色；**按下时整格放大到 1.2 倍**，并在手指位置叠加一层
- * 玻璃高光（SukiSU 悬浮底栏同款：按下时那个按钮会"以液态玻璃样式放大"）。
- *
- * 高光位置取自 [PressInteraction.Press] 的 `pressPosition`——框架已经把触摸点带出来了，
- * 因此不需要像 SukiSU 那样自建拖动手势类；着色也只用 `Brush.radialGradient` + `BlendMode.Plus`，
- * 不依赖 RuntimeShader，Android 8 起都有。
- */
-@Composable
-private fun RowScope.MiuixFloatingBarTab(
-    selected: Boolean,
-    emphasized: Boolean,
-    icon: ImageVector,
-    label: String,
-    accent: Color,
-    contentColor: Color,
-    onPressChange: (Boolean) -> Unit,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    var pressPosition by remember { mutableStateOf(Offset.Unspecified) }
-    LaunchedEffect(interactionSource) {
-        interactionSource.interactions.collect { interaction ->
-            if (interaction is PressInteraction.Press) {
-                pressPosition = interaction.pressPosition
-            }
-        }
-    }
-    LaunchedEffect(pressed) { onPressChange(pressed) }
-
-    val scale by animateFloatAsState(
-        // 按下的倍率取 1.2、选中 1.1：与 SukiSU 的 `lerp(1f, 1.2f, pressProgress)` 一致
-        targetValue = when {
-            pressed || emphasized -> 1.2f
-            selected -> 1.1f
-            else -> 1f
-        },
-        animationSpec = spring(dampingRatio = 0.5f, stiffness = 600f),
-        label = "miuixFloatingTabScale",
-    )
-    val tint = if (selected) accent else contentColor.copy(alpha = 0.72f)
-    Column(
-        Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .clip(CircleShape)
-            // 触摸点高光：手指按住哪儿，哪儿就亮起来（叠加混合，暗色下尤其明显）
-            .drawWithContent {
-                val position = pressPosition
-                if (pressed && position != Offset.Unspecified) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.18f),
-                                Color.White.copy(alpha = 0.06f),
-                                Color.Transparent,
-                            ),
-                            center = position,
-                            radius = size.minDimension * 1.1f,
-                        ),
-                        radius = size.minDimension * 1.1f,
-                        center = position,
-                        blendMode = BlendMode.Plus,
-                    )
-                }
-                drawContent()
-            }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                role = Role.Tab,
-                onClick = onClick,
-            )
-            // 整格一起缩放（图标 + 文案），与 SukiSU 的 Tab 缩放口径一致
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            },
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        MiuixIcon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = tint,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.height(2.dp))
-        MiuixText(
-            text = label,
-            style = MiuixTheme.textStyles.footnote2,
-            color = tint,
-            maxLines = 1,
-        )
-    }
-}
