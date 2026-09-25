@@ -629,7 +629,7 @@ class Wenku8Client(
 
     private suspend fun appApiBookInfo(id: Int): BookInfo? {
         val meta = appApiGet("action=book&do=meta&aid=$id&t=0") ?: return null
-        val info = Parsers.parseAppBookInfo(meta, id) ?: return null
+        val info = AppParsers.parseAppBookInfo(meta, id) ?: return null
         // 简介在 do=intro 接口：响应正文即简介纯文本
         val intro = appApiGet("action=book&do=intro&aid=$id&t=0")
         val description = intro?.let { html ->
@@ -641,12 +641,12 @@ class Wenku8Client(
 
     private suspend fun appApiVolumes(bookId: Int): List<Volume>? {
         val list = appApiGet("action=book&do=list&aid=$bookId&t=0") ?: return null
-        return Parsers.parseAppVolumes(list)
+        return AppParsers.parseAppVolumes(list)
     }
 
     private suspend fun appApiChapter(bookId: Int, cid: String): ChapterContent? {
         val text = appApiGet("action=book&do=text&aid=$bookId&cid=$cid&t=0") ?: return null
-        return Parsers.parseAppChapter(text)
+        return AppParsers.parseAppChapter(text)
     }
 
     suspend fun bookcase(): List<BookcaseItem> = withContext(Dispatchers.IO) {
