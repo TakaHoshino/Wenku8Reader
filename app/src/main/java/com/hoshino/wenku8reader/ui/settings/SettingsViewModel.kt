@@ -7,6 +7,7 @@ import com.hoshino.wenku8reader.data.Wenku8Client
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
+import com.hoshino.wenku8reader.data.local.accountEnabledAfterShelfChange
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.StorageBreakdown
@@ -188,7 +189,24 @@ class SettingsViewModel(
     fun setUiStyle(style: String) = readerSettings.setUiStyle(style)
     fun setFloatingBottomBar(enabled: Boolean) = readerSettings.setFloatingBottomBar(enabled)
     fun setBottomBarGlass(enabled: Boolean) = readerSettings.setBottomBarGlass(enabled)
-    fun setMultiShelfEnabled(enabled: Boolean) = readerSettings.setMultiShelfEnabled(enabled)
+    /**
+     * 多书架开关：关掉它时**账户开关跟随关闭**（规则见 `AccountOps.accountEnabledAfterShelfChange`）。
+     *
+     * 只改开关，不动登录态数据——Cookie、激活账户名都保留，重新开启即恢复原状。
+     * 联动放在这里是因为两套 UI 的开关都经它，只有一处需要维护。
+     */
+    fun setMultiShelfEnabled(enabled: Boolean) {
+        readerSettings.setMultiShelfEnabled(enabled)
+        val accountOn = readerSettings.flow.value.accountLoginEnabled
+        readerSettings.setAccountLoginEnabled(accountEnabledAfterShelfChange(accountOn, enabled))
+    }
+    /** 账户开关（实验性）：开启时若多书架未开，UI 会先弹前置依赖确认，见 `AccountOps`。 */
+    fun setAccountLoginEnabled(enabled: Boolean) = readerSettings.setAccountLoginEnabled(enabled)
+    /** 前置依赖确认框点「确定」：多书架与账户登录一起打开。 */
+    fun enableAccountLoginWithMultiShelf() {
+        readerSettings.setMultiShelfEnabled(true)
+        readerSettings.setAccountLoginEnabled(true)
+    }
     fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
     fun setHapticsStrength(value: Int) = readerSettings.setHapticsStrength(value)
     fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)

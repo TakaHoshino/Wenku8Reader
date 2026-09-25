@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Language
@@ -38,10 +39,13 @@ import com.hoshino.wenku8reader.Wenku8Application
 import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.Wenku8Hosts
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
+import com.hoshino.wenku8reader.data.local.AccountSwitchAction
+import com.hoshino.wenku8reader.data.local.accountSwitchAction
 import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
 import com.hoshino.wenku8reader.ui.theme.UiStyle
+import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
 
 /**
@@ -212,6 +216,8 @@ fun MiuixExperimentalPage(
     val styles = UiStyle.entries
     // UI 风格切换会替换整棵界面（含 miuix 根宿主），必须等下拉弹层收起后再应用
     var pendingStyleIndex by remember { mutableStateOf<Int?>(null) }
+    // 账户登录的前置依赖确认框（多书架未开时点账户开关才会出现）
+    var askShelfPrerequisite by remember { mutableStateOf(false) }
     MiuixCategoryPage(title = stringResource(R.string.settings_section_experimental), onBack = onBack) {
         MiuixSection(title = stringResource(R.string.settings_section_experimental)) {
             MiuixDropdownRow(
@@ -262,6 +268,41 @@ fun MiuixExperimentalPage(
                 icon = Icons.AutoMirrored.Filled.LibraryBooks,
                 checked = rs.multiShelfEnabled,
                 onCheckedChange = vm::setMultiShelfEnabled,
+            )
+            MiuixRowDivider()
+            // 账户登录：同样是通用实验功能，且**依赖多书架**（状态机见 AccountOps，有单测）
+            MiuixSwitchRow(
+                title = stringResource(R.string.settings_account_login),
+                summary = stringResource(R.string.settings_account_login_summary),
+                icon = Icons.Filled.AccountCircle,
+                checked = rs.accountLoginEnabled,
+                onCheckedChange = {
+                    when (accountSwitchAction(rs.multiShelfEnabled, rs.accountLoginEnabled)) {
+                        AccountSwitchAction.EnableAccount -> vm.setAccountLoginEnabled(true)
+                        AccountSwitchAction.DisableAccount -> vm.setAccountLoginEnabled(false)
+                        AccountSwitchAction.AskShelfPrerequisite -> askShelfPrerequisite = true
+                    }
+                },
+            )
+        }
+    }
+
+    if (askShelfPrerequisite) {
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.account_dep_title),
+            summary = stringResource(R.string.account_dep_message),
+            onDismissRequest = { askShelfPrerequisite = false },
+        ) {
+            MiuixDialogButtons(
+                confirmText = stringResource(R.string.action_confirm),
+                dismissText = stringResource(R.string.action_cancel),
+                onConfirm = {
+                    askShelfPrerequisite = false
+                    // 两个开关一起打开
+                    vm.enableAccountLoginWithMultiShelf()
+                },
+                onDismiss = { askShelfPrerequisite = false },
             )
         }
     }

@@ -30,6 +30,8 @@ class ReaderSettingsCodecTest {
     fun `多书架开关默认关闭`() {
         // 产品要求：实验性功能必须默认关闭，老用户升级后书架页与收藏行为不得有任何变化
         assertFalse(emptyPreferences().toState().multiShelfEnabled)
+        // 账户登录同样默认关闭（它依赖多书架，默认连入口都不该出现）
+        assertFalse(emptyPreferences().toState().accountLoginEnabled)
     }
 
     @Test
@@ -71,6 +73,7 @@ class ReaderSettingsCodecTest {
             floatingBottomBar = false,
             bottomBarGlass = false,
             multiShelfEnabled = true,
+            accountLoginEnabled = true,
             autoPadding = false,
             topPadding = 1,
             bottomPadding = 2,

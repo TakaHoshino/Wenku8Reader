@@ -67,6 +67,9 @@ data class ReaderSettingsState(
     // 实验性：多书架（Material 与 MIUIX 都生效）。关闭时仅隐藏多书架 UI，
     // 书架清单与书籍归属**一律保留**，重新开启即恢复原状。
     val multiShelfEnabled: Boolean = false,
+    // 实验性：账户登录（依赖多书架）。关闭时账户分区保持只读说明、Wenku8 书架与登录页入口
+    // 一律不出现；**登录态与用户名保留**，重新开启即恢复。
+    val accountLoginEnabled: Boolean = false,
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -124,6 +127,7 @@ private object Keys {
     val floatingBottomBar = booleanPreferencesKey("floating_bottom_bar")
     val bottomBarGlass = booleanPreferencesKey("bottom_bar_glass")
     val multiShelfEnabled = booleanPreferencesKey("multi_shelf_enabled")
+    val accountLoginEnabled = booleanPreferencesKey("account_login_enabled")
     val autoPadding = booleanPreferencesKey("auto_padding")
     val topPadding = intPreferencesKey("pad_top")
     val bottomPadding = intPreferencesKey("pad_bottom")
@@ -277,6 +281,7 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
             bottomBarGlass = legacyPrefs.getBoolean("bottom_bar_glass", true),
             // 旧版本没有这个键 → 读到默认 false（新功能默认关闭）
             multiShelfEnabled = legacyPrefs.getBoolean("multi_shelf_enabled", false),
+            accountLoginEnabled = legacyPrefs.getBoolean("account_login_enabled", false),
             autoPadding = legacyPrefs.getBoolean("auto_padding", true),
             topPadding = legacyPrefs.getInt("pad_top", 24),
             bottomPadding = legacyPrefs.getInt("pad_bottom", 16),
@@ -322,6 +327,7 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
     fun setFloatingBottomBar(enabled: Boolean) = emit { it.copy(floatingBottomBar = enabled) }
     fun setBottomBarGlass(enabled: Boolean) = emit { it.copy(bottomBarGlass = enabled) }
     fun setMultiShelfEnabled(enabled: Boolean) = emit { it.copy(multiShelfEnabled = enabled) }
+    fun setAccountLoginEnabled(enabled: Boolean) = emit { it.copy(accountLoginEnabled = enabled) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }
@@ -372,6 +378,8 @@ internal fun Preferences.toState(): ReaderSettingsState = ReaderSettingsState(
     bottomBarGlass = this[Keys.bottomBarGlass] ?: true,
     // 默认关闭：新功能必须由用户显式开启
     multiShelfEnabled = this[Keys.multiShelfEnabled] ?: false,
+    // 默认关闭：新功能必须由用户显式开启
+    accountLoginEnabled = this[Keys.accountLoginEnabled] ?: false,
     autoPadding = this[Keys.autoPadding] ?: true,
     topPadding = this[Keys.topPadding] ?: 24,
     bottomPadding = this[Keys.bottomPadding] ?: 16,
@@ -425,6 +433,7 @@ internal fun MutablePreferences.writeAll(state: ReaderSettingsState) {
     this[Keys.floatingBottomBar] = state.floatingBottomBar
     this[Keys.bottomBarGlass] = state.bottomBarGlass
     this[Keys.multiShelfEnabled] = state.multiShelfEnabled
+    this[Keys.accountLoginEnabled] = state.accountLoginEnabled
     this[Keys.autoPadding] = state.autoPadding
     this[Keys.topPadding] = state.topPadding
     this[Keys.bottomPadding] = state.bottomPadding

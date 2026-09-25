@@ -194,7 +194,7 @@
     <string name="settings_category_network_summary">主站鏡像與存取方式</string>
     <string name="settings_category_update_summary">更新通道、更新來源與檢查頻率</string>
     <string name="settings_category_storage_summary">快取佔用與清理</string>
-    <string name="settings_category_experimental_summary">UI 風格、多書架、懸浮底欄與液態玻璃</string>
+    <string name="settings_category_experimental_summary">UI 風格、多書架、帳戶登入、懸浮底欄與液態玻璃</string>
     <string name="settings_category_about_summary">版本、開源倉庫與回饋管道</string>
     <string name="settings_ui_style">UI 風格</string>
     <string name="settings_ui_style_summary">切換 Material 3 Expressive 與 MIUIX（HyperOS）；實驗性功能，介面可能隨版本調整</string>
@@ -208,6 +208,11 @@
     <!-- 多書架（實驗性） -->
     <string name="settings_multi_shelf">多書架</string>
     <string name="settings_multi_shelf_summary">啟用後可在書架頁新增與切換書架，並於收藏時指定目標書架；關閉僅隱藏相關入口，已儲存的資料不受影響</string>
+    <!-- 帳戶登入（實驗性，依賴多書架） -->
+    <string name="settings_account_login">帳戶登入</string>
+    <string name="settings_account_login_summary">使用自己的 wenku8 帳戶登入，可同步網站書架；關閉僅隱藏入口，登入狀態保留</string>
+    <string name="account_dep_title">需要多書架</string>
+    <string name="account_dep_message">帳戶登入依賴多書架管理，是否同時開啟該前置功能？</string>
     <string name="shelf_manage_title">管理書架</string>
     <string name="shelf_new">新增書架</string>
     <string name="shelf_rename">重新命名</string>

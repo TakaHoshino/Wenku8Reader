@@ -28,10 +28,14 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +48,8 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.Wenku8Hosts
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
+import com.hoshino.wenku8reader.data.local.AccountSwitchAction
+import com.hoshino.wenku8reader.data.local.accountSwitchAction
 import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
@@ -207,6 +213,8 @@ internal fun ExperimentalSection(
     vm: SettingsViewModel,
 ) {
     val styles = UiStyle.entries
+    // 账户登录的前置依赖确认框（多书架未开时点账户开关才会出现）
+    var askShelfPrerequisite by remember { mutableStateOf(false) }
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_experimental),
@@ -239,12 +247,51 @@ internal fun ExperimentalSection(
                     onCheckedChange = vm::setMultiShelfEnabled,
                 )
             },
+            {
+                // 账户登录：同样是通用实验功能，且**依赖多书架**。
+                // 点在"多书架未开"时先弹前置依赖确认；状态机在 AccountOps 里（有单测）。
+                SegmentedSwitchItem(
+                    icon = Icons.Filled.AccountCircle,
+                    title = stringResource(R.string.settings_account_login),
+                    summary = stringResource(R.string.settings_account_login_summary),
+                    checked = rs.accountLoginEnabled,
+                    onCheckedChange = {
+                        when (accountSwitchAction(rs.multiShelfEnabled, rs.accountLoginEnabled)) {
+                            AccountSwitchAction.EnableAccount -> vm.setAccountLoginEnabled(true)
+                            AccountSwitchAction.DisableAccount -> vm.setAccountLoginEnabled(false)
+                            AccountSwitchAction.AskShelfPrerequisite -> askShelfPrerequisite = true
+                        }
+                    },
+                )
+            },
             // 说明：这里**不再**放「悬浮底栏 / 液态玻璃」两个开关。
             // M3 底栏是固定样式的 NavigationBar，不接受这两个设置（见 MainScaffold 的
             // `floatingBar = isMiuixStyle() && …`），摆在 MD3 页里只会让人以为"开了却没效果"。
             // 它们只属于 MIUIX 的实验性页（MiuixExperimentalPage）。
         ),
     )
+
+    if (askShelfPrerequisite) {
+        AlertDialog(
+            onDismissRequest = { askShelfPrerequisite = false },
+            title = { Text(stringResource(R.string.account_dep_title)) },
+            text = { Text(stringResource(R.string.account_dep_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        askShelfPrerequisite = false
+                        // 两个开关一起打开
+                        vm.enableAccountLoginWithMultiShelf()
+                    },
+                ) { Text(stringResource(R.string.action_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { askShelfPrerequisite = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 }
 
 /** 通用分组：触觉反馈总开关。 */
