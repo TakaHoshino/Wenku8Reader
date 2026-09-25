@@ -367,7 +367,9 @@ object Parsers {
         val rows = LinkedHashMap<String, Row>()
         val m = BOOKCASE_LINK.matcher(html)
         while (m.find()) {
-            val href = m.groupOrEmpty(1)
+            // href 先反转义：站点可能把 `&` 写成 `&amp;`，那样下面的参数拆分只会得到
+            // 一个 `amp;bid` 键，整页书架会被解析成空列表（而且是静默的）。
+            val href = unescape(m.groupOrEmpty(1))
             val text = clean(m.groupOrEmpty(2))
             val qs = href.substringAfter("?", "")
             val params = qs.split("&")

@@ -298,6 +298,75 @@ class ParsersTest {
         // 无书籍的栏目（登录/公告等）必须被过滤掉
         assertEquals(1, sections.size)
         assertEquals("今日热榜", sections[0].title)
-        assertEquals(3988, sections[0].books[0].id)
+            assertEquals(3988, sections[0].books[0].id)
+        }
+
+    // ------------------------------------------------------------------ //
+    // parseBookcase
+    // ------------------------------------------------------------------ //
+
+    @Test
+    fun parseBookcase_readsAidBidNameAndLatestChapter() {
+        // 书链接与"最新章"链接指向同一个 bid：站点每本书给两行链接（书名、最新章节），
+        // 解析要合并成一条，而不是两条。
+        val html = """
+            <table>
+              <tr>
+                <td><a href="/modules/article/readbookcase.php?aid=2896&bid=12786589">转生成为史莱姆</a></td>
+                <td><a href="/modules/article/readbookcase.php?aid=2896&bid=12786589&cid=99887">第 12 章 魔王降临</a></td>
+              </tr>
+            </table>
+        """.trimIndent()
+
+        val items = Parsers.parseBookcase(html)
+
+        assertEquals(1, items.size)
+        assertEquals(2896, items[0].aid)
+        // bid 是"移出书架"必需的记录 id，必须与 aid 分开保留
+        assertEquals(12786589, items[0].bid)
+        assertEquals("转生成为史莱姆", items[0].name)
+        assertEquals("第 12 章 魔王降临", items[0].latestName)
+        assertEquals("99887", items[0].latestCid)
+    }
+
+    @Test
+    fun parseBookcase_toleratesEntityEscapedAmpersandInHref() {
+        // 站点实际输出过 `&amp;`；不解码就会拆出 `amp;bid` 这个键，整页书架静默变空。
+        val html = """
+            <a href="/modules/article/readbookcase.php?aid=42&amp;bid=777">书名</a>
+        """.trimIndent()
+
+        val items = Parsers.parseBookcase(html)
+
+        assertEquals(1, items.size)
+        assertEquals(42, items[0].aid)
+        assertEquals(777, items[0].bid)
+    }
+
+    @Test
+    fun parseBookcase_skipsLinksWithoutBidAndKeepsSiteOrder() {
+        val html = """
+            <a href="/modules/article/readbookcase.php?aid=1">缺 bid，应忽略</a>
+            <a href="/modules/article/readbookcase.php?aid=2&bid=20">乙书</a>
+            <a href="/modules/article/readbookcase.php?aid=3&bid=30">甲书</a>
+        """.trimIndent()
+
+        val items = Parsers.parseBookcase(html)
+
+        // 顺序按页面出现顺序（远端书架本来就是用户自己排的序，不要本地重排）
+        assertEquals(listOf("乙书", "甲书"), items.map { it.name })
+    }
+
+    @Test
+    fun parseBookcase_bookWithoutLatestChapterLeavesItNull() {
+        val html = """
+            <a href="/modules/article/readbookcase.php?aid=5&bid=50">只有书名</a>
+        """.trimIndent()
+
+        val items = Parsers.parseBookcase(html)
+
+        assertEquals(1, items.size)
+        assertEquals(null, items[0].latestName)
+        assertEquals(null, items[0].latestCid)
     }
 }
