@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
@@ -30,6 +33,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -62,6 +66,7 @@ import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.TonalCard
+import com.hoshino.wenku8reader.ui.shelf.ShelfPickerDialog
 
 /**
  * 书架页（主 Tab）。参考 SukiSU-Ultra：折叠大顶栏 + surfaceBright 卡片列表，
@@ -73,11 +78,15 @@ fun BookcasePage(
     onOpenBook: (Int) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenStats: () -> Unit,
+    onOpenShelfManage: () -> Unit,
     vm: BookcaseViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { vm.load() }
+
+    // 长按卡片 → 选择目标书架（多书架开启时才有入口）
+    var movingEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
 
     // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
@@ -85,6 +94,15 @@ fun BookcasePage(
             ExpressiveTopAppBar(
                 title = stringResource(R.string.bookcase_title),
                 actions = {
+                    // 管理书架只属于多书架模式：关闭时顶栏与当前版本逐像素一致
+                    if (ui.multiShelfEnabled) {
+                        IconButton(onClick = onOpenShelfManage) {
+                            Icon(
+                                Icons.Filled.Collections,
+                                contentDescription = stringResource(R.string.bookcase_manage_shelves),
+                            )
+                        }
+                    }
                     IconButton(onClick = onOpenStats) {
                         Icon(Icons.Filled.CalendarMonth, contentDescription = stringResource(R.string.action_stats))
                     }
@@ -119,7 +137,11 @@ fun BookcasePage(
             )
 
             ui.entries.isEmpty() -> ExpressiveEmptyState(
-                title = stringResource(R.string.bookcase_empty_local),
+                // 开启多书架时"当前书架为空"和"本地书架为空"是两件事，文案要分开
+                title = stringResource(
+                    if (ui.multiShelfEnabled) R.string.bookcase_shelf_empty
+                    else R.string.bookcase_empty_local,
+                ),
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 shape = MaterialShapes.Cookie9Sided,
                 modifier = Modifier
@@ -132,6 +154,20 @@ fun BookcasePage(
                     .fillMaxSize()
                     .padding(inner),
             ) {
+                if (ui.multiShelfEnabled) {
+                    item(key = "shelf_switch") {
+                        ShelfSwitcherRow(
+                            shelves = ui.shelves,
+                            selected = ui.selectedShelf,
+                            onSelect = { vm.selectShelf(it) },
+                            modifier = Modifier.padding(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 4.dp,
+                            ),
+                        )
+                    }
+                }
                 item(key = "sort_bar") {
                     // 排序：M3 Expressive SplitButton —— 主按钮选排序方式，尾随按钮切换正/倒序
                     BookcaseSortBar(
@@ -150,11 +186,52 @@ fun BookcasePage(
                     BookcaseCard(
                         entry = entry,
                         onOpenBook = onOpenBook,
+                        onLongPress = { if (ui.multiShelfEnabled) movingEntry = entry },
                         modifier = Modifier.animateItem(),
                     )
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
+        }
+    }
+
+    movingEntry?.let { entry ->
+        ShelfPickerDialog(
+            title = stringResource(R.string.shelf_picker_move_title),
+            shelves = ui.shelves,
+            current = entry.shelf,
+            onDismiss = { movingEntry = null },
+            onPick = { shelf ->
+                movingEntry = null
+                vm.moveToShelf(entry.bookId, shelf)
+            },
+        )
+    }
+}
+
+/**
+ * 书架切换条（Material 版）：FilterChip 横向滚动。
+ *
+ * 用 FilterChip 而不是 SegmentedButton：书架数量不固定且可能很多，
+ * 分段控件在条目变多后会挤成不可读的窄条。
+ */
+@Composable
+private fun ShelfSwitcherRow(
+    shelves: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        shelves.forEach { name ->
+            FilterChip(
+                selected = name == selected,
+                onClick = { onSelect(name) },
+                label = { Text(name) },
+            )
         }
     }
 }
@@ -247,6 +324,7 @@ private fun BookcaseSortBar(
 private fun BookcaseCard(
     entry: BookcaseEntry,
     onOpenBook: (Int) -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     TonalCard(
@@ -254,6 +332,8 @@ private fun BookcaseCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
         onClick = { onOpenBook(entry.bookId) },
+        // 长按 → 移动到其他书架（TonalCard 原生支持，不会与原有点击冲突）
+        onLongClick = onLongPress,
     ) {
         Row(
             Modifier

@@ -73,6 +73,7 @@ import com.hoshino.wenku8reader.ui.settings.AppearanceSettingsPage
 import com.hoshino.wenku8reader.ui.settings.NetworkSettingsPage
 import com.hoshino.wenku8reader.ui.settings.UpdateSettingsPage
 import com.hoshino.wenku8reader.ui.settings.ExperimentalSettingsPage
+import com.hoshino.wenku8reader.ui.shelf.ShelfManageScreen
 import com.hoshino.wenku8reader.ui.settings.StorageSettingsPage
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 import com.hoshino.wenku8reader.ui.toc.TocScreen
@@ -80,6 +81,7 @@ import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import com.hoshino.wenku8reader.ui.components.isMiuixGlassSupported
 import com.hoshino.wenku8reader.ui.miuix.MiuixSettingsPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixShelfManagePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStoragePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixBookcasePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAppearancePage
@@ -243,6 +245,7 @@ fun MainScaffold() {
                         nav.navigate(Routes.search(keyword, byAuthor))
                     },
                     onOpenStats = { nav.navigate(Routes.STATS) { launchSingleTop = true } },
+                    onOpenShelfManage = { nav.navigate(Routes.SHELF_MANAGE) { launchSingleTop = true } },
                     onOpenCustom = { nav.navigate(Routes.SETTINGS_CUSTOM) },
                     onOpenAbout = { nav.navigate(Routes.ABOUT) },
                     onOpenStorageSettings = { nav.navigate(Routes.STORAGE_SETTINGS) },
@@ -342,6 +345,14 @@ fun MainScaffold() {
                     MiuixExperimentalPage(onBack = { nav.popBackStack() })
                 } else {
                     ExperimentalSettingsPage(onBack = { nav.popBackStack() })
+                }
+            }
+            composable(Routes.SHELF_MANAGE) {
+                // 与设置页同一口径：MIUIX 走完全独立的 miuix 实现，只共用 ViewModel
+                if (isMiuixStyle()) {
+                    MiuixShelfManagePage(onBack = { nav.popBackStack() })
+                } else {
+                    ShelfManageScreen(onBack = { nav.popBackStack() })
                 }
             }
             composable(Routes.ABOUT) {
@@ -478,6 +489,7 @@ private fun MainPagerScreen(
     onOpenNetwork: () -> Unit,
     onOpenUpdate: () -> Unit,
     onOpenExperimental: () -> Unit,
+    onOpenShelfManage: () -> Unit,
 ) {
     CompositionLocalProvider(LocalFloatingBarInset provides floatingBarInset) {
     HorizontalPager(
@@ -512,12 +524,14 @@ private fun MainPagerScreen(
                         onOpenBook = onOpenBook,
                         onOpenDownloads = onOpenDownloads,
                         onOpenStats = onOpenStats,
+                        onOpenShelfManage = onOpenShelfManage,
                     )
                 } else {
                     BookcasePage(
                         onOpenBook = onOpenBook,
                         onOpenDownloads = onOpenDownloads,
                         onOpenStats = onOpenStats,
+                        onOpenShelfManage = onOpenShelfManage,
                     )
                 }
             2 ->
