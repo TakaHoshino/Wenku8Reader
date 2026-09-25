@@ -48,7 +48,10 @@
 
 - **安装包**：GitHub Releases 发布（自动化：推送 `main` 后依据 Conventional Commits 自动升级版本、构建并发布，见 [VERSIONING.md](VERSIONING.md)）
 - **本地构建**：`./gradlew :app:assembleDebug`（产物 `app/build/outputs/apk/debug/app-debug.apk`），或用 Android Studio 打开后 **Run ▶**
-- 需要 JDK 17+ 与 Android SDK 34
+- 需要 **JDK 21**（CI 用 21；工具链为 AGP 9.4.1 / Gradle 9.7.1 / Kotlin 2.3.21）与 **Android SDK 37**
+  （`compileSdk = 37`：material3 1.5 要求 ≥35、miuix 0.9.x 的 AAR metadata 要求 37；`targetSdk` 仍为 34，
+  升到 35+ 会强制开启 edge-to-edge 与新的前台行为，属单独一轮改动）
+- 单元测试：`./gradlew :app:testDebugUnitTest`（纯 JVM，无需模拟器；CI 在打包前会先跑一遍）
 
 ## 支持与交流
 

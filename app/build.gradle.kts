@@ -36,6 +36,12 @@ android {
         versionCode = releaseVersionCode
         versionName = releaseVersionName
 
+        // 资源语言裁剪：应用只提供中文（默认 values 即简体）+ 繁体（values-zh-rTW），
+        // 但依赖库（androidx / emoji2 / material3 / miuix）带了几十种语言的字符串，
+        // 实测 resources.arsc 里 2326 条带 config 的条目中 zh 系仅 357 条。
+        // 声明后 aapt2 只保留这三个语言配置，arsc 体积明显下降（英文留作缺失资源的兜底）。
+        resourceConfigurations += listOf("en", "zh", "zh-rTW")
+
         // 体积优化：裁剪原生库 ABI——仅保留真机必需的 arm64-v8a / armeabi-v7a，
         // 以及 x86_64（模拟器）。去掉 32 位 x86（已无真实设备，省约 5.5MB）。
         ndk {
@@ -82,6 +88,17 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        resources {
+            // 死资源：opencc4j（简繁转换）的传递依赖 `com.github.houbb:nlp-common` 带了一套
+            // jieba 分词词典（nlp/word_freq_dict.txt 未压缩 5.29MB，压缩后 1.83MB）。
+            // 实测 dex 里既没有 `nlp/` 字符串也没有 `com/github/houbb/nlp/*` 类——
+            // 代码路径不可达，直接排除。注意 opencc4j 真正使用的 `data/dictionary/*`
+            //（ST/TS 字典，约 0.45MB）必须保留，否则简繁转换会失效。
+            excludes += setOf("nlp/**")
+        }
+    }
 }
 
 // Kotlin 2.2 起 `kotlinOptions` 已弃用，改用类型安全的 compilerOptions（等价配置）
@@ -92,6 +109,10 @@ kotlin {
         // 本项目的 UI 层整体采用该设计语言（组件层已另行注明来源），故在此统一 opt-in，
         // 避免每个页面都要重复一遍注解。升级 material3 时需要按 release notes 复核一次。
         optIn.add("androidx.compose.material3.ExperimentalMaterial3ExpressiveApi")
+        // miuix 的 ScrollBar 同样标注为实验 API（MiuixBookLists / MiuixExplorePage /
+        // MiuixStatsPage / MiuixTocPage 共 10 处调用）。集中 opt-in 的理由同上：
+        // 逐个加注解只是噪声；影响面也限于"长列表右侧滚动条"这一处观感。
+        optIn.add("top.yukonga.miuix.kmp.interfaces.ExperimentalScrollBarApi")
     }
 }
 
