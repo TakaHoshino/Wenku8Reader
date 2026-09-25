@@ -162,7 +162,7 @@ Wenku8Reader/
 - **设置（DataStore）**：`ReaderSettings` 仍是**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题、阅读器与设置页。存储改为 `files/datastore/settings.preferences_pb`，键名与旧 `settings.xml` **完全同名**，首次运行把旧值搬进来并置 `migrated_from_prefs` 标记（旧文件保留作降级兜底，置位后不再读）。对外仍**同步可读**：`Application.onCreate` 里同步读一次首值，避免启动瞬间按默认值渲染出"设置被重置"的闪烁；写入立即更新内存、再经 conflated 通道按顺序合并落盘（Slider 拖动时不会后写先落）。`hapticsStrength`/`cacheMaxMb` 读取时夹紧；逐字段编解码有单测（`ReaderSettingsCodecTest`）。应用内语言由 `MainActivity.attachBaseContext` 经应用级静态引用读取——那个时点 `activity.application` 尚未赋值。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
 - **其余偏好（SharedPreferences）**：`AppPreferences`（prefs：`ui`）只剩书架排序与更新检查节流/跳过版本，**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
-- `DefaultAccount`：**内置共享账号，本应用唯一且全程使用的账号**——不提供登录/退出/切换入口，首启与切换镜像时静默登录。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录）。
+- `DefaultAccount`：**内置共享账号**，未登录用户全程用它访问站点（首启静默登录，任何"回落"都回到它）。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录），**不保存任何用户密码**。账户登录（实验性，见 §4.11）开启后用户可以登录自己的 wenku8 账户；"用户已登录"的判据是**激活账户标记 + 会话 Cookie**两者同时成立，登出即回落内置账号。
 
 ### 4.6.1 多书架（实验性，2026-09）
 
@@ -251,6 +251,58 @@ Wenku8Reader/
 - ⚠️ **不要**在更新下载进行中删 `cacheDir/updates`：文件句柄仍指向它，删掉会让"下载成功"却写出一个已被删除的文件（`clearCacheDir(preserveUpdatePackage = true)` 已处理）。
 - 内存缓存（`TimedCache`）本就有 LRU 上限（info 128 / toc 32 / chapter 64），不在系统存储统计口径内。
 
+### 4.11 账户登录与网站书架（实验性，2026-09）
+
+- **定位**：`ReaderSettingsState.accountLoginEnabled`（DataStore 键 `account_login_enabled`，**默认 false**）
+  位于设置 → 实验性，Material 与 MIUIX 各一个。关闭时账户分区与引入前**逐像素一致**（只读说明行、
+  不可点击、书架切换条没有「Wenku8书架」），登录态数据保留，重新开启即恢复。
+- **前置依赖多书架**：多书架未开时打开本开关会先弹确认框（确认 → 两者同开；取消 → 本开关保持关闭）；
+  多书架被关掉时本开关**联动关闭**。规则由 `data/local/AccountOps.kt` 的纯函数表达
+  （`accountSwitchAction` / `accountEnabledAfterShelfChange` / `wenku8ShelfVisible`，`AccountOpsTest` 覆盖），
+  联动只写在 `SettingsViewModel` 一处——两套 UI 的开关都经它，没有第二份需要同步的规则。
+- **「用户已登录」的判据**：`activeUsername != null && client.hasSession()`。
+  ⚠️ **不能只看 `hasSession()`**：内置账号登录后同样有会话 Cookie，只看 Cookie 会把"内置账号"误判成
+  "用户已登录"，进而显示出别人的网站书架。
+  `data/local/AccountStore.kt`（DataStore 文件 `account`）只存两个用户名：`active_username`
+  （当前激活账户，缺失 = 内置账号）与 `last_username`（登录页预填），**不存密码**。
+  它独立于 `ReaderSettings` 是刻意的：那是"设置"，这是"身份"——登出与会话失效都要清它，
+  生命周期和设置不同，混在一起会让"关掉开关"顺手把登录态也带走了。
+- **登出语义 = 回落内置账号**：`AccountViewModel.logout()` 依次
+  `clearCookies()` → `setActive(null)` → `ensureLoggedIn()`，之后阅读/探索**无感续用**，
+  只是网站书架消失、账户摘要回到「点击登录」。
+  **顺序不可颠倒**：任何"回落到内置账号"的路径都先清激活标记（`Wenku8Client(onUserSessionLost = …)`），
+  否则会出现"标记说用户已登录、会话其实是内置账号"的错位状态。
+- **会话过期**：`bookcase()` 补了 `ensureLoggedIn()`（此前漏了，未登录会静默返回空书架），
+  且页面被重定向到登录页时抛 `SessionExpiredException`；UI 侧视为未登录 → 回落内置账号、
+  账户页提示重新登录。启动 `silentLogin()` 走 `ensureLoggedIn()`：**有会话就直接返回**，
+  不会顶掉用户会话（优先级：已有会话 > 用户账户 > 内置账号）。
+- **切镜像 `setPrimaryMirror`**：当前是用户账户时先弹确认框（说明"会退出该账户"），
+  确认后清激活标记 → 切域 → 用内置账号重新登录；内置账号路径行为与原来一致，不加任何确认步骤。
+- **网站书架（虚拟书架）**：`data/Wenku8Shelf.kt`（容器级单例，**不落库**——它本来就是远端镜像，
+  持久化只会带来"本地副本与站点不一致"）。展示条件 = 账户开关 + 多书架开关 + 用户账户已登录，
+  作为书架切换条末尾的「Wenku8书架」出现，**不可重命名/删除**（复用 `isShelfDeletable` 一类的保护）。
+  站点书架不返回封面/作者/字数，也没有本地进度：卡片标题 = 书名、副标题 = 最新章，其余字段留空由卡片省略；
+  **绝不为每本书并发拉 `bookInfo`**（请求风暴）；**排序沿用站点顺序，不套本地排序**。
+  刷新是容器级互斥的（`refreshMutex`），手动刷新与"增删后的确认刷新"不会互相覆盖，也不会产生突发请求。
+- **站方增删接口（Phase 0 实测确认）**：仓库原先只有读取端，增删端点靠抓 `bookcase.php` 页面确认。
+
+  | 操作 | 端点 | 备注 |
+  |---|---|---|
+  | 加入 | `GET /modules/article/addbookcase.php?bid=<书 id>` | 即时生效（书架 3→4 实测通过） |
+  | 移出 | `GET /modules/article/bookcase.php?delid=<书架记录 id>` | 单条；批量可走 `POST bookcase.php`（`checkid[]` / `newclassid=-1` / `clsssid`），未采用 |
+
+  ⚠️ **aid ≠ bid**：`/book/{aid}.htm` 与本地 `bookId` 是**书 id**，而
+  `readbookcase.php?aid=…&bid=…` 里的 `bid` 是**书架记录 id**，移出必须用 `bid`
+  （实测同一本书 `aid=2896` / `bid=12786589`）。所以 `BookcaseItem` 两个都保留（§4.1），
+  移出时由 ViewModel 把卡片上的 bookId 换算成 bid，UI 层不接触站点细节。
+  站点不返回可靠的成败信息，`Wenku8Shelf.add/remove` 一律**以刷新结果为准**。
+- **两套书架状态是独立的**：站方书架与本地收藏（五角星 / 自建书架）**互不影响、互不同步**，
+  交互上也分开表达（详情页五角星 = 本地收藏，书架图标 = 网站书架）。不要为"看起来一致"去写 `LibraryStore`。
+- **纯逻辑与单测**：`AccountOps`（开关状态机 / 依赖联动 / 网站书架展示条件）、
+  `Wenku8Shelf.State`（按书 id 判归属，`Wenku8ShelfStateTest`）、
+  `BookcaseItem → BookcaseEntry` 字段映射（`SiteShelfEntryTest`）、
+  `parseBookcase` 的 aid/bid/最新章解析（`ParsersTest`）都有单测。
+
 ---
 
 ## 5. UI 层
@@ -266,7 +318,7 @@ Wenku8Reader/
 - **弹簧动画**：底栏点击走 `MainPagerState.animateToPage()`（`ui/components/PagerNavigation.kt`），动画取自 `MaterialTheme.motionScheme.defaultSpatialSpec()`（Expressive 主题下为弹性空间动效，标准主题下自动退化）；手动滑动由 `syncPage()` 同步选中态。
 - **底栏**：`NavigationBar`（containerColor = `surfaceContainer`），选中/未选中用 Filled/Outlined 图标对。
 - **返回键**：非首个 Tab 时 `BackHandler` 先回首页 Tab，再回退导航栈。
-- 子页路由（`detail/{id}`、`reader/{id}?cid=`、`tag/{tag}`、`author/{name}`、`toc/{id}`、`stats`、`downloads`、`settings/custom`、`about`）走 NavHost（淡入 + 侧滑过渡），自带顶栏、无底栏；阅读器自绘 chrome。
+- 子页路由（`detail/{id}`、`reader/{id}?cid=`、`tag/{tag}`、`author/{name}`、`toc/{id}`、`search?keyword=&byAuthor=`、`stats`、`downloads`、`settings/custom`、`settings/storage`、`settings/*` 分类页、`settings/account`（账户登录，实验性）、`shelf/manage`（多书架管理）、`about`）走 NavHost（淡入 + 侧滑过渡），自带顶栏、无底栏；阅读器自绘 chrome。
 - 每个 Tab 页自带 `ExpressiveScaffold` + 顶栏（主 Tab 用静态 64dp `ExpressiveTopAppBar`，已去掉折叠大顶栏以消除滚动逐帧布局级联；子页统一用 Expressive Flexible 版 `ExpressiveLargeTopAppBar`，可带副标题并在滚动时收起），顶栏右侧下载图标进 `downloads`。
 
 ### 5.3 各页面（统一 M3 Expressive：surfaceContainer 背景 + surfaceBright 卡片 + 大圆角/弹性动效）
@@ -275,7 +327,7 @@ Wenku8Reader/
 - `DetailScreen/ViewModel`：Flexible 大顶栏（副标题=作者）+ 封面信息卡（标签用 StatusTag 药丸）+ 56dp 高强调阅读主按钮 + tonal 目录按钮 + 离线下载卡（TXT/EPUB + 波浪进度）+ 简介卡。
 - `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计与下载入口。
 - `DownloadsScreen/ViewModel`：Flexible 大顶栏 + 下载任务卡列表（进行中用 `ActiveProgressBar` 波浪进度、完成/失败为文本），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号 / **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **实验性**（UI 风格：Material 3 Expressive ↔ MIUIX，见 §5.6）/ **网络**（主站域名镜像切换，切换后自动清 Cookie 并重登）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号（账户登录开启后：摘要随登录态变化、可点击进 `settings/account`；关闭时是引入前的只读说明行，见 §4.11）/ **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **实验性**（UI 风格：Material 3 Expressive ↔ MIUIX（§5.6）、多书架（§4.6.1）、账户登录（§4.11））/ **网络**（主站域名镜像切换；切域会退出用户账户并回落内置账号）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
 - `StorageSettingsPage`（`ui/settings/StorageSettingsScreen.kt`，路由 `settings/storage`）：存储设置二级页——占用合计（与系统设置同口径）/ 按类型清理（图片、更新包、WebView 与临时文件）/ 网页缓存分类明细 / 过期阅读记录清理 / 缓存上限；清理结果以 Toast 回报（`CacheActionResult`）。主设置页因此不再被十余行缓存明细撑长，且这是低频操作。
 - `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
@@ -449,6 +501,8 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - 无自动化测试；分页算法 `paginateChapter` 是纯函数，适合补单测（当前无 test 源集）。
 - 未做：日/周排行榜、书单、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
   （**多书架分组已实现**，见 §4.6.1；实验性开关默认关闭。）
+- 账户侧仍可继续做的方向：收藏站点书架的**分组**（`clsssid`）、把站方书架整批导入本地、
+  以及"内置账号"相关的运维整理（内置凭据目前仍是硬编码常量）。
 
 ### 7.7 2026-09 功能增强（dev 分支开发，fast-forward 合并回 master）
 - **阅读热力图**（`ui/stats/`，书架顶栏日历图标入口）：GitHub 风格周列矩阵 + 时间尺度切换（本周/本月/本年/全部）+ 汇总卡（累计/本周/连续天数/日均）+ 当日详情卡 + 工作日绿/周末蓝双色阶 + 图例（参考 LNR）。
@@ -457,6 +511,10 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - **标签分页**：`tagBooks(tag, page)`，「查看全部」逐页加载该标签全部书籍（去重 + 空页停止）。
 - **全局点击振动**（§5.4 `HapticIndication`）：设置页「外观」新增「触觉反馈」开关 + 振动强度滑动条（0-100 → Vibrator 幅度 1-255）。
 - **CI**：dev 分支独立构建工作流（仅构建、不发布）；语义版本解析**必须用内联 run 步骤**（composite action 输出在本环境失效，曾导致 tag 变 `v`——见 VERSIONING.md §8 教训）；versionCode 为「`2_030_000_000` + 自 2026-01-01 起的分钟数」（跨工作流单调递增、分钟粒度）。
+- **账户登录与网站书架**（§4.11，实验性，依赖多书架）：`AccountStore` 只记激活/上次用户名（**不存密码**）、
+  `Wenku8Client` 增 `onUserSessionLost` 回落钩子与站方书架增删（`addbookcase.php` / `bookcase.php?delid=`）、
+  两套账户二级页 + 设置页账户摘要联动、书架切换条末尾的「Wenku8书架」虚拟书架、
+  详情页「网站书架」图标（加入/移出）。
 
 ---
 
