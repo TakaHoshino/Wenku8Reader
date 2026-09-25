@@ -19,6 +19,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+// 相对亮度统一用 androidx 的实现（线性空间），与 MainScaffold 里底栏的亮度判断同一口径；
+// 之前这里有一份自研的 sRGB 加权版本，两套算法在深浅临界值附近会给出不同结论。
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
@@ -351,9 +354,6 @@ private fun manualScheme(seed: Color, dark: Boolean, amoled: Boolean): ColorSche
         )
     }
 }
-
-private fun Color.luminance(): Float =
-    red * 0.299f + green * 0.587f + blue * 0.114f
 
 private fun Color.blend(target: Color, ratio: Float): Color = Color(
     red = red + (target.red - red) * ratio,

@@ -183,6 +183,9 @@ fun ReaderImagePreview(
             onConfirm = {
                 saving = true
                 scope.launch {
+                    // 刻意走网络取**原始字节**而不是复用预览已解码的 Bitmap：
+                    // 位图重新编码（JPEG 有损）会改变文件内容，"保存图片"应当与站点原图逐字节一致。
+                    // 代价是保存时多一次请求——它由用户显式触发、一张图一次，可以接受。
                     val bytes = runCatching { context.appContainer.client.imageBytes(url) }.getOrNull()
                     val saved = bytes?.let {
                         FileSaver.saveDownload(

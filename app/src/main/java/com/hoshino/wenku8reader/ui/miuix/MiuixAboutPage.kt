@@ -50,7 +50,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun MiuixAboutPage(
     onBack: () -> Unit,
-    vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
@@ -161,7 +160,4 @@ fun MiuixAboutPage(
             Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
         }
     }
-    // vm 目前未用到（关于页无设置项），保留参数以便后续加"检查更新"入口
-    @Suppress("UNUSED_EXPRESSION")
-    vm
 }

@@ -1,6 +1,5 @@
 package com.hoshino.wenku8reader.ui.miuix
 
-import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -31,13 +30,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.common.CacheCategory
+import com.hoshino.wenku8reader.ui.common.formatByteSize
 import com.hoshino.wenku8reader.ui.settings.CacheActionResult
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
-import java.util.Locale
 
 /**
  * MIUIX 存储设置页——与 Material 版（`ui/settings/StorageSettingsScreen.kt`）**完全独立**：
@@ -68,7 +68,7 @@ fun MiuixStoragePage(
 
                 else ->
                     if (result.freedSomething) {
-                        context.getString(R.string.settings_cache_freed, formatSize(result.freedBytes))
+                        context.getString(R.string.settings_cache_freed, formatByteSize(result.freedBytes))
                     } else {
                         context.getString(R.string.settings_cache_nothing)
                     }
@@ -94,20 +94,20 @@ fun MiuixStoragePage(
             ) {
                 MiuixRow(
                     title = stringResource(R.string.settings_cache_total_cache),
-                    summary = formatSize(stats.cacheDirTotal) + " · " +
+                    summary = formatByteSize(stats.cacheDirTotal) + " · " +
                         stringResource(R.string.settings_cache_total_cache_desc),
                     icon = Icons.Filled.Storage,
                 )
                 MiuixRowDivider()
                 MiuixRow(
                     title = stringResource(R.string.settings_cache_total_data),
-                    summary = formatSize(stats.dataDirTotal) + " · " +
+                    summary = formatByteSize(stats.dataDirTotal) + " · " +
                         stringResource(R.string.settings_cache_total_data_desc),
                 )
                 MiuixRowDivider()
                 MiuixRow(
                     title = stringResource(R.string.settings_cache_code_cache),
-                    summary = formatSize(stats.codeCache) + " · " +
+                    summary = formatByteSize(stats.codeCache) + " · " +
                         stringResource(R.string.settings_cache_code_cache_desc),
                 )
             }
@@ -119,7 +119,7 @@ fun MiuixStoragePage(
             ) {
                 MiuixClearRow(
                     title = stringResource(R.string.settings_cache_images),
-                    summary = formatSize(stats.imageCache) + " · " +
+                    summary = formatByteSize(stats.imageCache) + " · " +
                         stringResource(R.string.settings_cache_images_desc),
                     icon = Icons.Filled.Image,
                     onClear = vm::clearImageCache,
@@ -127,7 +127,7 @@ fun MiuixStoragePage(
                 MiuixRowDivider()
                 MiuixClearRow(
                     title = stringResource(R.string.settings_cache_updates),
-                    summary = formatSize(stats.updatePackage) + " · " +
+                    summary = formatByteSize(stats.updatePackage) + " · " +
                         stringResource(R.string.settings_cache_updates_desc),
                     icon = Icons.Filled.SystemUpdate,
                     onClear = vm::clearUpdatePackages,
@@ -135,7 +135,7 @@ fun MiuixStoragePage(
                 MiuixRowDivider()
                 MiuixClearRow(
                     title = stringResource(R.string.settings_cache_other_title),
-                    summary = formatSize(stats.webViewCache + stats.tempFiles + stats.otherCache) + " · " +
+                    summary = formatByteSize(stats.webViewCache + stats.tempFiles + stats.otherCache) + " · " +
                         stringResource(R.string.settings_cache_other_desc),
                     icon = Icons.Filled.Public,
                     onClear = vm::clearOtherCaches,
@@ -158,7 +158,7 @@ fun MiuixStoragePage(
                     title = stringResource(R.string.settings_cache_size),
                     summary = stringResource(
                         R.string.settings_cache_size_summary,
-                        formatSize(stats.htmlCache),
+                        formatByteSize(stats.htmlCache),
                         rs.cacheMaxMb,
                     ),
                 )
@@ -176,7 +176,7 @@ fun MiuixStoragePage(
                     MiuixRowDivider()
                     MiuixClearRow(
                         title = stringResource(category.labelRes),
-                        summary = formatSize(cacheSizes[category.key] ?: 0L),
+                        summary = formatByteSize(cacheSizes[category.key] ?: 0L),
                         onClear = { vm.clearCache(category.key) },
                     )
                 }
@@ -189,7 +189,7 @@ fun MiuixStoragePage(
             ) {
                 MiuixRow(
                     title = stringResource(R.string.settings_cache_reading_data),
-                    summary = formatSize(stats.preferences) + " · " +
+                    summary = formatByteSize(stats.preferences) + " · " +
                         stringResource(R.string.settings_cache_reading_data_desc),
                 )
                 MiuixRowDivider()
@@ -293,28 +293,4 @@ private fun MiuixDialogButtons(
             modifier = Modifier.fillMaxSize().height(44.dp),
         ) { Text(dismissText) }
     }
-}
-
-/**
- * 磁盘缓存类别：`key` 必须与 `HtmlDiskCache` 的文件名前缀一致
- * （`{category}_{md5}.html`，见 `HtmlDiskCache.put`）。
- */
-private enum class CacheCategory(val key: String, @StringRes val labelRes: Int) {
-    HOME("home", R.string.settings_cache_home),
-    BOOK("book", R.string.settings_cache_book),
-    CHAPTER("chapter", R.string.settings_cache_chapter),
-    TAG("tag", R.string.settings_cache_tag),
-    OTHER("other", R.string.settings_cache_other),
-    LEGACY("legacy", R.string.settings_cache_legacy),
-}
-
-/** 人类可读的文件大小（与 Material 版一致的实现，数字固定 Locale.US）。 */
-private fun formatSize(bytes: Long): String = when {
-    bytes >= 1024L * 1024 * 1024 ->
-        "%.1f GB".format(Locale.US, bytes / (1024f * 1024 * 1024))
-    bytes >= 1024L * 1024 ->
-        "%.1f MB".format(Locale.US, bytes / (1024f * 1024))
-    bytes >= 1024L ->
-        "%.0f KB".format(Locale.US, bytes / 1024f)
-    else -> "$bytes B"
 }

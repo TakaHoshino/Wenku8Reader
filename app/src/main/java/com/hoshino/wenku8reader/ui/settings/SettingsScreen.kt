@@ -144,7 +144,6 @@ fun SettingsPage(
             // 账号（说明性） + 各分类入口
             AccountSection()
             CategoryEntriesSection(
-                rs = rs,
                 version = version,
                 onOpenAppearance = onOpenAppearance,
                 onOpenReading = onOpenReading,
@@ -175,7 +174,6 @@ fun SettingsPage(
  */
 @Composable
 private fun CategoryEntriesSection(
-    rs: ReaderSettingsState,
     version: String?,
     onOpenAppearance: () -> Unit,
     onOpenReading: () -> Unit,
@@ -246,9 +244,6 @@ private fun CategoryEntriesSection(
             },
         ),
     )
-    // rs 目前只用于"动态取色是否开启"的说明位；保留参数以便后续在入口行显示状态
-    @Suppress("UNUSED_EXPRESSION")
-    rs
 }
 
 @Composable
@@ -646,50 +641,6 @@ private fun UpdateSection(
     )
 }
 
-/** 阅读设置分组：进入阅读器自定义页。 */
-@Composable
-private fun ReadingSection(onOpenCustom: () -> Unit) {
-    SegmentedColumn(
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-        title = stringResource(R.string.settings_section_reading),
-        items = listOf {
-            SegmentedListItem(
-                onClick = onOpenCustom,
-                leadingContent = { Icon(Icons.Filled.Tune, contentDescription = null) },
-                headlineContent = { Text(stringResource(R.string.settings_custom)) },
-                supportingContent = { Text(stringResource(R.string.settings_custom_desc)) },
-                trailingContent = {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                },
-            )
-        },
-    )
-}
-
-/** 关于分组：应用信息与版本。 */
-@Composable
-private fun AboutSection(
-    onOpenAbout: () -> Unit,
-    version: String?,
-) {
-    SegmentedColumn(
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
-        title = stringResource(R.string.settings_section_about),
-        items = listOf {
-            SegmentedListItem(
-                onClick = onOpenAbout,
-                leadingContent = { Icon(Icons.Filled.Info, contentDescription = null) },
-                headlineContent = { Text(stringResource(R.string.app_name)) },
-                supportingContent = { Text(stringResource(R.string.settings_version, version ?: "-")) },
-                trailingContent = {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                },
-            )
-        },
-    )
-}
-
-// ------------------------------------------------------------------ //
 // 分类二级页（PiliPlus 模式）
 // ------------------------------------------------------------------ //
 

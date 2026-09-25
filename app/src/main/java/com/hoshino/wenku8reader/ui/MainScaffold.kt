@@ -143,6 +143,8 @@ import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.NavigationBar as MiuixNavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem as MiuixNavigationBarItem
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 
 private data class TabDest(
@@ -183,10 +185,19 @@ fun MainScaffold() {
     // 启动时按设置检查更新（静默，有新版本才弹窗）
     val appContext = LocalContext.current.applicationContext as Wenku8Application
     val container = appContext.container
-    // 底栏形态与液态玻璃来自设置（仅 MIUIX 风格生效）
-    val appSettings by container.readerSettings.flow.collectAsStateWithLifecycle()
-    val floatingBar = isMiuixStyle() && appSettings.floatingBottomBar
-    val glassEnabled = floatingBar && appSettings.bottomBarGlass && isMiuixGlassSupported
+    // 底栏形态与液态玻璃来自设置（仅 MIUIX 风格生效）。
+    // 这里刻意**只订阅需要的两个布尔**：原来直接 collect 整份 ReaderSettingsState，
+    // 于是阅读器里拖一次字号滑杆（走同一个 StateFlow）也会让整个 Scaffold + NavHost 重组。
+    // map + distinctUntilChanged 之后，只有这两个开关变化才会触发重组。
+    val barStyle by remember(container) {
+        container.readerSettings.flow
+            .map { it.floatingBottomBar to it.bottomBarGlass }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = container.readerSettings.flow.value.let {
+        it.floatingBottomBar to it.bottomBarGlass
+    })
+    val floatingBar = isMiuixStyle() && barStyle.first
+    val glassEnabled = floatingBar && barStyle.second && isMiuixGlassSupported
     // 悬浮胶囊现在浮在手势条之上（底栏自己加了 navigationBarsPadding），
     // 因此滚动内容的底部余量要把系统导航栏高度一并算进去，最后一项才不会被压住。
     val navigationBarsBottom = WindowInsets.navigationBars

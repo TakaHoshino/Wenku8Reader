@@ -15,6 +15,18 @@ class Wenku8Application : Application() {
         silentLogin()
     }
 
+    /**
+     * 进程结束时释放网络资源（Cronet 引擎）。
+     *
+     * 注意：`onTerminate` 在真机上**不会被调用**（只有在模拟器等调试环境才会），
+     * 所以这只是"把释放动作接在该接的地方"——真机上 Cronet 随进程回收，无需额外处理。
+     * 这样 [com.hoshino.wenku8reader.data.Wenku8Client.close] 不再是无人调用的死代码。
+     */
+    override fun onTerminate() {
+        container.client.close()
+        super.onTerminate()
+    }
+
     /** Signs in with the built-in default account so content works without any login UI. */
     private fun silentLogin() {
         // 从容器统一启动：后台任务与下载/更新共用同一个应用级作用域（见 AppContainer.launchIo）

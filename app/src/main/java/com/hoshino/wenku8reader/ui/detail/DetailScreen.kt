@@ -300,14 +300,18 @@ fun DetailScreen(
                                     val j = job
                                     Spacer(Modifier.height(12.dp))
                                     when (j?.status) {
+                                        // 进入分支后 j 已被智能转换为非空，分支内不再写 `?.`
                                         JobStatus.RUNNING -> {
                                             ActiveProgressBar(
-                                                progress = { j?.progress ?: 0f },
+                                                progress = { j.progress },
                                                 modifier = Modifier.fillMaxWidth(),
                                             )
                                             Spacer(Modifier.height(4.dp))
                                             Text(
-                                                stringResource(R.string.detail_downloading, ((j?.progress ?: 0f) * 100).toInt()),
+                                                stringResource(
+                                                    R.string.detail_downloading,
+                                                    (j.progress * 100).toInt(),
+                                                ),
                                                 style = MaterialTheme.typography.bodySmall,
                                             )
                                         }
@@ -315,9 +319,16 @@ fun DetailScreen(
                                             style = MaterialTheme.typography.bodySmall)
                                         JobStatus.DONE -> AssistChip(
                                             onClick = {},
-                                            label = { Text(stringResource(R.string.detail_saved, j?.filePath ?: "完成")) },
+                                            label = {
+                                                Text(
+                                                    stringResource(
+                                                        R.string.detail_saved,
+                                                        j.filePath ?: "完成",
+                                                    ),
+                                                )
+                                            },
                                         )
-                                        JobStatus.FAILED -> Text(stringResource(R.string.detail_failed, j?.error ?: "-"),
+                                        JobStatus.FAILED -> Text(stringResource(R.string.detail_failed, j.error ?: "-"),
                                             color = MaterialTheme.colorScheme.error,
                                             style = MaterialTheme.typography.bodySmall)
                                         JobStatus.CANCELLED -> Text(stringResource(R.string.detail_cancelled),

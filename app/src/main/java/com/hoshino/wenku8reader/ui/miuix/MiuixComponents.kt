@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.common.CoverImage
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -107,7 +109,8 @@ fun MiuixSubPage(
                 navigationIcon = {
                     MiuixIconButton(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
+                        // 与 Material 侧一致走资源：zh-TW 下「返回」应为「返回」以外的本地化文案
+                        contentDescription = stringResource(R.string.action_back),
                         onClick = onBack,
                     )
                 },
@@ -482,12 +485,6 @@ fun MiuixEmptyState(
         }
     }
 }
-
-/**
- * 页面内容的统一外边距（HyperOS 设置页的左右 16dp + 底部留白）。
- * 注意：不用 `WindowInsets.safeDrawing`——miuix 顶栏/底栏自带 windowInsets padding。
- */
-val MiuixPagePadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp)
 
 /**
  * 悬浮底栏覆盖在内容之上时，页面**滚动内容**需要预留的底部余量。

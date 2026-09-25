@@ -114,9 +114,6 @@ class Wenku8Client(
      */
     private val webViewMutex = Mutex()
 
-    var username: String? = null
-        private set
-
     companion object {
         /** 默认主站镜像（单一来源：[Wenku8Hosts]）。 */
         private const val DEFAULT_BASE = Wenku8Hosts.DEFAULT_BASE
@@ -478,7 +475,6 @@ class Wenku8Client(
         // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
         val ok = hasSession()
         if (ok) {
-            username = user
             cookieStore.persist()
         }
         ok

@@ -1,6 +1,5 @@
 package com.hoshino.wenku8reader.ui.settings
 
-import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -44,13 +43,14 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.common.CacheCategory
+import com.hoshino.wenku8reader.ui.common.formatByteSize
 import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
-import java.util.Locale
 
 /**
  * 存储设置二级页：占用合计（与系统设置同口径）、按类型清理、过期阅读记录、缓存上限。
@@ -82,7 +82,7 @@ fun StorageSettingsPage(
 
                 else ->
                     if (result.freedSomething) {
-                        context.getString(R.string.settings_cache_freed, formatSize(result.freedBytes))
+                        context.getString(R.string.settings_cache_freed, formatByteSize(result.freedBytes))
                     } else {
                         context.getString(R.string.settings_cache_nothing)
                     }
@@ -129,18 +129,6 @@ fun StorageSettingsPage(
     }
 }
 
-/**
- * 磁盘缓存类别：`key` 必须与 `HtmlDiskCache` 的文件名前缀一致（`{category}_{md5}.html`，
- * 见 `HtmlDiskCache.put`），类别名集中在此定义，避免魔法字符串散落在统计展示与清理两处。
- */
-private enum class CacheCategory(val key: String, @StringRes val labelRes: Int) {
-    HOME("home", R.string.settings_cache_home),
-    BOOK("book", R.string.settings_cache_book),
-    CHAPTER("chapter", R.string.settings_cache_chapter),
-    TAG("tag", R.string.settings_cache_tag),
-    OTHER("other", R.string.settings_cache_other),
-    LEGACY("legacy", R.string.settings_cache_legacy),
-}
 
 /**
  * 缓存与存储管理分组。
@@ -173,7 +161,7 @@ private fun StorageSettingsContent(
                     headlineContent = { Text(stringResource(R.string.settings_cache_total_cache)) },
                     supportingContent = {
                         Text(
-                            formatSize(stats.cacheDirTotal) + " · " +
+                            formatByteSize(stats.cacheDirTotal) + " · " +
                                 stringResource(R.string.settings_cache_total_cache_desc),
                         )
                     },
@@ -184,7 +172,7 @@ private fun StorageSettingsContent(
                     headlineContent = { Text(stringResource(R.string.settings_cache_total_data)) },
                     supportingContent = {
                         Text(
-                            formatSize(stats.dataDirTotal) + " · " +
+                            formatByteSize(stats.dataDirTotal) + " · " +
                                 stringResource(R.string.settings_cache_total_data_desc),
                         )
                     },
@@ -195,7 +183,7 @@ private fun StorageSettingsContent(
                     headlineContent = { Text(stringResource(R.string.settings_cache_code_cache)) },
                     supportingContent = {
                         Text(
-                            formatSize(stats.codeCache) + " · " +
+                            formatByteSize(stats.codeCache) + " · " +
                                 stringResource(R.string.settings_cache_code_cache_desc),
                         )
                     },
@@ -215,7 +203,7 @@ private fun StorageSettingsContent(
                     headlineContent = { Text(stringResource(R.string.settings_cache_images)) },
                     supportingContent = {
                         Text(
-                            formatSize(stats.imageCache) + " · " +
+                            formatByteSize(stats.imageCache) + " · " +
                                 stringResource(R.string.settings_cache_images_desc),
                         )
                     },
@@ -232,7 +220,7 @@ private fun StorageSettingsContent(
                     headlineContent = { Text(stringResource(R.string.settings_cache_updates)) },
                     supportingContent = {
                         Text(
-                            formatSize(stats.updatePackage) + " · " +
+                            formatByteSize(stats.updatePackage) + " · " +
                                 stringResource(R.string.settings_cache_updates_desc),
                         )
                     },
@@ -249,7 +237,7 @@ private fun StorageSettingsContent(
                     headlineContent = { Text(stringResource(R.string.settings_cache_other_title)) },
                     supportingContent = {
                         Text(
-                            formatSize(stats.webViewCache + stats.tempFiles + stats.otherCache) + " · " +
+                            formatByteSize(stats.webViewCache + stats.tempFiles + stats.otherCache) + " · " +
                                 stringResource(R.string.settings_cache_other_desc),
                         )
                     },
@@ -266,7 +254,7 @@ private fun StorageSettingsContent(
                     headlineContent = { Text(stringResource(R.string.settings_cache_reading_data)) },
                     supportingContent = {
                         Text(
-                            formatSize(stats.preferences) + " · " +
+                            formatByteSize(stats.preferences) + " · " +
                                 stringResource(R.string.settings_cache_reading_data_desc),
                         )
                     },
@@ -323,7 +311,7 @@ private fun StorageSettingsContent(
                 add {
                     SegmentedListItem(
                         headlineContent = { Text(stringResource(category.labelRes)) },
-                        supportingContent = { Text(formatSize(cacheSizes[category.key] ?: 0L)) },
+                        supportingContent = { Text(formatByteSize(cacheSizes[category.key] ?: 0L)) },
                         trailingContent = {
                             TextButton(onClick = { vm.clearCache(category.key) }) {
                                 Text(stringResource(R.string.settings_cache_clear))
@@ -336,7 +324,7 @@ private fun StorageSettingsContent(
                 SegmentedListItem(
                     headlineContent = { Text(stringResource(R.string.settings_cache_size)) },
                     supportingContent = {
-                        Text(stringResource(R.string.settings_cache_size_summary, formatSize(stats.htmlCache), rs.cacheMaxMb))
+                        Text(stringResource(R.string.settings_cache_size_summary, formatByteSize(stats.htmlCache), rs.cacheMaxMb))
                     },
                     trailingContent = {
                         TextButton(onClick = { vm.clearCache(null) }) {
@@ -398,22 +386,3 @@ private fun StorageSettingsContent(
     }
 }
 
-// ------------------------------------------------------------------ //
-// helpers
-// ------------------------------------------------------------------ //
-
-/**
- * 人类可读的文件大小：B / KB / MB / GB。
- *
- * 数字格式显式固定 [Locale.US]：`ar`/`fa` 等区域的默认 Locale 会输出本地化数字字符，
- * 既不符合这里的展示语义（与 MB/GB 单位混排），也让同一份缓存大小在不同语言下形态不一致。
- */
-private fun formatSize(bytes: Long): String = when {
-    bytes >= 1024L * 1024 * 1024 ->
-        "%.1f GB".format(Locale.US, bytes / (1024f * 1024 * 1024))
-    bytes >= 1024L * 1024 ->
-        "%.1f MB".format(Locale.US, bytes / (1024f * 1024))
-    bytes >= 1024L ->
-        "%.0f KB".format(Locale.US, bytes / 1024f)
-    else -> "$bytes B"
-}

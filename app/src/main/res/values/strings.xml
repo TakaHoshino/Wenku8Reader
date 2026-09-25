@@ -20,6 +20,7 @@
     <string name="stats_empty">暂无阅读记录，先去读几页吧～</string>
     <string name="stats_books_title">书籍阅读时长</string>
     <string name="stats_minutes">%1$d 分钟</string>
+    <string name="date_format_ymd">%1$d年%2$d月%3$d日</string>
     <string name="stats_summary_total">累计分钟</string>
     <string name="stats_summary_week">本周分钟</string>
     <string name="stats_summary_streak">连续天数</string>
@@ -184,7 +185,6 @@
     <!-- 设置 -->
     <string name="settings_section_account">账号</string>
     <string name="settings_builtin_account">内置账户</string>
-    <string name="settings_builtin_account_hint">使用内置账户访问内容</string>
     <string name="settings_account_builtin_desc">应用全程使用内置共享账号，无需登录或切换</string>
     <string name="settings_section_appearance">外观</string>
     <string name="settings_section_storage">存储</string>

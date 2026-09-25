@@ -12,7 +12,9 @@ sealed interface UiText {
     data class DynamicString(val value: String) : UiText
 
     class StringResource(
-        @StringRes val resId: Int,
+        // 显式写 @param: 目标：Kotlin 2.x 起该注解也会落到字段，
+        // 显式标注可以避免"未来行为变化"的编译告警，语义也更清楚（注释的是构造参数）。
+        @param:StringRes val resId: Int,
         vararg val args: Any,
     ) : UiText
 

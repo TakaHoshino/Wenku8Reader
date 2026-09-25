@@ -59,7 +59,7 @@ internal fun TagsBody(
         }
 
         ui.tagsError != null -> ExpressiveEmptyState(
-            title = ui.tagsError?.asString(LocalContext.current) ?: "",
+            title = ui.tagsError.asString(LocalContext.current),
             shape = MaterialShapes.Boom,
             error = true,
             actionLabel = stringResource(R.string.action_retry),

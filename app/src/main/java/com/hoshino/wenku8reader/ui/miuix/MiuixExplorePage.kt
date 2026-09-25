@@ -285,7 +285,7 @@ private fun MiuixHomeBody(
         ui.homeError != null && ui.sections.isEmpty() -> MiuixEmptyState(
             title = stringResource(
                 R.string.home_error,
-                ui.homeError?.asString(LocalContext.current) ?: "",
+                ui.homeError.asString(LocalContext.current),
             ),
             error = true,
             icon = Icons.Filled.Refresh,
@@ -426,7 +426,7 @@ private fun MiuixTagsBody(
         ui.tagsLoading && ui.tags.isEmpty() -> MiuixLoading(Modifier.fillMaxSize())
 
         ui.tagsError != null -> MiuixEmptyState(
-            title = ui.tagsError?.asString(LocalContext.current) ?: "",
+            title = ui.tagsError.asString(LocalContext.current),
             error = true,
             icon = Icons.Filled.Refresh,
             actionText = stringResource(R.string.action_retry),
@@ -572,7 +572,7 @@ private fun MiuixSearchBody(ui: ExploreUiState, onOpenBook: (Int) -> Unit) {
         ui.searching -> MiuixLoading(Modifier.fillMaxSize())
 
         ui.searchError != null -> Text(
-            text = ui.searchError?.asString(LocalContext.current) ?: "",
+            text = ui.searchError.asString(LocalContext.current),
             style = MiuixTheme.textStyles.body1,
             color = MiuixTheme.colorScheme.error,
             modifier = Modifier.padding(16.dp),

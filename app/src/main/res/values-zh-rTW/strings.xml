@@ -20,6 +20,7 @@
     <string name="stats_empty">尚無閱讀記錄，先去讀幾頁吧～</string>
     <string name="stats_books_title">書籍閱讀時長</string>
     <string name="stats_minutes">%1$d 分鐘</string>
+    <string name="date_format_ymd">%1$d年%2$d月%3$d日</string>
     <string name="stats_summary_total">累計分鐘</string>
     <string name="stats_summary_week">本週分鐘</string>
     <string name="stats_summary_streak">連續天數</string>
@@ -184,7 +185,6 @@
     <!-- 設定 -->
     <string name="settings_section_account">帳號</string>
     <string name="settings_builtin_account">內建帳戶</string>
-    <string name="settings_builtin_account_hint">使用內建帳戶存取內容</string>
     <string name="settings_account_builtin_desc">應用全程使用內建共享帳號，無需登入或切換</string>
     <string name="settings_section_appearance">外觀</string>
     <string name="settings_section_storage">儲存空間</string>

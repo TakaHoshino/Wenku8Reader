@@ -16,7 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -91,7 +91,7 @@ fun TagBooksScreen(
 
             ui.error != null && ui.books.isEmpty() -> ExpressiveEmptyState(
                 title = ui.error?.asString(LocalContext.current) ?: "",
-                icon = Icons.Filled.MenuBook,
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 shape = MaterialShapes.SoftBurst,
                 error = true,
                 actionLabel = stringResource(R.string.action_retry),
@@ -103,7 +103,7 @@ fun TagBooksScreen(
 
             ui.books.isEmpty() -> ExpressiveEmptyState(
                 title = stringResource(R.string.home_empty),
-                icon = Icons.Filled.MenuBook,
+                icon = Icons.AutoMirrored.Filled.MenuBook,
                 shape = MaterialShapes.SoftBurst,
                 modifier = Modifier
                     .fillMaxSize()

@@ -47,7 +47,7 @@ internal fun SearchBody(
         ) { ExpressiveLoadingIndicator() }
 
         ui.searchError != null -> Text(
-            ui.searchError?.asString(context) ?: "",
+            ui.searchError.asString(context),
             modifier = modifier.padding(16.dp),
             color = MaterialTheme.colorScheme.error,
         )

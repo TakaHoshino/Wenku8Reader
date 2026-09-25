@@ -40,6 +40,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.common.heatmapCellColor
+import com.hoshino.wenku8reader.ui.common.weekdayColor
+import com.hoshino.wenku8reader.ui.common.weekendColor
 import com.hoshino.wenku8reader.ui.stats.HeatmapDay
 import com.hoshino.wenku8reader.ui.stats.ReadingScale
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsUiState
@@ -261,7 +264,14 @@ private fun LegendRow(colors: List<Color>, labels: Boolean = false) {
 private fun MiuixDailyDetailCard(day: HeatmapDay, ui: ReadingStatsUiState) {
     val total = ui.dayTotalMinutes[day.epochDay] ?: 0
     val books = ui.dailyBookMinutes[day.epochDay].orEmpty()
-    MiuixSection(title = formatDate(day.date)) {
+    MiuixSection(
+        title = stringResource(
+            R.string.date_format_ymd,
+            day.date.year,
+            day.date.monthValue,
+            day.date.dayOfMonth,
+        ),
+    ) {
         Column(
             Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -361,33 +371,17 @@ private fun MiuixHeatmapGrid(
 
 /**
  * 色阶：0 分钟 → 主题的中性区块色；1~10 浅、11~30 中、>30 深。
- * 工作日绿 #329c32、周末蓝 #29538f（与 Material 版同一套色值，深浅主题下都清晰）。
+ * 色值集中在 `ui/common/HeatmapPalette.kt`，Material 版共用同一份（避免两处漂移）。
  */
 @Composable
 private fun cellColor(day: HeatmapDay?): Color {
-    if (day == null || !day.hasData || day.minutes <= 0) {
-        return MiuixTheme.colorScheme.surfaceContainerHighest
-    }
-    val weekend = day.date.dayOfWeek == DayOfWeek.SATURDAY ||
-        day.date.dayOfWeek == DayOfWeek.SUNDAY
-    return when {
-        day.minutes <= 10 -> if (weekend) weekendColor(10) else weekdayColor(10)
-        day.minutes <= 30 -> if (weekend) weekendColor(30) else weekdayColor(30)
-        else -> if (weekend) weekendColor(Int.MAX_VALUE) else weekdayColor(Int.MAX_VALUE)
-    }
+    val weekend = day != null && (
+        day.date.dayOfWeek == DayOfWeek.SATURDAY || day.date.dayOfWeek == DayOfWeek.SUNDAY
+        )
+    return heatmapCellColor(
+        minutes = day?.minutes ?: 0,
+        hasData = day?.hasData == true,
+        weekend = weekend,
+        emptyColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+    )
 }
-
-private fun weekdayColor(minutes: Int): Color = when {
-    minutes <= 10 -> Color(0x44329c32)
-    minutes <= 30 -> Color(0x8C329c32)
-    else -> Color(0xFF329c32)
-}
-
-private fun weekendColor(minutes: Int): Color = when {
-    minutes <= 10 -> Color(0x4429538f)
-    minutes <= 30 -> Color(0x8C29538f)
-    else -> Color(0xFF29538f)
-}
-
-private fun formatDate(date: java.time.LocalDate): String =
-    "${date.year}年${date.monthValue}月${date.dayOfMonth}日"

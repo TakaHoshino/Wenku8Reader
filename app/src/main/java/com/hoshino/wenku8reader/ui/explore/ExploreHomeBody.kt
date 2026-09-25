@@ -96,7 +96,7 @@ internal fun HomeBody(
         ui.homeError != null && ui.sections.isEmpty() -> ExpressiveEmptyState(
             title = stringResource(
                 R.string.home_error,
-                ui.homeError?.asString(LocalContext.current) ?: "",
+                ui.homeError.asString(LocalContext.current),
             ),
             icon = Icons.Filled.Refresh,
             shape = MaterialShapes.Boom,
