@@ -17,10 +17,12 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
@@ -42,8 +44,10 @@ fun MiuixSettingsPage(
     onOpenExperimental: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenAccount: () -> Unit,
     vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
+    val rs by vm.ui.collectAsStateWithLifecycle()
     MiuixPage(
         title = stringResource(R.string.tab_settings),
         actions = {
@@ -62,10 +66,22 @@ fun MiuixSettingsPage(
         ) {
             Spacer(Modifier.height(4.dp))
             MiuixSection(title = stringResource(R.string.settings_section_account)) {
-                MiuixRow(
-                    title = stringResource(R.string.settings_builtin_account),
-                    summary = stringResource(R.string.settings_account_builtin_desc),
-                )
+                // 账户开关关闭（默认）时与引入本功能之前完全一致：只读说明行、不可点击
+                if (!rs.accountLoginEnabled) {
+                    MiuixRow(
+                        title = stringResource(R.string.settings_builtin_account),
+                        summary = stringResource(R.string.settings_account_builtin_desc),
+                    )
+                } else {
+                    // 开启后摘要随登录状态变化，点击进账户二级页
+                    val username by vm.accountUsername.collectAsStateWithLifecycle()
+                    MiuixArrowRow(
+                        title = stringResource(R.string.settings_account_login),
+                        summary = username?.let { stringResource(R.string.account_logged_in, it) }
+                            ?: stringResource(R.string.account_tap_login),
+                        onClick = onOpenAccount,
+                    )
+                }
             }
             Spacer(Modifier.height(13.dp))
             // 各分类入口（点击进二级页）

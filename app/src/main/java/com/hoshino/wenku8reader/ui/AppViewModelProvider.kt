@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.hoshino.wenku8reader.Wenku8Application
 import com.hoshino.wenku8reader.ui.author.AuthorBooksViewModel
+import com.hoshino.wenku8reader.ui.account.AccountViewModel
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseViewModel
 import com.hoshino.wenku8reader.ui.detail.DetailViewModel
 import com.hoshino.wenku8reader.ui.downloads.DownloadsViewModel
@@ -31,8 +32,15 @@ object AppViewModelProvider {
                 application().container.readerSettings,
                 application().container.client,
                 application().container.readingProgressStore,
+                application().container.accountStore,
                 application().container.storage,
                 application().container.updateCenter,
+            )
+        }
+        initializer {
+            AccountViewModel(
+                application().container.client,
+                application().container.accountStore,
             )
         }
         initializer {

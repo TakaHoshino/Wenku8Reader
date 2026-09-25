@@ -213,6 +213,22 @@
     <string name="settings_account_login_summary">使用自己的 wenku8 帳戶登入，可同步網站書架；關閉僅隱藏入口，登入狀態保留</string>
     <string name="account_dep_title">需要多書架</string>
     <string name="account_dep_message">帳戶登入依賴多書架管理，是否同時開啟該前置功能？</string>
+    <!-- 帳戶二級頁 + 設定頁帳戶分區（僅帳戶開關打開時可見） -->
+    <string name="account_tap_login">點擊登入 wenku8 帳戶</string>
+    <string name="account_logged_in">已登入：%1$s</string>
+    <string name="account_username">使用者名稱</string>
+    <string name="account_password">密碼</string>
+    <string name="account_login_action">登入</string>
+    <string name="account_logout_action">登出</string>
+    <string name="account_current_title">目前帳戶</string>
+    <string name="account_using_builtin">目前使用內建共享帳號，登入後可同步網站書架。</string>
+    <string name="account_privacy_hint">密碼僅用於本次登入，不會儲存在裝置上。</string>
+    <string name="account_error_input">請填寫使用者名稱與密碼</string>
+    <string name="account_error_failed">登入失敗：使用者名稱或密碼不正確，也可能是網路問題</string>
+    <string name="account_login_ok">已登入：%1$s</string>
+    <string name="account_logout_ok">已登出，繼續使用內建共享帳號</string>
+    <string name="account_mirror_confirm_title">切換主鏡像</string>
+    <string name="account_mirror_confirm_message">切換主鏡像會登出目前登入的帳戶（Cookie 不跨網域），需要在新的鏡像重新登入。是否繼續？</string>
     <string name="shelf_manage_title">管理書架</string>
     <string name="shelf_new">新增書架</string>
     <string name="shelf_rename">重新命名</string>

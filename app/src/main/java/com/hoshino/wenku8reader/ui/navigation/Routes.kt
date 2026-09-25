@@ -13,6 +13,8 @@ object Routes {
     const val SETTINGS_NETWORK = "settings/network"
     const val SETTINGS_UPDATE = "settings/update"
     const val SETTINGS_EXPERIMENTAL = "settings/experimental"
+    /** 账户登录（实验性，依赖多书架）：账户二级页。 */
+    const val ACCOUNT = "settings/account"
     /** 多书架：管理书架（新建/重命名/删除）。 */
     const val SHELF_MANAGE = "shelf/manage"
     const val ABOUT = "about"

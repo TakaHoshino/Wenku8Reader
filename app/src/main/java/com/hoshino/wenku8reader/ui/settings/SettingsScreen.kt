@@ -76,6 +76,7 @@ fun SettingsPage(
     onOpenDownloads: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenStorageSettings: () -> Unit,
+    onOpenAccount: () -> Unit,
     vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val rs by vm.ui.collectAsStateWithLifecycle()
@@ -106,7 +107,7 @@ fun SettingsPage(
                 .verticalScroll(rememberScrollState()),
         ) {
             // 账号（说明性） + 各分类入口
-            AccountSection()
+            AccountSection(rs = rs, vm = vm, onOpenAccount = onOpenAccount)
             CategoryEntriesSection(
                 version = version,
                 onOpenAppearance = onOpenAppearance,

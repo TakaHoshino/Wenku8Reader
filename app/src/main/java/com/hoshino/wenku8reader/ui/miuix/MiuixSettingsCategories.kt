@@ -45,6 +45,7 @@ import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
 import com.hoshino.wenku8reader.ui.theme.UiStyle
+import com.hoshino.wenku8reader.ui.account.MirrorChangeDialog
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
 
@@ -144,6 +145,8 @@ fun MiuixNetworkPage(
             )
         }
     }
+    // 切换镜像会退出当前登录的用户账户（Cookie 不跨域）——有用户账户时先确认
+    MirrorChangeDialog(vm = vm)
 }
 
 @Composable

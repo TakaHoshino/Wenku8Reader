@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +51,7 @@ import com.hoshino.wenku8reader.data.Wenku8Hosts
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.AccountSwitchAction
 import com.hoshino.wenku8reader.data.local.accountSwitchAction
+import com.hoshino.wenku8reader.ui.account.MirrorChangeDialog
 import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
@@ -63,24 +65,58 @@ import com.hoshino.wenku8reader.ui.theme.UiStyle
 // ------------------------------------------------------------------ //
 
 /**
- * 账号分组：**说明性**展示（无交互，符合产品设计）。
+ * 账号分组。
  *
- * 本应用全程使用内置共享账号取数，不提供登录、退出或切换账号的入口，
- * 因此这里不需要（也不应该）展示"未登录 / 某个用户名"这类用户可切换的状态——
- * 那会暗示存在用户可操作但实际不存在的登录流程。
- * 此前的实现只写死一句提示、与运行状态无关，容易被误读为"能操作却没做"，
- * 现改为明确说明"无需登录/切换"，语义与真实行为一致。
+ * 两种形态由**实验性「账户登录」开关**决定：
+ * - 关闭（默认）：与引入本功能之前**完全一致**——只读说明行、不可点击、原文案。
+ *   此时应用全程使用内置共享账号取数，展示"未登录/某个用户名"这类可切换状态只会误导用户。
+ * - 开启：摘要随登录状态变化（未登录 → 提示点击登录；已登录 → 显示用户名），点击进账户二级页。
  */
 @Composable
-internal fun AccountSection() {
+internal fun AccountSection(
+    rs: ReaderSettingsState,
+    vm: SettingsViewModel,
+    onOpenAccount: () -> Unit,
+) {
+    if (!rs.accountLoginEnabled) {
+        AccountInfoCard(
+            headline = stringResource(R.string.settings_builtin_account),
+            summary = stringResource(R.string.settings_account_builtin_desc),
+        )
+        return
+    }
+    val username by vm.accountUsername.collectAsStateWithLifecycle()
+    SegmentedColumn(
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+        title = stringResource(R.string.settings_section_account),
+        items = listOf {
+            SegmentedListItem(
+                onClick = onOpenAccount,
+                leadingContent = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
+                headlineContent = { Text(stringResource(R.string.settings_account_login)) },
+                supportingContent = {
+                    val name = username
+                    Text(
+                        if (name == null) stringResource(R.string.account_tap_login)
+                        else stringResource(R.string.account_logged_in, name),
+                    )
+                },
+            )
+        },
+    )
+}
+
+/** 只读的账户说明卡（账户开关关闭时的形态）。 */
+@Composable
+private fun AccountInfoCard(headline: String, summary: String) {
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_account),
         items = listOf {
             SegmentedListItem(
                 leadingContent = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
-                headlineContent = { Text(stringResource(R.string.settings_builtin_account)) },
-                supportingContent = { Text(stringResource(R.string.settings_account_builtin_desc)) },
+                headlineContent = { Text(headline) },
+                supportingContent = { Text(summary) },
             )
         },
     )
@@ -377,6 +413,8 @@ internal fun NetworkSection(
             )
         },
     )
+    // 切换镜像会退出当前登录的用户账户（Cookie 不跨域）——有用户账户时先确认
+    MirrorChangeDialog(vm = vm)
 }
 
 /** 更新分组：启动检查、更新通道、更新源、手动检查。 */

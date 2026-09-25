@@ -213,6 +213,22 @@
     <string name="settings_account_login_summary">使用自己的 wenku8 账户登录，可同步网站书架；关闭仅隐藏入口，登录状态保留</string>
     <string name="account_dep_title">需要多书架</string>
     <string name="account_dep_message">账户登录依赖多书架管理，是否同时开启该前置功能？</string>
+    <!-- 账户二级页 + 设置页账户分区（仅账户开关打开时可见） -->
+    <string name="account_tap_login">点击登录 wenku8 账户</string>
+    <string name="account_logged_in">已登录：%1$s</string>
+    <string name="account_username">用户名</string>
+    <string name="account_password">密码</string>
+    <string name="account_login_action">登录</string>
+    <string name="account_logout_action">退出登录</string>
+    <string name="account_current_title">当前账户</string>
+    <string name="account_using_builtin">当前使用内置共享账号，登录后可同步网站书架。</string>
+    <string name="account_privacy_hint">密码仅用于本次登录，不会保存在设备上。</string>
+    <string name="account_error_input">请填写用户名与密码</string>
+    <string name="account_error_failed">登录失败：用户名或密码不正确，也可能是网络问题</string>
+    <string name="account_login_ok">已登录：%1$s</string>
+    <string name="account_logout_ok">已退出登录，继续使用内置共享账号</string>
+    <string name="account_mirror_confirm_title">切换主镜像</string>
+    <string name="account_mirror_confirm_message">切换主镜像会退出当前登录的账户（Cookie 不跨域），需要在新的镜像重新登录。是否继续？</string>
     <string name="shelf_manage_title">管理书架</string>
     <string name="shelf_new">新建书架</string>
     <string name="shelf_rename">重命名</string>

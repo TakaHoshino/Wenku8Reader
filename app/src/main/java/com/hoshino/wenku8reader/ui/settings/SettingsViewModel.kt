@@ -7,6 +7,7 @@ import com.hoshino.wenku8reader.data.Wenku8Client
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
+import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.accountEnabledAfterShelfChange
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
@@ -15,11 +16,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 清理动作的结果：ViewModel 不持有 Context，因此只回传"发生了什么 + 释放了多少字节"，
@@ -58,6 +63,7 @@ class SettingsViewModel(
     private val readerSettings: ReaderSettings,
     private val client: Wenku8Client,
     private val progressStore: ReadingProgressStore,
+    private val accountStore: AccountStore,
     private val storage: AppStorageManager,
     private val updateCenter: UpdateCenter,
 ) : ViewModel() {
@@ -207,6 +213,17 @@ class SettingsViewModel(
         readerSettings.setMultiShelfEnabled(true)
         readerSettings.setAccountLoginEnabled(true)
     }
+
+    /**
+     * 当前登录的用户账户名（null = 未登录用户账户）。
+     *
+     * 设置页的账户分区摘要用它。这里只读存储里的"激活账户"标记、不额外回调会话：
+     * 会话一旦失效，`Wenku8Client.ensureLoggedIn()` 回落内置账号时会把这个标记清掉，
+     * 所以标记本身就是最终状态（最多滞后到下一次网络请求）。
+     */
+    val accountUsername: StateFlow<String?> = accountStore.observe()
+        .map { it.activeUsername }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
     fun setHapticsStrength(value: Int) = readerSettings.setHapticsStrength(value)
     fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)
@@ -215,10 +232,45 @@ class SettingsViewModel(
     fun setAppLanguage(language: String) = readerSettings.setAppLanguage(language)
 
     /** 切换主站镜像：清空旧域 Cookie 与 cf_clearance，并用内置账号在新主域重新登录。 */
+    /** 等待用户确认的镜像切换（仅在"当前是用户账户登录"时才会有值）。 */
+    private val _pendingMirror = MutableStateFlow<String?>(null)
+    val pendingMirror: StateFlow<String?> = _pendingMirror.asStateFlow()
+
+    /**
+     * 请求切换主镜像。
+     *
+     * Cookie 不跨域，换镜像必然要重新登录。若当前登录的是**用户账户**，先弹确认框
+     * （见 `MirrorChangeDialog`），确认后按"退出该账户 → 用内置账号在新域登录"处理，
+     * 保证阅读与探索无感续用；内置账号会话则直接切换，行为与本功能引入之前完全一致。
+     */
     fun setPrimaryMirror(url: String) {
         if (url == readerSettings.flow.value.primaryMirror) return
+        viewModelScope.launch {
+            val stored = accountStore.read()
+            val userLoggedIn = stored.activeUsername != null &&
+                withContext(Dispatchers.IO) { client.isLoggedIn() }
+            if (userLoggedIn) _pendingMirror.value = url else switchPrimaryMirror(url)
+        }
+    }
+
+    /** 确认框点「确定」：退出用户账户并切到新镜像。 */
+    fun confirmPrimaryMirrorChange() {
+        val url = _pendingMirror.value ?: return
+        _pendingMirror.value = null
+        viewModelScope.launch {
+            // 与"退出登录"同一套语义：先清激活标记，再切域清 Cookie、用内置账号登录
+            accountStore.setActive(null)
+            switchPrimaryMirror(url)
+        }
+    }
+
+    fun dismissPrimaryMirrorChange() {
+        _pendingMirror.value = null
+    }
+
+    private suspend fun switchPrimaryMirror(url: String) {
         readerSettings.setPrimaryMirror(url)
-        viewModelScope.launch(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             client.clearCookies()
             if (DefaultAccount.USERNAME.isNotBlank()) {
                 runCatching { client.login(DefaultAccount.USERNAME, DefaultAccount.PASSWORD) }
