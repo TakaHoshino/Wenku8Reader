@@ -73,6 +73,27 @@ class LibraryStore internal constructor(
         migration.ensure()
         dao.deleteBook(bookId)
     }
+
+    /**
+     * 把一本书移动到另一个书架（多书架功能）。
+     *
+     * 与 [add] 的区别：这里**只改归属**，既不动书目快照也不动入架时间。
+     */
+    suspend fun moveToShelf(bookId: Int, shelf: String) {
+        migration.ensure()
+        dao.updateShelf(bookId, shelf)
+    }
+
+    /**
+     * 把整个书架的书一次性移回 [to]。
+     *
+     * 删除书架时必须**先**调用它、再改书架清单：反过来的话，中途失败会让那批书
+     * 指向一个已不存在的书架（虽然展示层有兜底，但用户会看到一个空书架）。
+     */
+    suspend fun moveShelf(from: String, to: String) {
+        migration.ensure()
+        dao.moveShelf(from, to)
+    }
 }
 
 private fun BookEntity.toLibraryBook(): LibraryBook =
