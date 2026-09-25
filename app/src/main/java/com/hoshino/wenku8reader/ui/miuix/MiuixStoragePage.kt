@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
-import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CacheCategory
 import com.hoshino.wenku8reader.ui.common.formatByteSize
@@ -198,7 +198,7 @@ fun MiuixStoragePage(
                     title = stringResource(R.string.settings_cache_cleanup_reading),
                     summary = stringResource(
                         R.string.settings_cache_cleanup_reading_desc,
-                        AppPreferences.DEFAULT_KEEP_DAYS,
+                        ReadingProgressStore.DEFAULT_KEEP_DAYS,
                     ),
                     icon = Icons.Filled.History,
                     onClick = { confirmCleanupHistory = true },
@@ -233,7 +233,7 @@ fun MiuixStoragePage(
             title = stringResource(R.string.settings_cache_confirm_cleanup_title),
             summary = stringResource(
                 R.string.settings_cache_confirm_cleanup_message,
-                AppPreferences.DEFAULT_KEEP_DAYS,
+                ReadingProgressStore.DEFAULT_KEEP_DAYS,
             ),
             onDismissRequest = { confirmCleanupHistory = false },
         ) {

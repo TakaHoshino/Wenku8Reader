@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
-import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CacheCategory
@@ -269,7 +269,7 @@ private fun StorageSettingsContent(
                         Text(
                             stringResource(
                                 R.string.settings_cache_cleanup_reading_desc,
-                                AppPreferences.DEFAULT_KEEP_DAYS,
+                                ReadingProgressStore.DEFAULT_KEEP_DAYS,
                             ),
                         )
                     },
@@ -365,7 +365,7 @@ private fun StorageSettingsContent(
                 Text(
                     stringResource(
                         R.string.settings_cache_confirm_cleanup_message,
-                        AppPreferences.DEFAULT_KEEP_DAYS,
+                        ReadingProgressStore.DEFAULT_KEEP_DAYS,
                     ),
                 )
             },

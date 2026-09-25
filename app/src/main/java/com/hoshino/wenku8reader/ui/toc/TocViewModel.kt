@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.Volume
-import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +34,7 @@ data class TocUiState(
 class TocViewModel(
     savedStateHandle: SavedStateHandle,
     private val repository: Wenku8Repository,
-    private val preferences: AppPreferences,
+    private val progressStore: ReadingProgressStore,
 ) : ViewModel() {
 
     val bookId: Int = savedStateHandle["id"] ?: 0
@@ -70,8 +70,9 @@ class TocViewModel(
                 }
                 return@launch
             }
-            val finished = preferences.finishedChapters(bookId)
-            val current = preferences.resumeCid(bookId)
+            val progress = progressStore.read(bookId)
+            val finished = progress.finishedCids
+            val current = progress.resumeCid
             // 默认全部展开；全卷章节都已读 → 首次加载自动折叠
             val collapsed = vols
                 .filter { v -> v.chapters.isNotEmpty() && v.chapters.all { it.cid in finished } }

@@ -81,9 +81,6 @@ fun MiuixDetailPage(
             Toast.makeText(context, message.asString(context), Toast.LENGTH_SHORT).show()
         }
     }
-    // 从阅读器返回后重新进入：本地状态（是否在书架 / 是否有进度）由 ViewModel 在 IO 线程刷新
-    LaunchedEffect(Unit) { vm.refreshLocalState() }
-
     MiuixSubPage(
         title = info?.title ?: stringResource(R.string.detail_title_default),
         onBack = onBack,

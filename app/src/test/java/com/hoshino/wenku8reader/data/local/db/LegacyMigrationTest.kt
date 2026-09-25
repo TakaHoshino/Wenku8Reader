@@ -390,6 +390,9 @@ class LegacyMigrationTest {
 
         override suspend fun allProgress(): List<ReadingProgressEntity> = progressRows.values.toList()
 
+        override fun observeAllProgress(): Flow<List<ReadingProgressEntity>> =
+            flowOf(progressRows.values.toList())
+
         override suspend fun upsertProgress(progress: ReadingProgressEntity) {
             guardWrites()
             if (!dropWrites) progressRows[progress.bookId] = progress
@@ -405,10 +408,8 @@ class LegacyMigrationTest {
             progressRows.remove(bookId)
         }
 
-        override suspend fun deleteStaleProgress(cutoff: Long): Int {
-            val stale = progressRows.values.filter { it.lastReadAt != null && it.lastReadAt < cutoff }
-            stale.forEach { progressRows.remove(it.bookId) }
-            return stale.size
+        override suspend fun deleteProgressByIds(bookIds: List<Int>) {
+            bookIds.forEach { progressRows.remove(it) }
         }
     }
 

@@ -29,14 +29,15 @@ object AppViewModelProvider {
             SettingsViewModel(
                 application().container.readerSettings,
                 application().container.client,
-                application().container.preferences,
+                application().container.readingProgressStore,
                 application().container.storage,
                 application().container.updateCenter,
             )
         }
         initializer {
             BookcaseViewModel(
-                application().container.localLibrary,
+                application().container.libraryStore,
+                application().container.readingProgressStore,
                 application().container.preferences,
             )
         }
@@ -45,8 +46,8 @@ object AppViewModelProvider {
                 createSavedStateHandle(),
                 application().container.repository,
                 application().container.downloadEngine,
-                application().container.preferences,
-                application().container.localLibrary,
+                application().container.libraryStore,
+                application().container.readingProgressStore,
             )
         }
         initializer { DownloadsViewModel(application().container.downloadEngine) }
@@ -60,7 +61,7 @@ object AppViewModelProvider {
             ReaderViewModel(
                 createSavedStateHandle(),
                 application().container.repository,
-                application().container.preferences,
+                application().container.readingProgressStore,
                 application().container.readerSettings,
                 application().container.readingStats,
             )
@@ -76,7 +77,7 @@ object AppViewModelProvider {
             TocViewModel(
                 createSavedStateHandle(),
                 application().container.repository,
-                application().container.preferences,
+                application().container.readingProgressStore,
             )
         }
     }

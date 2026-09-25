@@ -8,9 +8,12 @@ import com.hoshino.wenku8reader.data.Wenku8Client
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
-import com.hoshino.wenku8reader.data.local.LocalLibraryStore
+import com.hoshino.wenku8reader.data.local.LibraryStore
+import com.hoshino.wenku8reader.data.local.LocalDataMigration
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
+import com.hoshino.wenku8reader.data.local.db.AppDatabase
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +75,21 @@ class AppContainer(context: Context) {
      */
     val storage: AppStorageManager = AppStorageManager(context, client)
 
-    val localLibrary: LocalLibraryStore = LocalLibraryStore(context)
+    /** 本地数据库（书架 + 阅读进度）。 */
+    private val database: AppDatabase = AppDatabase.build(context)
+
+    /**
+     * 旧 SharedPreferences → Room 的一次性搬迁门。
+     *
+     * 两个 store 的每次读写都会先过它，因此**不存在"页面先读到空数据"的窗口**；
+     * [init] 里还会主动预热一次，把搬迁开销挪到启动阶段而不是第一次打开书架时。
+     */
+    private val localDataMigration: LocalDataMigration = LocalDataMigration(context, database.libraryDao())
+
+    val libraryStore: LibraryStore = LibraryStore(database.libraryDao(), localDataMigration)
+
+    val readingProgressStore: ReadingProgressStore =
+        ReadingProgressStore(database.libraryDao(), localDataMigration)
 
     /** 阅读时长聚合存储（按书+日期，热力图数据源）。 */
     val readingStats: ReadingStatsStore = ReadingStatsStore(context)
@@ -85,6 +102,13 @@ class AppContainer(context: Context) {
     val downloadEngine: DownloadEngine = DownloadEngine(context, repository, applicationScope)
 
     init {
+        /**
+         * 预热一次性数据搬迁：让首次打开书架/阅读器时不必等待磁盘迁移，
+         * 同时把结果留在日志里（失败会带上"已导入多少条"，便于排查）。
+         */
+        launchIo {
+            runCatching { localDataMigration.ensure() }
+        }
         /**
          * 启动时回收陈旧缓存产物（更新安装包 / 残留临时文件）。
          *

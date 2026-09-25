@@ -23,7 +23,7 @@ data class ReadingProgressEntity(
     val resumeCid: String?,
     /**
      * 最后阅读时间（毫秒）；null 表示该记录写于「最后阅读时间」功能上线之前，
-     * 无法判断新旧——清理过期数据时必须保留（见 `staleReadingBookIds` 的保守规则）。
+     * 无法判断新旧——清理过期数据时必须保留（见 `staleProgressBookIds` 的保守规则）。
      */
     val lastReadAt: Long?,
     /** 总章节数（书架进度条分母）；0 表示未记录。 */

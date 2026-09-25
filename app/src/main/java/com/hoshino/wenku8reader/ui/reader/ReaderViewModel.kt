@@ -8,7 +8,7 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.ChapterContent
 import com.hoshino.wenku8reader.data.FlatChapter
 import com.hoshino.wenku8reader.data.Volume
-import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
@@ -40,7 +40,7 @@ data class ReaderUiState(
 class ReaderViewModel(
     savedStateHandle: SavedStateHandle,
     private val repository: Wenku8Repository,
-    private val preferences: AppPreferences,
+    private val progressStore: ReadingProgressStore,
     private val readerSettings: ReaderSettings,
     val readingStats: ReadingStatsStore,
 ) : ViewModel() {
@@ -64,7 +64,7 @@ class ReaderViewModel(
 
     /** 章节读完（进度 100%）时标记为"已读"（目录页显示灰色 + 已读）。 */
     fun markChapterFinished(cid: String) {
-        preferences.markChapterFinished(bookId, cid)
+        viewModelScope.launch { progressStore.markFinished(bookId, cid) }
     }
 
     fun setScrollMode(enabled: Boolean) = readerSettings.setScrollMode(enabled)
@@ -131,7 +131,7 @@ class ReaderViewModel(
                     tocLoading = false,
                 )
             }
-            val resume = preferences.resumeCid(bookId)
+            val resume = progressStore.read(bookId).resumeCid
             val target = startCid?.let { c -> flat.firstOrNull { it.cid == c } }
                 ?: flat.firstOrNull { it.cid == resume && it.name != "插图" }
                 ?: flat.firstOrNull { it.name != "插图" }
@@ -177,11 +177,10 @@ class ReaderViewModel(
             }
             // 只有确认拿到有效章节后才记录进度：若请求被取消（用户已切走），
             // 不应把"进入过该章"当作已读位置落盘。
-            preferences.saveProgress(bookId, cid)
-            preferences.saveProgressTotal(bookId, _ui.value.flatChapters.size)
+            progressStore.savePosition(bookId, cid, totalChapters = _ui.value.flatChapters.size)
             // 重读机制：重复阅读已完成的章节 → 立即重置为未完成，直到再次读完才恢复"已读"
-            if (preferences.isChapterFinished(bookId, cid)) {
-                preferences.resetChapterFinished(bookId, cid)
+            if (cid in progressStore.read(bookId).finishedCids) {
+                progressStore.resetFinished(bookId, cid)
             }
             val display = if (readerSettings.flow.value.traditionalChinese) {
                 withContext(Dispatchers.Default) {

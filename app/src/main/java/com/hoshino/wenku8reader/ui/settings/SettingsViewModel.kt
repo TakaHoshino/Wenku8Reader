@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.Wenku8Client
-import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.ReaderSettings
@@ -56,7 +56,7 @@ data class CacheActionResult(
 class SettingsViewModel(
     private val readerSettings: ReaderSettings,
     private val client: Wenku8Client,
-    private val preferences: AppPreferences,
+    private val progressStore: ReadingProgressStore,
     private val storage: AppStorageManager,
     private val updateCenter: UpdateCenter,
 ) : ViewModel() {
@@ -157,9 +157,9 @@ class SettingsViewModel(
     }
 
     /** 清理过期阅读记录（默认保留最近 30 天有阅读的书）。 */
-    fun cleanupReadingHistory(keepDays: Int = AppPreferences.DEFAULT_KEEP_DAYS) {
+    fun cleanupReadingHistory(keepDays: Int = ReadingProgressStore.DEFAULT_KEEP_DAYS) {
         viewModelScope.launch(Dispatchers.IO) {
-            val removed = preferences.cleanupStaleReadingData(keepDays)
+            val removed = progressStore.cleanupStale(keepDays)
             _storageStats.value = storage.stats()
             _cacheResults.emit(
                 CacheActionResult(

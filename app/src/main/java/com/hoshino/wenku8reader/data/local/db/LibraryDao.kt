@@ -62,6 +62,9 @@ interface LibraryDao {
     @Query("SELECT * FROM reading_progress")
     suspend fun allProgress(): List<ReadingProgressEntity>
 
+    @Query("SELECT * FROM reading_progress")
+    fun observeAllProgress(): Flow<List<ReadingProgressEntity>>
+
     @Upsert
     suspend fun upsertProgress(progress: ReadingProgressEntity)
 
@@ -73,11 +76,12 @@ interface LibraryDao {
     suspend fun deleteProgress(bookId: Int)
 
     /**
-     * 清理过期阅读数据：只删**有时间戳且严格早于 cutoff**的记录。
+     * 按主键批量删除（清理过期阅读数据用）。
      *
-     * `lastReadAt IS NOT NULL` 是硬性要求——没有时间戳的记录写于本功能上线之前，
-     * 无法判断新旧，删掉等于凭猜测销毁用户数据（与旧的 `staleReadingBookIds` 同规则）。
+     * 哪些算"过期"由 `staleProgressBookIds` 这个**有单测的纯函数**决定，而不是写成 SQL 条件：
+     * 这段逻辑会删用户数据，规则必须能在 JVM 单测里把边界钉死。空列表直接返回，
+     * 避免生成 `IN ()` 这种 SQLite 不接受的语法。
      */
-    @Query("DELETE FROM reading_progress WHERE lastReadAt IS NOT NULL AND lastReadAt < :cutoff")
-    suspend fun deleteStaleProgress(cutoff: Long): Int
+    @Query("DELETE FROM reading_progress WHERE bookId IN (:bookIds)")
+    suspend fun deleteProgressByIds(bookIds: List<Int>)
 }
