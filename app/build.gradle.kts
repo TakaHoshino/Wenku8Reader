@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    // Room 的注解处理走 KSP（KSP 2.3.x 跟随 Kotlin 2.3 的版式）
+    id("com.google.devtools.ksp") version "2.3.12"
 }
 
 // ---- 版本号来源（自动化版本管理，详见根目录 VERSIONING.md）----
@@ -148,6 +150,10 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.github.houbb:opencc4j:1.14.0")
     implementation("org.chromium.net:cronet-embedded:119.6045.31")
+    // Room：书架与阅读进度（替代整份 JSON 解析 + SharedPreferences 的进度键）
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // 本地单元测试：Parsers / UpdateChecker.isNewer 等纯逻辑（无 Android 依赖）在此覆盖。
