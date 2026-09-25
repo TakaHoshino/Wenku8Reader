@@ -171,6 +171,7 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 | versionCode | **递增**：时间基准 `yyyymmddHH`（如 `2026082914`），必然大于任何历史已装版本，覆盖安装不降级 |
 | 发布 | 同时产出 **Actions Artifact** 与 **GitHub Pre-release**（`v<版本>-dev.<N>`，标记为 prerelease；测试版通道靠 Release 资产才能匿名下载） |
 | 签名 | 与正式发布**同一套正式签名**（未配置签名密钥时直接失败，不产出 debug 签名包）；密钥取自 environment `dev` |
+| 旧测试版保留 | **只保留最近 10 个** `v<版本>-dev.<N>`（release 与 tag 一起清）；判据是 tag 名正则 + `isPrerelease`，正式版 release 与其 tag 一律不动 |
 
 **与 release 工作流的关系**：版本解析逻辑**相同（各自内联）**，versionName 规则完全一致——dev 与 master 共享 git tag 历史，同一时刻解析出的版本号相同（如 master 合并 dev 后发布 0.2.0，dev 分支在此之前构建的包也是 0.2.0）。两者独立触发、互不干扰；versionCode 均为时间基准，天然错开。
 
@@ -181,3 +182,10 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 - dev 包与 release 包均使用同一套正式签名，因此**可互相覆盖安装**（若曾装过 debug 签名包，则需先卸载）。
 - 同一小时内构建的多个包 versionCode 相同（`yyyymmddHH` 为小时粒度），覆盖安装会被拒绝——重新触发一次构建（下一小时）即可。工作流已加 `concurrency` 串行化，避免并发发布互相覆盖。
 - dev 构建会创建 `v<版本>-dev.<N>` 形式的 **prerelease tag**（用于测试版更新通道）；正式版基准解析用 `git tag --list 'v*' | grep -v -- '-'` 排除带 `-` 的测试版标签，因此这些 tag 不会推高正式版本号。
+- 旧测试版由 `dev.yml` 发布步骤之后的「清理旧测试版预发布」自动收敛到最近 10 个（2026-09-25 首次清理：48 → 10，另有 2 个无 release 的孤儿 tag 一并删除）。
+
+> ⚠️ 删 tag **不要用 `gh release delete --cleanup-tag`**：它删 tag 时请求
+> `/git/refs/tags%2F<tag>`（把 `tags` 后的斜杠一并编码进 ref 名），GitHub 回
+> `422 Reference does not exist`——结果是 release 删掉了、tag 永久残留
+> （首次清理时 38 个 release 全部删成功，38 个 tag 一个都没删掉）。
+> 正确做法是删完 release 后单独调 `gh api -X DELETE "repos/$REPO/git/refs/tags/$tag"`。
