@@ -469,26 +469,10 @@ private fun ExperimentalSection(
                     onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
                 )
             },
-            {
-                // 悬浮底栏 + 液态玻璃：仅 MIUIX 风格有意义，但仍常显（关掉 MIUIX 时切换不影响 M3 底栏）
-                SegmentedSwitchItem(
-                    icon = Icons.Filled.Vibration,
-                    title = stringResource(R.string.settings_floating_bottom_bar),
-                    summary = stringResource(R.string.settings_floating_bottom_bar_summary),
-                    checked = rs.floatingBottomBar,
-                    onCheckedChange = vm::setFloatingBottomBar,
-                )
-            },
-            {
-                SegmentedSwitchItem(
-                    icon = Icons.Filled.Palette,
-                    title = stringResource(R.string.settings_bottom_bar_glass),
-                    summary = stringResource(R.string.settings_bottom_bar_glass_summary),
-                    checked = rs.bottomBarGlass,
-                    enabled = rs.floatingBottomBar,
-                    onCheckedChange = vm::setBottomBarGlass,
-                )
-            },
+            // 说明：这里**不再**放「悬浮底栏 / 液态玻璃」两个开关。
+            // M3 底栏是固定样式的 NavigationBar，不接受这两个设置（见 MainScaffold 的
+            // `floatingBar = isMiuixStyle() && …`），摆在 MD3 页里只会让人以为"开了却没效果"。
+            // 它们只属于 MIUIX 的实验性页（MiuixExperimentalPage）。
         ),
     )
 }

@@ -133,9 +133,10 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurColors
-import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.blur.blur
+import top.yukonga.miuix.kmp.blur.blendColors
+import top.yukonga.miuix.kmp.blur.drawBackdrop
 import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
@@ -203,7 +204,15 @@ fun MainScaffold() {
     val navigationBarsBottom = WindowInsets.navigationBars
         .asPaddingValues()
         .calculateBottomPadding()
-    val backdrop = rememberLayerBackdrop()
+    // 模糊源的内容录制方式照 SukiSU：先铺一层主题底色（"漏出的空白"也参与模糊，不会变成纯黑/透明），
+    // 再把真实内容 drawContent() 录进去。
+    // 注意：`rememberLayerBackdrop()` 用无参默认实现时，这个源里可能没有任何内容，
+    // 玻璃层就会"只染了一层底色"——表现同样是开了开关却看不到模糊。
+    val backdropSurfaceColor = MiuixTheme.colorScheme.surface
+    val backdrop = rememberLayerBackdrop {
+        drawRect(backdropSurfaceColor)
+        drawContent()
+    }
     val updateState by container.updateCenter.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
         delay(STARTUP_UPDATE_CHECK_DELAY_MS)
@@ -255,14 +264,19 @@ fun MainScaffold() {
         // 页面切换动效统一取自主题的 motion scheme：
         // Expressive 主题下是带弹性空间感的滑动，标准主题下自动退化为线性过渡。
         val motion = MaterialTheme.motionScheme
-        Box(Modifier.fillMaxSize()) {
+        // 模糊源登记在**包住内容与底栏的这一层**（照 SukiSU 的结构）：
+        // 只登记 NavHost、把底栏放在登记层之外时，底栏采不到同一层的画面，
+        // 表现就是"开了玻璃也没效果"。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(if (glassEnabled) Modifier.layerBackdrop(backdrop) else Modifier),
+        ) {
         NavHost(
             navController = nav,
             startDestination = Routes.MAIN,
             modifier = Modifier
-                .padding(bottom = inner.calculateBottomPadding())
-                // 悬浮底栏的模糊源：把页面内容登记进 backdrop，底栏再对它做实时模糊
-                .then(if (glassEnabled) Modifier.layerBackdrop(backdrop) else Modifier),
+                .padding(bottom = inner.calculateBottomPadding()),
             enterTransition = {
                 fadeIn(motion.defaultEffectsSpec()) +
                     slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 }
@@ -667,9 +681,12 @@ private fun MainBottomBar(
  * `IosLiquidGlassNavigationBar`），但**不搬运**它的自定义着色器（vibrancy/lens 都是那边
  * 自己带的一套 `liquid/` 源码），只使用 miuix-blur 0.9.1 自带的公开能力：
  *
- * - 玻璃：`layerBackdrop` 把页面内容登记为模糊源（作用于 NavHost），这里用 `textureBlur`
- *   把该源实时模糊后绘制在胶囊形状内，并通过 `BlurColors` 提饱和度/对比度（"通透"而不是"糊成灰"），
- *   再加一层 miuix 自带的玻璃高光描边（`Highlight.GlassStroke*`）模拟边缘反光；
+ * - 玻璃：`layerBackdrop` 把内容层登记为模糊源（登记在包住内容与底栏的那一层），这里用
+ *   `drawBackdrop` 绘制：先模糊，再用 `BlurColors` 提亮/提对比/提饱和（近似 SukiSU 的
+ *   vibrancy，替换掉它自带的着色器），最后用 `onDrawSurface` 铺一层**半透明**底色并加
+ *   miuix 自带的玻璃高光描边（`Highlight.GlassStroke*`）模拟边缘反光。
+ *   **底色必须足够透**（约 0.4）：早期版本用了 0.6~0.72 的主题色，肉眼看就是一块实色胶囊，
+ *   模糊被完全盖住 —— 这正是"开了开关却没有液态玻璃效果"的原因；
  * - 滑块：选中项后面有一条随分页位置移动的胶囊滑块，位置直接读 `PagerState` 的连续偏移，
  *   所以拖动页面时滑块**跟手**，点击底栏时由弹簧收敛；
  * - 触感层级：选中项图标轻微放大 + 换主题色，未选中项降低不透明度。
@@ -690,6 +707,12 @@ private fun MiuixFloatingBottomBar(
     val barContent = MiuixTheme.colorScheme.onSurface
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
     val density = LocalDensity.current
+    // 模糊半径按密度换算成 px（miuix 的 blur 取像素值）：8dp 在 3x 屏上约 24px，
+    // 与 SukiSU 悬浮底栏的量级一致；太小会"糊了个寂寞"，太大则把内容糊成一团色块。
+    val blurRadiusPx = with(density) { 8.dp.toPx() }
+    // 玻璃底色：必须够透（深色下略高一点保证可读）。这个不透明度就是"看不看得见玻璃"的关键——
+    // 早期版本用 0.6~0.72 的主题色，肉眼就等同实色胶囊，模糊被完全盖住。
+    val glassSurface = container.copy(alpha = if (isDark) 0.46f else 0.38f)
     var barWidthPx by remember { mutableFloatStateOf(0f) }
     val innerPaddingPx = with(density) { FloatingBarInnerPadding.toPx() }
     val tabWidthPx = ((barWidthPx - innerPaddingPx * 2f) / TABS.size).coerceAtLeast(0f)
@@ -718,23 +741,29 @@ private fun MiuixFloatingBottomBar(
                 .clip(shape)
                 .then(
                     if (glass) {
-                        Modifier.textureBlur(
+                        Modifier.drawBackdrop(
                             backdrop = backdrop,
-                            shape = shape,
-                            blurRadius = 24f,
-                            colors = BlurColors(
-                                blendColors = listOf(
-                                    BlendColorEntry(color = container.copy(alpha = 0.6f)),
-                                ),
-                                brightness = if (isDark) 1.06f else 1.02f,
-                                contrast = 1.05f,
-                                // 提饱和：糊出来的内容仍然是"有颜色"的，观感更接近液态玻璃
-                                saturation = 1.3f,
-                            ),
-                            highlight = (
-                                if (isDark) Highlight.GlassStrokeMiddleDark
-                                else Highlight.GlassStrokeMiddleLight
-                                ).copy(alpha = 0.45f),
+                            shape = { shape },
+                            effects = {
+                                blur(blurRadiusPx, blurRadiusPx)
+                                // 提亮/提对比/提饱和：模糊后的内容仍是"有颜色"的，
+                                // 而不是糊成一层灰雾（近似 SukiSU 自带着色器的 vibrancy）
+                                blendColors(
+                                    BlurColors(
+                                        brightness = if (isDark) 1.08f else 1.03f,
+                                        contrast = 1.08f,
+                                        saturation = 1.35f,
+                                    ),
+                                )
+                            },
+                            highlight = {
+                                (
+                                    if (isDark) Highlight.GlassStrokeMiddleDark
+                                    else Highlight.GlassStrokeMiddleLight
+                                    ).copy(alpha = 0.6f)
+                            },
+                            // 底色要足够透，模糊才透得出来：0.6 以上在肉眼上等同实色胶囊
+                            onDrawSurface = { drawRect(glassSurface) },
                         )
                     } else {
                         Modifier.background(container, shape)
