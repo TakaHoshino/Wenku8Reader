@@ -5,7 +5,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
@@ -19,15 +18,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -45,8 +40,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,13 +52,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.Wenku8Application
 import com.hoshino.wenku8reader.ui.about.AboutScreen
 import com.hoshino.wenku8reader.ui.author.AuthorBooksScreen
 import com.hoshino.wenku8reader.ui.bookcase.BookcasePage
 import com.hoshino.wenku8reader.ui.components.MainPagerState
 import com.hoshino.wenku8reader.ui.components.rememberMainPagerState
+import com.hoshino.wenku8reader.ui.components.MiuixMainFloatingBar
+import com.hoshino.wenku8reader.ui.navigation.TABS
 import com.hoshino.wenku8reader.ui.detail.DetailScreen
 import com.hoshino.wenku8reader.ui.downloads.DownloadsScreen
 import com.hoshino.wenku8reader.ui.explore.ExplorePage
@@ -101,15 +95,11 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixTocPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAuthorBooksPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixTagBooksPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStatsPage
-import com.hoshino.wenku8reader.ui.miuix.MiuixLiquidBottomBar
-import com.hoshino.wenku8reader.ui.miuix.FloatingBottomBarItem
 import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.blur
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.NavigationBar as MiuixNavigationBar
@@ -117,18 +107,6 @@ import top.yukonga.miuix.kmp.basic.NavigationBarItem as MiuixNavigationBarItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-
-private data class TabDest(
-    val labelRes: Int,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
-)
-
-private val TABS = listOf(
-    TabDest(R.string.tab_explore, Icons.Filled.Explore, Icons.Outlined.Explore),
-    TabDest(R.string.tab_bookcase, Icons.Filled.Book, Icons.Outlined.Book),
-    TabDest(R.string.tab_settings, Icons.Filled.Settings, Icons.Outlined.Settings),
-)
 
 /** 启动更新检查的延迟：等首屏稳定后再发起，避免与启动渲染/首屏请求竞争网络与主线程。 */
 private const val STARTUP_UPDATE_CHECK_DELAY_MS = 2000L
@@ -635,64 +613,3 @@ private fun MainBottomBar(
         }
     }
 }
-
-/**
- * 主界面悬浮底栏（MIUIX）：把本项目的三个 Tab 接到移植来的 SukiSU 液态玻璃底栏上。
- *
- * 玻璃/折射/高光/拖拽全部由 [MiuixLiquidBottomBar] 负责（那套实现是从 SukiSU-Ultra
- * 整段移植的，见该文件头部说明）；这里只做适配：
- * - 选中态与切换都交给 [MainPagerState]（它与 HorizontalPager 双向同步）；
- * - 深浅色取自 miuix 主题，避免与系统主题设置不一致。
- */
-@Composable
-private fun MiuixMainFloatingBar(
-    mainPagerState: MainPagerState,
-    backdrop: top.yukonga.miuix.kmp.blur.Backdrop,
-    glassEnabled: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
-    // 胶囊外留白：SukiSU 的胶囊本身宽度由内容决定（IntrinsicSize.Min），这里用外层 padding
-    // 控制它离屏幕底边与手势条的距离。
-    Box(
-        modifier = modifier.padding(
-            start = FloatingBarOuterPadding,
-            end = FloatingBarOuterPadding,
-            bottom = FloatingBarVerticalPadding,
-        ),
-    ) {
-        MiuixLiquidBottomBar(
-            selectedIndex = { mainPagerState.selectedPage },
-            onSelected = { index -> mainPagerState.animateToPage(index) },
-            backdrop = backdrop,
-            tabsCount = TABS.size,
-            isDark = isDark,
-            isBlurEnabled = glassEnabled,
-        ) {
-            TABS.forEachIndexed { index, dest ->
-                val selected = mainPagerState.selectedPage == index
-                FloatingBottomBarItem(
-                    onClick = { mainPagerState.animateToPage(index) },
-                    // SukiSU 的胶囊宽度由内容撑开（IntrinsicSize.Min），它的标签更长所以够宽；
-                    // 本项目三个 Tab 都只有两个字，不加下限会挤成一团。76dp 是它的单格宽度量级。
-                    modifier = Modifier.widthIn(min = 76.dp),
-                ) {
-                    MiuixIcon(
-                        imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
-                        contentDescription = stringResource(dest.labelRes),
-                        modifier = Modifier.size(24.dp),
-                    )
-                    MiuixText(
-                        text = stringResource(dest.labelRes),
-                        style = MiuixTheme.textStyles.footnote2,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 悬浮胶囊相对屏幕左右的外留白。 */
-private val FloatingBarOuterPadding = 12.dp
-private val FloatingBarVerticalPadding = 8.dp
