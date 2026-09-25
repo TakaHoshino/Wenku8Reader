@@ -78,8 +78,7 @@ fun MiuixUpdateDialog(
                 onClick = onUpdate,
                 enabled = !state.downloading,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
+                    .fillMaxWidth(),
             ) {
                 Text(
                     stringResource(

@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -285,12 +286,14 @@ private fun MiuixDialogButtons(
     Column(Modifier.padding(top = 12.dp)) {
         Button(
             onClick = onConfirm,
-            modifier = Modifier.fillMaxSize().height(44.dp),
+            // 必须是 fillMaxWidth：写成 fillMaxSize 时按钮会去撑满弹窗的整个可用空间，
+            // 结果是弹窗被拉到满屏、次要按钮被挤出可见区域（用户看到的巨型弹窗就是这个原因）。
+            modifier = Modifier.fillMaxWidth(),
         ) { Text(confirmText) }
         Spacer(Modifier.height(8.dp))
         Button(
             onClick = onDismiss,
-            modifier = Modifier.fillMaxSize().height(44.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) { Text(dismissText) }
     }
 }

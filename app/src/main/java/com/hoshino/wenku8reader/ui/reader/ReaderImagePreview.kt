@@ -235,13 +235,13 @@ private fun SaveImageDialog(
                 Button(
                     onClick = onConfirm,
                     enabled = !saving,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) { MiuixText(confirmText) }
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = onDismiss,
                     enabled = !saving,
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) { MiuixText(cancelText) }
             }
         }
