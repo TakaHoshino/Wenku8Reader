@@ -31,8 +31,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -127,10 +127,17 @@ fun DetailScreen(
                         onClick = { vm.toggleLocalFavorite() },
                         enabled = info != null,
                     ) {
+                        // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
+                        // 与「收藏」这个文案保持一致——此前用的是书签图标。
                         Icon(
-                            if (ui.inLocalLibrary) Icons.Filled.Bookmark
-                            else Icons.Filled.BookmarkBorder,
+                            if (ui.inLocalLibrary) Icons.Filled.Star
+                            else Icons.Filled.StarBorder,
                             contentDescription = stringResource(R.string.detail_favorite),
+                            tint = if (ui.inLocalLibrary) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                     }
                 },

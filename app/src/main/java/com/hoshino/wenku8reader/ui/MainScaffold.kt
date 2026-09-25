@@ -5,17 +5,36 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -33,11 +52,27 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -77,7 +112,6 @@ import com.hoshino.wenku8reader.ui.toc.TocScreen
 import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import com.hoshino.wenku8reader.ui.components.isMiuixGlassSupported
-import com.hoshino.wenku8reader.ui.components.miuixGlass
 import com.hoshino.wenku8reader.ui.miuix.MiuixSettingsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStoragePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixBookcasePage
@@ -99,12 +133,17 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.blur.BlendColorEntry
+import top.yukonga.miuix.kmp.blur.BlurColors
+import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.blur.highlight.Highlight
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
+import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.NavigationBar as MiuixNavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem as MiuixNavigationBarItem
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 private data class TabDest(
     val labelRes: Int,
@@ -148,6 +187,11 @@ fun MainScaffold() {
     val appSettings by container.readerSettings.flow.collectAsStateWithLifecycle()
     val floatingBar = isMiuixStyle() && appSettings.floatingBottomBar
     val glassEnabled = floatingBar && appSettings.bottomBarGlass && isMiuixGlassSupported
+    // 悬浮胶囊现在浮在手势条之上（底栏自己加了 navigationBarsPadding），
+    // 因此滚动内容的底部余量要把系统导航栏高度一并算进去，最后一项才不会被压住。
+    val navigationBarsBottom = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding()
     val backdrop = rememberLayerBackdrop()
     val updateState by container.updateCenter.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
@@ -222,7 +266,7 @@ fun MainScaffold() {
             composable(Routes.MAIN) {
                 MainPagerScreen(
                     pagerState = pagerState,
-                    floatingBarInset = if (floatingBar) 88.dp else 0.dp,
+                    floatingBarInset = if (floatingBar) 88.dp + navigationBarsBottom else 0.dp,
                     onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
                     onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
                     onOpenDownloads = {
@@ -541,7 +585,7 @@ private fun MainPagerScreen(
  * 底栏：
  * - Material 3 风格 → `NavigationBar`（与页面背景同色）；
  * - MIUIX 风格 → miuix `NavigationBar`（固定）或 `FloatingNavigationBar`（悬浮，HyperOS 的胶囊式底栏）；
- *   悬浮时若开启液态玻璃，则用 [miuixGlass] 对页面内容做实时模糊。
+ *   悬浮时若开启液态玻璃，则用 miuix-blur 的 `textureBlur` 对页面内容做实时模糊（见 [MiuixFloatingBottomBar]）。
  * 切换选中页统一走弹簧动画（[MainPagerState.animateToPage]）。
  */
 @Composable
@@ -606,11 +650,21 @@ private fun MainBottomBar(
 }
 
 /**
- * MIUIX 悬浮底栏（HyperOS 风格胶囊底栏）。
+ * MIUIX 悬浮底栏（HyperOS 风格的液态玻璃胶囊底栏）。
  *
- * 玻璃效果分两步：`layerBackdrop` 把页面内容登记为模糊源（在 MainScaffold 里作用于 NavHost），
- * 这里用 [miuixGlass] 把该源实时模糊后绘制在胶囊形状内；未开启或系统 < Android 12L 时
- * 退化为半透明底色（不调用任何模糊 API）。
+ * 形态与效果照 SukiSU-Ultra 的悬浮底栏（其实现改编自 miuix 官方示例
+ * `IosLiquidGlassNavigationBar`），但**不搬运**它的自定义着色器（vibrancy/lens 都是那边
+ * 自己带的一套 `liquid/` 源码），只使用 miuix-blur 0.9.1 自带的公开能力：
+ *
+ * - 玻璃：`layerBackdrop` 把页面内容登记为模糊源（作用于 NavHost），这里用 `textureBlur`
+ *   把该源实时模糊后绘制在胶囊形状内，并通过 `BlurColors` 提饱和度/对比度（"通透"而不是"糊成灰"），
+ *   再加一层 miuix 自带的玻璃高光描边（`Highlight.GlassStroke*`）模拟边缘反光；
+ * - 滑块：选中项后面有一条随分页位置移动的胶囊滑块，位置直接读 `PagerState` 的连续偏移，
+ *   所以拖动页面时滑块**跟手**，点击底栏时由弹簧收敛；
+ * - 触感层级：选中项图标轻微放大 + 换主题色，未选中项降低不透明度。
+ *
+ * 未开启液态玻璃或系统 < Android 12L（`RenderEffect` 不可用）时，不调用任何模糊 API，
+ * 退化为不透明容器 + 半透明滑块，保证可读性。
  */
 @Composable
 private fun MiuixFloatingBottomBar(
@@ -618,35 +672,164 @@ private fun MiuixFloatingBottomBar(
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     modifier: Modifier = Modifier,
 ) {
-    val cornerRadius = 28.dp
-    val shape = RoundedCornerShape(cornerRadius)
     val glass = backdrop != null
+    val shape = CircleShape
+    val accent = MiuixTheme.colorScheme.primary
+    val container = MiuixTheme.colorScheme.surfaceContainer
+    val barContent = MiuixTheme.colorScheme.onSurface
+    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
+    val density = LocalDensity.current
+    var barWidthPx by remember { mutableFloatStateOf(0f) }
+    val innerPaddingPx = with(density) { FloatingBarInnerPadding.toPx() }
+    val tabWidthPx = ((barWidthPx - innerPaddingPx * 2f) / TABS.size).coerceAtLeast(0f)
+
     Box(
-        modifier.fillMaxWidth(),
+        // 悬浮胶囊要浮在系统手势条之上（HyperOS 的做法），否则会与导航条叠在一起
+        modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        FloatingNavigationBar(
+        Box(
             modifier = Modifier
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .miuixGlass(backdrop = backdrop, shape = shape),
-            // 玻璃态用半透明容器，模糊才有"透出来"的观感；降级时用不透明容器保证可读性
-            color = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = if (glass) 0.72f else 1f),
-            cornerRadius = cornerRadius,
-            // 去掉悬浮底栏自带的分隔线与投影：用户明确要求"不要边框"
-            showDivider = false,
-            shadowElevation = 0.dp,
-        ) {
-            TABS.forEachIndexed { index, dest ->
-                val selected = mainPagerState.selectedPage == index
-                FloatingNavigationBarItem(
-                    selected = selected,
-                    onClick = {
-                        if (!selected) mainPagerState.animateToPage(index)
+                .padding(horizontal = FloatingBarOuterPadding, vertical = FloatingBarVerticalPadding)
+                .fillMaxWidth()
+                .height(FloatingBarHeight)
+                .onGloballyPositioned { barWidthPx = it.size.width.toFloat() }
+                .dropShadow(
+                    shape = shape,
+                    shadow = Shadow(
+                        radius = 12.dp,
+                        color = Color.Black,
+                        alpha = if (isDark) 0.26f else 0.12f,
+                    ),
+                )
+                .clip(shape)
+                .then(
+                    if (glass) {
+                        Modifier.textureBlur(
+                            backdrop = backdrop,
+                            shape = shape,
+                            blurRadius = 24f,
+                            colors = BlurColors(
+                                blendColors = listOf(
+                                    BlendColorEntry(color = container.copy(alpha = 0.6f)),
+                                ),
+                                brightness = if (isDark) 1.06f else 1.02f,
+                                contrast = 1.05f,
+                                // 提饱和：糊出来的内容仍然是"有颜色"的，观感更接近液态玻璃
+                                saturation = 1.3f,
+                            ),
+                            highlight = (
+                                if (isDark) Highlight.GlassStrokeMiddleDark
+                                else Highlight.GlassStrokeMiddleLight
+                                ).copy(alpha = 0.45f),
+                        )
+                    } else {
+                        Modifier.background(container, shape)
                     },
-                    icon = if (selected) dest.selectedIcon else dest.unselectedIcon,
-                    label = stringResource(dest.labelRes),
+                )
+                .padding(FloatingBarInnerPadding),
+        ) {
+            // 滑块：位置在 offset 的 lambda 里读取，避免拖动时每帧重组整条底栏
+            if (tabWidthPx > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(with(density) { tabWidthPx.toDp() })
+                        .offset {
+                            val pager = mainPagerState.pagerState
+                            val position = pager.currentPage + pager.currentPageOffsetFraction
+                            IntOffset((position * tabWidthPx).roundToInt(), 0)
+                        }
+                        .clip(shape)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    accent.copy(alpha = if (glass) 0.24f else 0.18f),
+                                    accent.copy(alpha = if (glass) 0.14f else 0.1f),
+                                ),
+                            ),
+                        ),
                 )
             }
+            Row(
+                Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TABS.forEachIndexed { index, dest ->
+                    val selected = mainPagerState.selectedPage == index
+                    MiuixFloatingBarTab(
+                        selected = selected,
+                        icon = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                        label = stringResource(dest.labelRes),
+                        accent = accent,
+                        contentColor = barContent,
+                        onClick = { if (!selected) mainPagerState.animateToPage(index) },
+                    )
+                }
+            }
         }
+    }
+}
+
+/** 悬浮底栏尺寸（与 SukiSU 一致：64dp 胶囊 + 4dp 内缩 + 12dp 外边距）。 */
+private val FloatingBarHeight = 64.dp
+private val FloatingBarInnerPadding = 4.dp
+private val FloatingBarOuterPadding = 12.dp
+private val FloatingBarVerticalPadding = 8.dp
+
+/**
+ * 单个 Tab：图标（选中放大 1.1 倍并换主题色）+ 文案。
+ * 按压反馈由 miuix 的 indication 提供不了（这里在自定义容器内），故直接无波纹点击 +
+ * 选中态弹簧缩放来表达层级。
+ */
+@Composable
+private fun RowScope.MiuixFloatingBarTab(
+    selected: Boolean,
+    icon: ImageVector,
+    label: String,
+    accent: Color,
+    contentColor: Color,
+    onClick: () -> Unit,
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.1f else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 600f),
+        label = "miuixFloatingTabScale",
+    )
+    val tint = if (selected) accent else contentColor.copy(alpha = 0.72f)
+    Column(
+        Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Tab,
+                onClick = onClick,
+            ),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        MiuixIcon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier
+                .size(22.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                },
+        )
+        Spacer(Modifier.height(2.dp))
+        MiuixText(
+            text = label,
+            style = MiuixTheme.textStyles.footnote2,
+            color = tint,
+            maxLines = 1,
+        )
     }
 }

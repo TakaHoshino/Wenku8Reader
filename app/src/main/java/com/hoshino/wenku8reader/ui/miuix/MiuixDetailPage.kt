@@ -20,8 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -88,11 +88,23 @@ fun MiuixDetailPage(
         title = info?.title ?: stringResource(R.string.detail_title_default),
         onBack = onBack,
         actions = {
-            MiuixIconButton(
-                icon = if (ui.inLocalLibrary) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                contentDescription = stringResource(R.string.detail_favorite),
-                onClick = { vm.toggleLocalFavorite() },
-            )
+            // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
+            // 与「收藏」文案一致；这里不复用 MiuixIconButton 是因为需要按状态改 tint
+            top.yukonga.miuix.kmp.basic.IconButton(onClick = { vm.toggleLocalFavorite() }) {
+                Icon(
+                    imageVector = if (ui.inLocalLibrary) {
+                        Icons.Filled.Star
+                    } else {
+                        Icons.Filled.StarBorder
+                    },
+                    contentDescription = stringResource(R.string.detail_favorite),
+                    tint = if (ui.inLocalLibrary) {
+                        MiuixTheme.colorScheme.primary
+                    } else {
+                        MiuixTheme.colorScheme.onBackground
+                    },
+                )
+            }
         },
     ) { inner ->
         val book = info
