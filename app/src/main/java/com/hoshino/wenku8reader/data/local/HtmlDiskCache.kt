@@ -145,7 +145,10 @@ class HtmlDiskCache internal constructor(
         var total = files.sumOf { it.length() }
         if (total <= maxBytes) return
         // 超限：从最旧开始删，直到降到上限的 70%
-        files.sortedBy { it.lastModified() }.forEach { f ->
+        // 次要键取文件名：同一毫秒内写入的多个条目 mtime 相同，只按 mtime 排序时
+        // 顺序取决于文件系统的目录枚举顺序（CI 上实测过淘汰对象随之变化）。
+        // 加上文件名兜底后，同样的目录状态总是淘汰同一批文件，行为可复现、便于排查。
+        files.sortedWith(compareBy({ it.lastModified() }, { it.name })).forEach { f ->
             if (total <= maxBytes * 0.7) return@forEach
             total -= f.length()
             f.delete()

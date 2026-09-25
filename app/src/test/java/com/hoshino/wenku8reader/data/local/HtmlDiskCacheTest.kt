@@ -117,18 +117,33 @@ class HtmlDiskCacheTest {
 
     @Test
     fun `超过上限时按最旧优先淘汰到上限的七成`() {
-        val c = cache(maxBytes = 1000)
-        // 三个条目：写入顺序 = 新旧顺序，第三个把总量顶到 3*400=1200 > 1000
+        // 先用大上限写入：若一开始就用 1000，第三次写入当场就会触发淘汰，
+        // 那就没机会在淘汰前把 mtime 钉死了。
+        val c = cache(maxBytes = 100_000)
+        // 三个条目，共 3*400=1200 字节
         c.put(url(20), "a".repeat(400), category = "book")
         c.put(url(21), "b".repeat(400), category = "book")
         c.put(url(22), "c".repeat(400), category = "book")
 
+        // 不能依赖"写入先后 = mtime 先后"：三次写入常落在同一毫秒内，mtime 相同就让
+        // 「谁最旧」变得取决于文件系统枚举顺序（CI 上确实因此偶发失败过）。
+        // 这里显式把 mtime 拉开，直接钉住排序依据本身。
+        val files = (c.directory.listFiles() ?: error("缓存目录不可读")).sortedBy { it.name }
+        assertEquals(3, files.size)
+        files.forEachIndexed { i, f ->
+            assertTrue("设置 mtime 失败：${f.name}", f.setLastModified(1_000_000L + i * 10_000L))
+        }
+        val oldest = files.first()
+        val newest = files.last()
+
+        // 调低上限触发淘汰：1200 > 1000 → 按 mtime 删到 ≤ 700（删掉两个，留下最新的）
+        c.setMaxBytes(1000)
+
         // 淘汰目标：降到 1000*0.7 = 700 以下 → 至少删掉一个
         assertTrue("总量应被压到上限以下", c.totalSize() < 1000)
-        assertNull(
-            "最旧的条目应先被淘汰",
-            c.get(url(20), ttlMs = 60_000, category = "book"),
-        )
+        // 注意不要用 get() 判定存活：那些 mtime 被改到了 1970 年，get 会按"已过期"删掉文件。
+        assertFalse("最旧的条目应先被淘汰", oldest.exists())
+        assertEquals("最新的条目应保留", 400L, newest.length())
     }
 
     @Test
