@@ -30,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -127,6 +128,20 @@ fun DetailScreen(
                     }
                 },
                 actions = {
+                    // 站方书架（实验性，仅用户账户登录时出现）：与"本地收藏"是两套独立状态
+                    if (ui.siteShelfAvailable) {
+                        IconButton(onClick = { vm.toggleSiteShelf() }, enabled = info != null) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.LibraryBooks,
+                                contentDescription = stringResource(R.string.detail_site_shelf),
+                                tint = if (ui.inSiteShelf) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
                     IconButton(
                         // 多书架开启且尚未收藏 → 先选书架；其余情况（含关闭开关）走原来的收藏/移出
                         onClick = {

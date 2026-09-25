@@ -68,6 +68,8 @@ object AppViewModelProvider {
                 application().container.libraryStore,
                 application().container.readingProgressStore,
                 application().container.shelfStore,
+                application().container.accountStore,
+                application().container.wenku8Shelf,
                 application().container.readerSettings,
             )
         }

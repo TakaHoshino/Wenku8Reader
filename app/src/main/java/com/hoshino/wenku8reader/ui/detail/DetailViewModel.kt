@@ -7,6 +7,8 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.BookInfo
 import com.hoshino.wenku8reader.data.DownloadEngine
 import com.hoshino.wenku8reader.data.DownloadJob
+import com.hoshino.wenku8reader.data.Wenku8Shelf
+import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.LibraryStore
 import com.hoshino.wenku8reader.data.local.DEFAULT_SHELF
 import com.hoshino.wenku8reader.data.local.ReaderSettings
@@ -50,6 +52,10 @@ data class DetailUiState(
      * 取消收藏的确认弹窗用它预勾选，让用户看清"从哪些书架取消"。
      */
     val currentShelves: Set<String> = emptySet(),
+    /** 是否显示"网站书架"入口：账户开 + 多书架开 + 用户账户已登录。 */
+    val siteShelfAvailable: Boolean = false,
+    /** 这本书当前是否已在站方书架（登录用户的书架）。 */
+    val inSiteShelf: Boolean = false,
 )
 
 class DetailViewModel(
@@ -59,6 +65,8 @@ class DetailViewModel(
     private val libraryStore: LibraryStore,
     private val progressStore: ReadingProgressStore,
     private val shelfStore: ShelfStore,
+    private val accountStore: AccountStore,
+    private val wenku8Shelf: Wenku8Shelf,
     private val readerSettings: ReaderSettings,
 ) : ViewModel() {
 
@@ -76,6 +84,53 @@ class DetailViewModel(
     init {
         load()
         observeLocalState()
+        observeSiteShelf()
+    }
+
+    /**
+     * 站方书架状态（实验性）：是否显示入口、以及这本书是否已在里面。
+     *
+     * 单独一条 Flow 而不是并进 [observeLocalState]：那条已经有 4 路，再加会超出 `combine`
+     * 的类型化重载上限；两者关注点本来也不同（本地书架 vs 远端站方书架）。
+     */
+    private fun observeSiteShelf() {
+        viewModelScope.launch {
+            combine(
+                accountStore.observe(),
+                readerSettings.flow,
+                wenku8Shelf.state,
+            ) { account, settings, site ->
+                (settings.accountLoginEnabled && settings.multiShelfEnabled &&
+                    account.activeUsername != null) to site.contains(bookId)
+            }.collect { (available, inSite) ->
+                _ui.update { it.copy(siteShelfAvailable = available, inSiteShelf = inSite) }
+            }
+        }
+    }
+
+    /** 加入 / 移出站方书架（同一枚按钮的两种含义，由 [DetailUiState.inSiteShelf] 决定）。 */
+    fun toggleSiteShelf() {
+        viewModelScope.launch {
+            if (_ui.value.inSiteShelf) {
+                // 移出要的是**书架记录 id**（不是书 id）——在这里换算，UI 不接触站点细节
+                val bid = wenku8Shelf.state.value.itemOf(bookId)?.bid ?: return@launch
+                val ok = wenku8Shelf.remove(bid)
+                _favoriteMessages.tryEmit(
+                    UiText.StringResource(
+                        if (ok) R.string.detail_site_shelf_removed
+                        else R.string.detail_site_shelf_failed,
+                    ),
+                )
+            } else {
+                val ok = wenku8Shelf.add(bookId)
+                _favoriteMessages.tryEmit(
+                    UiText.StringResource(
+                        if (ok) R.string.detail_site_shelf_added
+                        else R.string.detail_site_shelf_failed,
+                    ),
+                )
+            }
+        }
     }
 
     fun load() {

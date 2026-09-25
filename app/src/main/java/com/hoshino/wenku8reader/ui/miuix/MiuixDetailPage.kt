@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -92,6 +93,20 @@ fun MiuixDetailPage(
         title = info?.title ?: stringResource(R.string.detail_title_default),
         onBack = onBack,
         actions = {
+            // 站方书架（实验性，仅用户账户登录时出现）：与"本地收藏"是两套独立状态
+            if (ui.siteShelfAvailable) {
+                top.yukonga.miuix.kmp.basic.IconButton(onClick = { vm.toggleSiteShelf() }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
+                        contentDescription = stringResource(R.string.detail_site_shelf),
+                        tint = if (ui.inSiteShelf) {
+                            MiuixTheme.colorScheme.primary
+                        } else {
+                            MiuixTheme.colorScheme.onBackground
+                        },
+                    )
+                }
+            }
             // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
             // 与「收藏」文案一致；这里不复用 MiuixIconButton 是因为需要按状态改 tint
             top.yukonga.miuix.kmp.basic.IconButton(

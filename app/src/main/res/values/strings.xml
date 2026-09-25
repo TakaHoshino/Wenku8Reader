@@ -249,6 +249,10 @@
     <string name="wenku8_shelf_empty">网站书架暂无书籍</string>
     <string name="wenku8_shelf_remove">移出网站书架</string>
     <string name="wenku8_shelf_remove_message">将从你的 wenku8 账户书架中移出《%1$s》。</string>
+    <string name="detail_site_shelf">网站书架</string>
+    <string name="detail_site_shelf_added">已加入网站书架</string>
+    <string name="detail_site_shelf_removed">已从网站书架移出</string>
+    <string name="detail_site_shelf_failed">操作失败，请检查登录状态或网络</string>
     <string name="bookcase_shelf_empty">该书架暂无书籍</string>
     <string name="bookcase_manage_shelves">管理书架</string>
     <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>
