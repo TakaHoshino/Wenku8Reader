@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
+import coil.imageLoader
 import coil.request.ImageRequest
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.Wenku8Application
@@ -46,7 +47,9 @@ import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -183,10 +186,12 @@ fun ReaderImagePreview(
             onConfirm = {
                 saving = true
                 scope.launch {
-                    // 刻意走网络取**原始字节**而不是复用预览已解码的 Bitmap：
-                    // 位图重新编码（JPEG 有损）会改变文件内容，"保存图片"应当与站点原图逐字节一致。
-                    // 代价是保存时多一次请求——它由用户显式触发、一张图一次，可以接受。
-                    val bytes = runCatching { context.appContainer.client.imageBytes(url) }.getOrNull()
+                    // 取**原始字节**而不是复用预览已解码的 Bitmap：位图重新编码（JPEG 有损）
+                    // 会改变文件内容，"保存图片"必须与站点原图逐字节一致。
+                    // 优先读 Coil 磁盘缓存里那份响应体原文（内容与原图相同，省一次网络往返），
+                    // 没命中才重新下载——行为与改动前一致。
+                    val bytes = withContext(Dispatchers.IO) { illustrationOriginalBytes(context, url) }
+                        ?: runCatching { context.appContainer.client.imageBytes(url) }.getOrNull()
                     val saved = bytes?.let {
                         FileSaver.saveDownload(
                             context = context,
@@ -257,6 +262,30 @@ private fun SaveImageDialog(
                 TextButton(onClick = onDismiss, enabled = !saving) { Text(cancelText) }
             },
         )
+    }
+}
+
+/**
+ * 取插图的**原始字节**：优先读 Coil 磁盘缓存里那份响应体原文，未命中返回 null（由调用方走网络）。
+ *
+ * 为什么缓存里的字节就等于原图：Coil 2 的磁盘缓存 key 是请求 data 的字符串
+ * （`HttpUriFetcher.diskCacheKey = options.diskCacheKey ?: url`），而缓存文件是在**解码之前**
+ * 写入的响应体原文——所以拿到的字节与重新下载得到的完全一致，只是省掉一次网络往返。
+ *
+ * key 必须与两个 ImageRequest 的 data 保持一致：本文件与 `ReaderIllustration` 都用
+ * `Wenku8Hosts.normalizeImageUrl(url)`，这里也必须用同一个值，否则查找会**静默失效**
+ * （退化成重新下载，不报任何错，只是白跑一趟网络）。
+ *
+ * 未命中的情形都属正常：图还没被加载过、用户清过图片缓存、或响应带 `Cache-Control: no-store`
+ * ——Coil 默认尊重缓存头（`ImageLoaderOptions.respectCacheHeaders = true`），那种响应根本不落盘。
+ */
+@OptIn(coil.annotation.ExperimentalCoilApi::class)
+private fun illustrationOriginalBytes(context: Context, url: String): ByteArray? {
+    val snapshot = context.imageLoader.diskCache?.openSnapshot(Wenku8Hosts.normalizeImageUrl(url))
+        ?: return null
+    // Snapshot.data 就是缓存文件（okio Path）；必须在 close 之前把内容读完。
+    return snapshot.use { snap ->
+        runCatching { snap.data.toFile().readBytes() }.getOrNull()
     }
 }
 

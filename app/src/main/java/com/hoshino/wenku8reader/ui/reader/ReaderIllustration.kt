@@ -45,6 +45,8 @@ fun ReaderIllustration(
     val context = LocalContext.current
     val request = remember(url) {
         ImageRequest.Builder(context)
+            // 这里的 data 同时是 Coil 的磁盘缓存 key（见 `ReaderImagePreview.illustrationOriginalBytes`）：
+            // 换一种取值会让「保存插图」复用不到缓存、静默退回重新下载。
             .data(Wenku8Hosts.normalizeImageUrl(url))
             .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
             .crossfade(true)
