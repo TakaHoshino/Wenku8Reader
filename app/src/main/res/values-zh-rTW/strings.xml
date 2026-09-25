@@ -280,12 +280,15 @@
     <string name="settings_manual_color">手動取色</string>
     <string name="settings_background_color">背景顏色</string>
     <string name="settings_background_image">背景圖片</string>
+    <string name="settings_reading_habit">閱讀習慣</string>
     <string name="settings_pick_image">選擇圖片</string>
     <string name="settings_clear_image">清除圖片</string>
+    <string name="settings_background_image_desc">在整章正文之下鋪一張圖，淺色與深色模式共用</string>
     <string name="settings_text_color">字型顏色</string>
     <string name="settings_mode_light">淺色模式</string>
     <string name="settings_mode_dark">深色模式</string>
     <string name="settings_font">字型</string>
+    <string name="settings_typography">排版</string>
     <string name="settings_font_default">系統預設</string>
     <string name="settings_font_sans">無襯線</string>
     <string name="settings_font_serif">襯線</string>

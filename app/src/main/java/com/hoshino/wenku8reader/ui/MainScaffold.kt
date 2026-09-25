@@ -85,6 +85,7 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixAppearancePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixNetworkPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixUpdatePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixExperimentalPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixCustomizationPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
@@ -253,7 +254,12 @@ fun MainScaffold() {
                 )
             }
             composable(Routes.SETTINGS_CUSTOM) {
-                CustomizationScreen(onBack = { nav.popBackStack() })
+                // MIUIX 模式使用完全独立的 miuix 阅读设置页（不复用 Material 版）
+                if (isMiuixStyle()) {
+                    MiuixCustomizationPage(onBack = { nav.popBackStack() })
+                } else {
+                    CustomizationScreen(onBack = { nav.popBackStack() })
+                }
             }
             composable(Routes.STORAGE_SETTINGS) {
                 // MIUIX 模式使用完全独立的 miuix 存储页（不复用 Material 版）
