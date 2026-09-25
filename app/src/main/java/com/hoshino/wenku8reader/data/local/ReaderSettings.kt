@@ -1,11 +1,25 @@
 package com.hoshino.wenku8reader.data.local
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import com.hoshino.wenku8reader.data.Wenku8Hosts
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Immutable snapshot of all reader/app customization settings.
@@ -66,152 +80,203 @@ data class ReaderSettingsState(
 }
 
 /**
- * App-wide customization store backed by SharedPreferences. Holds the single
- * [StateFlow] that drives both the global theme (MainActivity) and the reader.
+ * 设置项在 DataStore 里的键名。
+ *
+ * **刻意与旧 `settings` SharedPreferences 的键名完全一致**：这样"从 SharedPreferences 迁移"
+ * 就是一次同名搬运，迁移代码可以直接逐字段对照审查，不需要任何键名映射表。
+ * 改动这里的名字等于让老用户的该设置失效，务必同步 [ReaderSettingsState] 默认值与迁移代码。
  */
-class ReaderSettings(context: Context) {
+private object Keys {
+    val darkMode = stringPreferencesKey("dark_mode")
+    val dynamicColor = booleanPreferencesKey("dynamic_color")
+    val seedColor = longPreferencesKey("seed_color")
+    val amoled = booleanPreferencesKey("amoled")
+    val primaryMirror = stringPreferencesKey("primary_mirror")
+    val backgroundMode = stringPreferencesKey("bg_mode")
+    val readerBackgroundLight = longPreferencesKey("reader_bg_light")
+    val readerTextColorLight = longPreferencesKey("reader_text_light")
+    val readerBackgroundDark = longPreferencesKey("reader_bg_dark")
+    val readerTextColorDark = longPreferencesKey("reader_text_dark")
+    val backgroundImagePath = stringPreferencesKey("bg_image")
+    val fontFamily = stringPreferencesKey("font_family")
+    val fontSize = intPreferencesKey("font_size")
+    val fontWeight = intPreferencesKey("font_weight")
+    val lineSpacing = floatPreferencesKey("line_spacing")
+    val traditionalChinese = booleanPreferencesKey("traditional")
+    val scrollMode = booleanPreferencesKey("scroll_mode")
+    val volumeKeyTurnPage = booleanPreferencesKey("volume_turn")
+    val autoNextChapter = booleanPreferencesKey("auto_next")
+    val pageTurnDirection = booleanPreferencesKey("turn_direction")
+    val autoTurnInterval = intPreferencesKey("auto_interval")
+    val clickTurnPage = booleanPreferencesKey("click_turn")
+    val hapticsEnabled = booleanPreferencesKey("haptics_enabled")
+    val hapticsStrength = intPreferencesKey("haptics_strength")
+    val checkUpdatesOnStartup = booleanPreferencesKey("check_updates_on_startup")
+    val updateChannel = stringPreferencesKey("update_channel")
+    val updateSource = stringPreferencesKey("update_source")
+    val appLanguage = stringPreferencesKey("app_language")
+    val cacheMaxMb = intPreferencesKey("cache_max_mb")
+    val expressiveMotion = booleanPreferencesKey("expressive_motion")
+    val uiStyle = stringPreferencesKey("ui_style")
+    val floatingBottomBar = booleanPreferencesKey("floating_bottom_bar")
+    val bottomBarGlass = booleanPreferencesKey("bottom_bar_glass")
+    val autoPadding = booleanPreferencesKey("auto_padding")
+    val topPadding = intPreferencesKey("pad_top")
+    val bottomPadding = intPreferencesKey("pad_bottom")
+    val leftPadding = intPreferencesKey("pad_left")
+    val rightPadding = intPreferencesKey("pad_right")
+    // 一次性迁移标记；置位后不再读旧 SharedPreferences。
+    val migrated = booleanPreferencesKey("migrated_from_prefs")
+}
 
-    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+/** 旧版设置所在的 SharedPreferences 文件（迁移来源；迁移后只作降级兜底保留在磁盘上）。 */
+private const val LEGACY_PREFS = "settings"
 
-    private val _flow = MutableStateFlow(load())
-    val flow: StateFlow<ReaderSettingsState> = _flow.asStateFlow()
+private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
-    private fun load(): ReaderSettingsState = ReaderSettingsState(
-        darkMode = prefs.getString("dark_mode", "system") ?: "system",
-        dynamicColor = prefs.getBoolean("dynamic_color", true),
-        seedColor = prefs.getLong("seed_color", 0xFF3F5BA9L),
-        amoled = prefs.getBoolean("amoled", false),
-        // 默认 wenku8.cc；旧默认 wenku8.net（用户未手动改过）自动迁移到新默认
-        primaryMirror = prefs.getString("primary_mirror", null)
-            ?.takeUnless { it == ReaderSettingsState.LEGACY_DEFAULT_MIRROR }
-            ?: ReaderSettingsState.DEFAULT_MIRROR,
-        backgroundMode = prefs.getString("bg_mode", "color") ?: "color",
-        // 旧版本只有单一 reader_bg / reader_text_color：迁移为浅色模式配色
-        readerBackgroundLight = prefs.getLong(
-            "reader_bg_light",
-            prefs.getLong("reader_bg", 0xFFFFFFFFL),
-        ),
-        readerTextColorLight = prefs.getLong(
-            "reader_text_light",
-            prefs.getLong("reader_text_color", 0xFF000000L),
-        ),
-        backgroundImagePath = prefs.getString("bg_image", null),
-        readerBackgroundDark = prefs.getLong("reader_bg_dark", 0xFF000000L),
-        readerTextColorDark = prefs.getLong("reader_text_dark", 0xFFFFFFFFL),
-        fontFamily = prefs.getString("font_family", "default") ?: "default",
-        fontSize = prefs.getInt("font_size", 18),
-        fontWeight = prefs.getInt("font_weight", 400),
-        lineSpacing = prefs.getFloat("line_spacing", 1.8f),
-        traditionalChinese = prefs.getBoolean("traditional", false),
-        scrollMode = prefs.getBoolean("scroll_mode", false),
-        volumeKeyTurnPage = prefs.getBoolean("volume_turn", true),
-        autoNextChapter = prefs.getBoolean("auto_next", false),
-        pageTurnDirection = prefs.getBoolean("turn_direction", true),
-        autoTurnInterval = prefs.getInt("auto_interval", 10),
-        clickTurnPage = prefs.getBoolean("click_turn", true),
-        hapticsEnabled = prefs.getBoolean("haptics_enabled", true),
-        hapticsStrength = prefs.getInt("haptics_strength", 50).coerceIn(0, 100),
-        checkUpdatesOnStartup = prefs.getBoolean("check_updates_on_startup", true),
-        updateChannel = prefs.getString("update_channel", "stable") ?: "stable",
-        updateSource = prefs.getString("update_source", "github") ?: "github",
-        appLanguage = prefs.getString("app_language", "system") ?: "system",
-        cacheMaxMb = prefs.getInt("cache_max_mb", 30).coerceIn(10, 500),
-        expressiveMotion = prefs.getBoolean("expressive_motion", true),
-        uiStyle = prefs.getString("ui_style", "material3") ?: "material3",
-        floatingBottomBar = prefs.getBoolean("floating_bottom_bar", true),
-        bottomBarGlass = prefs.getBoolean("bottom_bar_glass", true),
-        autoPadding = prefs.getBoolean("auto_padding", true),
-        topPadding = prefs.getInt("pad_top", 24),
-        bottomPadding = prefs.getInt("pad_bottom", 16),
-        leftPadding = prefs.getInt("pad_left", 20),
-        rightPadding = prefs.getInt("pad_right", 20),
+/**
+ * App-wide customization store backed by **DataStore**.
+ *
+ * 对外仍然暴露一个同步可读的 [StateFlow]：主题、阅读器排版、安全区在首帧就要用。
+ * 若改成"等 DataStore 第一次发射"，启动瞬间会先按默认值渲染——用户看到的是
+ * **设置被重置**的闪烁（深色模式用户尤其明显）。
+ *
+ * ### 三个关键行为
+ *
+ * 1. **首值同步**：构造时阻塞读一次 DataStore（理由见 [loadOrSeed]），
+ *    所以 `flow.value` 从第一帧起就是真实设置。
+ * 2. **写内存 + 异步落盘**：`emit` 立即更新 `_flow`（UI 零延迟），再把整份状态交给
+ *    [writes] 通道由后台协程落盘。用 conflated 通道而不是直接 `launch { edit }` ，
+ *    是为了同时拿到**顺序**与**合并**：字号/行距 Slider 每帧都会改值，直接并发 edit
+ *    可能后写先落、把新值覆盖回旧值；conflated 通道按提交顺序写且自动合并中间态。
+ * 3. **一次性迁移**：首次运行把旧 `settings` SharedPreferences 的同名键搬进 DataStore，
+ *    同一次事务里置位 [Keys.migrated]。旧文件留在磁盘上（降级或迁移出错可回退），
+ *    但置位之后不再读取，避免长期维护两套会互相漂移的存储。
+ */
+class ReaderSettings(context: Context, private val scope: CoroutineScope) {
+
+    private val appContext = context.applicationContext
+
+    /** 迁移来源；只在 [legacyState] 里读一次。 */
+    private val legacyPrefs = appContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+
+    private val dataStore: DataStore<Preferences> get() = appContext.settingsDataStore
+
+    /** 待落盘状态：conflated 只保留最新一份，顺序仍由通道保证。 */
+    private val writes = Channel<ReaderSettingsState>(Channel.CONFLATED)
+
+    private val _flow = MutableStateFlow(
+        // 兜底顺序说明了故障时的降级路径：DataStore 读不出来（磁盘异常 / 文件损坏）
+        //   → 退回旧 SharedPreferences 里那份迁移前的值
+        //   → 再不行才用全套默认值。
+        // 关键是**绝不让构造抛异常**：ReaderSettings 在 Application.onCreate 里创建，
+        // 抛出去就是启动即崩溃，用户连设置页都进不去。
+        runBlocking { runCatching { loadOrSeed() }.getOrElse { legacyState() ?: ReaderSettingsState() } },
     )
 
+    val flow: StateFlow<ReaderSettingsState> = _flow.asStateFlow()
+
+    init {
+        scope.launch {
+            for (state in writes) {
+                // 落盘失败只影响"下次启动是否记得这次改动"，不该让设置页崩溃；
+                // 内存状态已经生效，用户本次使用不受影响。
+                runCatching { dataStore.edit { it.writeAll(state) } }
+            }
+        }
+    }
+
     /**
-     * 只写入**发生变化**的 key。
+     * 读出当前设置；若尚未迁移，则先把旧 SharedPreferences 的值搬进 DataStore。
      *
-     * 原实现每次调用都把 30+ 个 key 全量重写一遍：字号/字重/行距的 Slider 拖动时
-     * 每帧都会触发一次 emit，于是每帧都做一次全量 SharedPreferences 写盘
-     * （含 apply 的磁盘调度），既浪费又放大 IO。现在按字段比较后只写差异项。
+     * 这里用 [runBlocking] 是有意为之：它发生在 `Application.onCreate`、任何 UI 出现之前，
+     * 成本与旧实现（在同一个位置同步解析 `settings.xml`）同级，换来的是首帧设置正确。
+     * 迁移与读取在同一个阻塞区间内完成，因此**不存在**「用户先改了一项、迁移又把它覆盖掉」
+     * 的竞态窗口。
+     */
+    private suspend fun loadOrSeed(): ReaderSettingsState {
+        if (dataStore.data.first()[Keys.migrated] != true) {
+            val legacy = legacyState()
+            dataStore.edit { prefs ->
+                legacy?.let { prefs.writeAll(it) }
+                prefs[Keys.migrated] = true
+            }
+        }
+        return dataStore.data.first().toState()
+    }
+
+    /**
+     * 只写入**发生变化**的状态，值没变就完全不落盘。
+     *
+     * 原实现每次调用都把 30+ 个 key 全量重写一遍，而 Slider 拖动时每帧都会触发一次；
+     * 现在"没变不写"，拖动期间的连续变化再由 [writes] 通道合并成一次落盘。
      */
     private fun emit(transform: (ReaderSettingsState) -> ReaderSettingsState) {
         val prev = _flow.value
         val next = transform(prev)
         if (next == prev) return
         _flow.value = next
+        writes.trySend(next)
+    }
 
-        val e = prefs.edit()
-        if (next.darkMode != prev.darkMode) e.putString("dark_mode", next.darkMode)
-        if (next.dynamicColor != prev.dynamicColor) e.putBoolean("dynamic_color", next.dynamicColor)
-        if (next.seedColor != prev.seedColor) e.putLong("seed_color", next.seedColor)
-        if (next.amoled != prev.amoled) e.putBoolean("amoled", next.amoled)
-        if (next.primaryMirror != prev.primaryMirror) e.putString("primary_mirror", next.primaryMirror)
-        if (next.backgroundMode != prev.backgroundMode) e.putString("bg_mode", next.backgroundMode)
-        if (next.readerBackgroundLight != prev.readerBackgroundLight) {
-            e.putLong("reader_bg_light", next.readerBackgroundLight)
-        }
-        if (next.readerTextColorLight != prev.readerTextColorLight) {
-            e.putLong("reader_text_light", next.readerTextColorLight)
-        }
-        if (next.readerBackgroundDark != prev.readerBackgroundDark) {
-            e.putLong("reader_bg_dark", next.readerBackgroundDark)
-        }
-        if (next.readerTextColorDark != prev.readerTextColorDark) {
-            e.putLong("reader_text_dark", next.readerTextColorDark)
-        }
-        if (next.backgroundImagePath != prev.backgroundImagePath) {
-            e.putString("bg_image", next.backgroundImagePath)
-        }
-        if (next.fontFamily != prev.fontFamily) e.putString("font_family", next.fontFamily)
-        if (next.fontSize != prev.fontSize) e.putInt("font_size", next.fontSize)
-        if (next.fontWeight != prev.fontWeight) e.putInt("font_weight", next.fontWeight)
-        if (next.lineSpacing != prev.lineSpacing) e.putFloat("line_spacing", next.lineSpacing)
-        if (next.traditionalChinese != prev.traditionalChinese) {
-            e.putBoolean("traditional", next.traditionalChinese)
-        }
-        if (next.scrollMode != prev.scrollMode) e.putBoolean("scroll_mode", next.scrollMode)
-        if (next.volumeKeyTurnPage != prev.volumeKeyTurnPage) {
-            e.putBoolean("volume_turn", next.volumeKeyTurnPage)
-        }
-        if (next.autoNextChapter != prev.autoNextChapter) e.putBoolean("auto_next", next.autoNextChapter)
-        if (next.pageTurnDirection != prev.pageTurnDirection) {
-            e.putBoolean("turn_direction", next.pageTurnDirection)
-        }
-        if (next.autoTurnInterval != prev.autoTurnInterval) {
-            e.putInt("auto_interval", next.autoTurnInterval)
-        }
-        if (next.clickTurnPage != prev.clickTurnPage) e.putBoolean("click_turn", next.clickTurnPage)
-        if (next.hapticsEnabled != prev.hapticsEnabled) {
-            e.putBoolean("haptics_enabled", next.hapticsEnabled)
-        }
-        if (next.hapticsStrength != prev.hapticsStrength) {
-            e.putInt("haptics_strength", next.hapticsStrength)
-        }
-        if (next.checkUpdatesOnStartup != prev.checkUpdatesOnStartup) {
-            e.putBoolean("check_updates_on_startup", next.checkUpdatesOnStartup)
-        }
-        if (next.updateChannel != prev.updateChannel) {
-            e.putString("update_channel", next.updateChannel)
-        }
-        if (next.updateSource != prev.updateSource) e.putString("update_source", next.updateSource)
-        if (next.appLanguage != prev.appLanguage) e.putString("app_language", next.appLanguage)
-        if (next.cacheMaxMb != prev.cacheMaxMb) e.putInt("cache_max_mb", next.cacheMaxMb)
-        if (next.expressiveMotion != prev.expressiveMotion) {
-            e.putBoolean("expressive_motion", next.expressiveMotion)
-        }
-        if (next.uiStyle != prev.uiStyle) e.putString("ui_style", next.uiStyle)
-        if (next.floatingBottomBar != prev.floatingBottomBar) {
-            e.putBoolean("floating_bottom_bar", next.floatingBottomBar)
-        }
-        if (next.bottomBarGlass != prev.bottomBarGlass) {
-            e.putBoolean("bottom_bar_glass", next.bottomBarGlass)
-        }
-        if (next.autoPadding != prev.autoPadding) e.putBoolean("auto_padding", next.autoPadding)
-        if (next.topPadding != prev.topPadding) e.putInt("pad_top", next.topPadding)
-        if (next.bottomPadding != prev.bottomPadding) e.putInt("pad_bottom", next.bottomPadding)
-        if (next.leftPadding != prev.leftPadding) e.putInt("pad_left", next.leftPadding)
-        if (next.rightPadding != prev.rightPadding) e.putInt("pad_right", next.rightPadding)
-        e.apply()
+    /**
+     * 读旧 SharedPreferences 的整份设置；文件为空（全新安装）时返回 null。
+     *
+     * 这里保留了两处**旧版本默认值迁移**，必须与旧实现逐字一致，否则老用户会看到
+     * 主站被改回旧网域、阅读配色被重置。
+     */
+    private fun legacyState(): ReaderSettingsState? {
+        if (legacyPrefs.all.isEmpty()) return null
+        return ReaderSettingsState(
+            darkMode = legacyPrefs.getString("dark_mode", "system") ?: "system",
+            dynamicColor = legacyPrefs.getBoolean("dynamic_color", true),
+            seedColor = legacyPrefs.getLong("seed_color", 0xFF3F5BA9L),
+            amoled = legacyPrefs.getBoolean("amoled", false),
+            // 默认 wenku8.cc；旧默认 wenku8.net（用户未手动改过）自动迁移到新默认
+            primaryMirror = legacyPrefs.getString("primary_mirror", null)
+                ?.takeUnless { it == ReaderSettingsState.LEGACY_DEFAULT_MIRROR }
+                ?: ReaderSettingsState.DEFAULT_MIRROR,
+            backgroundMode = legacyPrefs.getString("bg_mode", "color") ?: "color",
+            // 旧版本只有单一 reader_bg / reader_text_color：迁移为浅色模式配色
+            readerBackgroundLight = legacyPrefs.getLong(
+                "reader_bg_light",
+                legacyPrefs.getLong("reader_bg", 0xFFFFFFFFL),
+            ),
+            readerTextColorLight = legacyPrefs.getLong(
+                "reader_text_light",
+                legacyPrefs.getLong("reader_text_color", 0xFF000000L),
+            ),
+            backgroundImagePath = legacyPrefs.getString("bg_image", null),
+            readerBackgroundDark = legacyPrefs.getLong("reader_bg_dark", 0xFF000000L),
+            readerTextColorDark = legacyPrefs.getLong("reader_text_dark", 0xFFFFFFFFL),
+            fontFamily = legacyPrefs.getString("font_family", "default") ?: "default",
+            fontSize = legacyPrefs.getInt("font_size", 18),
+            fontWeight = legacyPrefs.getInt("font_weight", 400),
+            lineSpacing = legacyPrefs.getFloat("line_spacing", 1.8f),
+            traditionalChinese = legacyPrefs.getBoolean("traditional", false),
+            scrollMode = legacyPrefs.getBoolean("scroll_mode", false),
+            volumeKeyTurnPage = legacyPrefs.getBoolean("volume_turn", true),
+            autoNextChapter = legacyPrefs.getBoolean("auto_next", false),
+            pageTurnDirection = legacyPrefs.getBoolean("turn_direction", true),
+            autoTurnInterval = legacyPrefs.getInt("auto_interval", 10),
+            clickTurnPage = legacyPrefs.getBoolean("click_turn", true),
+            hapticsEnabled = legacyPrefs.getBoolean("haptics_enabled", true),
+            hapticsStrength = legacyPrefs.getInt("haptics_strength", 50).coerceIn(0, 100),
+            checkUpdatesOnStartup = legacyPrefs.getBoolean("check_updates_on_startup", true),
+            updateChannel = legacyPrefs.getString("update_channel", "stable") ?: "stable",
+            updateSource = legacyPrefs.getString("update_source", "github") ?: "github",
+            appLanguage = legacyPrefs.getString("app_language", "system") ?: "system",
+            cacheMaxMb = legacyPrefs.getInt("cache_max_mb", 30).coerceIn(10, 500),
+            expressiveMotion = legacyPrefs.getBoolean("expressive_motion", true),
+            uiStyle = legacyPrefs.getString("ui_style", "material3") ?: "material3",
+            floatingBottomBar = legacyPrefs.getBoolean("floating_bottom_bar", true),
+            bottomBarGlass = legacyPrefs.getBoolean("bottom_bar_glass", true),
+            autoPadding = legacyPrefs.getBoolean("auto_padding", true),
+            topPadding = legacyPrefs.getInt("pad_top", 24),
+            bottomPadding = legacyPrefs.getInt("pad_bottom", 16),
+            leftPadding = legacyPrefs.getInt("pad_left", 20),
+            rightPadding = legacyPrefs.getInt("pad_right", 20),
+        )
     }
 
     fun setDarkMode(mode: String) = emit { it.copy(darkMode = mode) }
@@ -255,6 +320,106 @@ class ReaderSettings(context: Context) {
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }
     fun setLeftPadding(v: Int) = emit { it.copy(leftPadding = v) }
     fun setRightPadding(v: Int) = emit { it.copy(rightPadding = v) }
+}
+
+/**
+ * DataStore 内容 → 设置快照（缺键即默认值）。
+ *
+ * `internal` 是为了让 `ReaderSettingsCodecTest` 能钉住"每个字段都能原样往返"——
+ * 漏写一个字段的后果是该设置**重启后静默复位**，编译期与运行期都不会报错。
+ */
+internal fun Preferences.toState(): ReaderSettingsState = ReaderSettingsState(
+    darkMode = this[Keys.darkMode] ?: "system",
+    dynamicColor = this[Keys.dynamicColor] ?: true,
+    seedColor = this[Keys.seedColor] ?: 0xFF3F5BA9L,
+    amoled = this[Keys.amoled] ?: false,
+    primaryMirror = this[Keys.primaryMirror] ?: ReaderSettingsState.DEFAULT_MIRROR,
+    backgroundMode = this[Keys.backgroundMode] ?: "color",
+    readerBackgroundLight = this[Keys.readerBackgroundLight] ?: 0xFFFFFFFFL,
+    readerTextColorLight = this[Keys.readerTextColorLight] ?: 0xFF000000L,
+    readerBackgroundDark = this[Keys.readerBackgroundDark] ?: 0xFF000000L,
+    readerTextColorDark = this[Keys.readerTextColorDark] ?: 0xFFFFFFFFL,
+    backgroundImagePath = this[Keys.backgroundImagePath],
+    fontFamily = this[Keys.fontFamily] ?: "default",
+    fontSize = this[Keys.fontSize] ?: 18,
+    fontWeight = this[Keys.fontWeight] ?: 400,
+    lineSpacing = this[Keys.lineSpacing] ?: 1.8f,
+    traditionalChinese = this[Keys.traditionalChinese] ?: false,
+    scrollMode = this[Keys.scrollMode] ?: false,
+    volumeKeyTurnPage = this[Keys.volumeKeyTurnPage] ?: true,
+    autoNextChapter = this[Keys.autoNextChapter] ?: false,
+    pageTurnDirection = this[Keys.pageTurnDirection] ?: true,
+    autoTurnInterval = this[Keys.autoTurnInterval] ?: 10,
+    clickTurnPage = this[Keys.clickTurnPage] ?: true,
+    hapticsEnabled = this[Keys.hapticsEnabled] ?: true,
+    // 越界值就地夹紧：非法数据（手工改过文件、旧版本写坏）不该让强度滑块跑飞
+    hapticsStrength = (this[Keys.hapticsStrength] ?: 50).coerceIn(0, 100),
+    checkUpdatesOnStartup = this[Keys.checkUpdatesOnStartup] ?: true,
+    updateChannel = this[Keys.updateChannel] ?: "stable",
+    updateSource = this[Keys.updateSource] ?: "github",
+    appLanguage = this[Keys.appLanguage] ?: "system",
+    cacheMaxMb = (this[Keys.cacheMaxMb] ?: 30).coerceIn(10, 500),
+    expressiveMotion = this[Keys.expressiveMotion] ?: true,
+    uiStyle = this[Keys.uiStyle] ?: "material3",
+    floatingBottomBar = this[Keys.floatingBottomBar] ?: true,
+    bottomBarGlass = this[Keys.bottomBarGlass] ?: true,
+    autoPadding = this[Keys.autoPadding] ?: true,
+    topPadding = this[Keys.topPadding] ?: 24,
+    bottomPadding = this[Keys.bottomPadding] ?: 16,
+    leftPadding = this[Keys.leftPadding] ?: 20,
+    rightPadding = this[Keys.rightPadding] ?: 20,
+)
+
+/**
+ * 设置快照 → DataStore（全量覆盖；DataStore 每次写入本来就重写整份文件）。
+ *
+ * 不碰 [Keys.migrated]：迁移标记必须留在原处，否则每次启动都会重跑一遍迁移。
+ */
+internal fun MutablePreferences.writeAll(state: ReaderSettingsState) {
+    this[Keys.darkMode] = state.darkMode
+    this[Keys.dynamicColor] = state.dynamicColor
+    this[Keys.seedColor] = state.seedColor
+    this[Keys.amoled] = state.amoled
+    this[Keys.primaryMirror] = state.primaryMirror
+    this[Keys.backgroundMode] = state.backgroundMode
+    this[Keys.readerBackgroundLight] = state.readerBackgroundLight
+    this[Keys.readerTextColorLight] = state.readerTextColorLight
+    this[Keys.readerBackgroundDark] = state.readerBackgroundDark
+    this[Keys.readerTextColorDark] = state.readerTextColorDark
+    // null = 没有自定义背景图：DataStore 里删键，而不是存一个空串
+    val image = state.backgroundImagePath
+    if (image != null) {
+        this[Keys.backgroundImagePath] = image
+    } else {
+        remove(Keys.backgroundImagePath)
+    }
+    this[Keys.fontFamily] = state.fontFamily
+    this[Keys.fontSize] = state.fontSize
+    this[Keys.fontWeight] = state.fontWeight
+    this[Keys.lineSpacing] = state.lineSpacing
+    this[Keys.traditionalChinese] = state.traditionalChinese
+    this[Keys.scrollMode] = state.scrollMode
+    this[Keys.volumeKeyTurnPage] = state.volumeKeyTurnPage
+    this[Keys.autoNextChapter] = state.autoNextChapter
+    this[Keys.pageTurnDirection] = state.pageTurnDirection
+    this[Keys.autoTurnInterval] = state.autoTurnInterval
+    this[Keys.clickTurnPage] = state.clickTurnPage
+    this[Keys.hapticsEnabled] = state.hapticsEnabled
+    this[Keys.hapticsStrength] = state.hapticsStrength
+    this[Keys.checkUpdatesOnStartup] = state.checkUpdatesOnStartup
+    this[Keys.updateChannel] = state.updateChannel
+    this[Keys.updateSource] = state.updateSource
+    this[Keys.appLanguage] = state.appLanguage
+    this[Keys.cacheMaxMb] = state.cacheMaxMb
+    this[Keys.expressiveMotion] = state.expressiveMotion
+    this[Keys.uiStyle] = state.uiStyle
+    this[Keys.floatingBottomBar] = state.floatingBottomBar
+    this[Keys.bottomBarGlass] = state.bottomBarGlass
+    this[Keys.autoPadding] = state.autoPadding
+    this[Keys.topPadding] = state.topPadding
+    this[Keys.bottomPadding] = state.bottomPadding
+    this[Keys.leftPadding] = state.leftPadding
+    this[Keys.rightPadding] = state.rightPadding
 }
 
 /**

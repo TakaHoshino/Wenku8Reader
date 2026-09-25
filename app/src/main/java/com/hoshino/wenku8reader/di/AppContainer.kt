@@ -55,7 +55,8 @@ class AppContainer(context: Context) {
      */
     fun launchIo(block: suspend CoroutineScope.() -> Unit): Job = ioScope.launch(block = block)
 
-    val readerSettings: ReaderSettings = ReaderSettings(context)
+    /** 设置存储需要应用级作用域来串行落盘（见 ReaderSettings 的说明）。 */
+    val readerSettings: ReaderSettings = ReaderSettings(context, applicationScope)
 
     /** 主镜像随设置可切换（见 ReaderSettings.primaryMirror）；注入内置账号供静默登录。 */
     val client: Wenku8Client = Wenku8Client(

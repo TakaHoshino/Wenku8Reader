@@ -31,11 +31,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyAppLocale(context: Context): Context {
-        // 注意：attachBaseContext 阶段 application 尚未赋值（Activity.attach 先调 attachBaseContext
-        // 再赋 mApplication），不能经 Application/container 读取设置；直接读 SharedPreferences。
-        val language = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            .getString("app_language", "system")
-            ?: "system"
+        // 注意：attachBaseContext 阶段 `activity.application` 尚未赋值（Activity.attach 先调
+        // attachBaseContext 再赋 mApplication），所以走应用级静态引用。设置已由
+        // ReaderSettings 在 Application.onCreate 中同步载入，这里拿到的是真实值。
+        // 仍做一次容错：attachBaseContext 处于进程生命周期最早期，任何异常都不该让 Activity 起不来。
+        val language = runCatching {
+            Wenku8Application.instance?.container?.readerSettings?.flow?.value?.appLanguage
+        }.getOrNull() ?: "system"
         val locale = when (language) {
             "zh-TW" -> java.util.Locale.TRADITIONAL_CHINESE
             "zh-CN" -> java.util.Locale.SIMPLIFIED_CHINESE

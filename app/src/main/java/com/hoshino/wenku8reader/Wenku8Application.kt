@@ -12,6 +12,8 @@ class Wenku8Application : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        // 放在 container 之后：静态引用一旦非空，container 必然已可用
+        instance = this
         silentLogin()
     }
 
@@ -37,5 +39,18 @@ class Wenku8Application : Application() {
                 kotlinx.coroutines.delay(2000L * (attempt + 1))
             }
         }
+    }
+
+    companion object {
+        /**
+         * 应用级静态引用。
+         *
+         * 唯一用途：[MainActivity.attachBaseContext] 里做应用内语言切换——那个时点
+         * `activity.application` 尚未赋值，只能经这里取 [container] 里的设置。
+         * 设置值由 `ReaderSettings` 在 [onCreate] 中同步载入，因此读到的不是默认值。
+         */
+        @Volatile
+        internal var instance: Wenku8Application? = null
+            private set
     }
 }

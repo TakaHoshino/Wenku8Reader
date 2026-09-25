@@ -154,6 +154,9 @@ dependencies {
     implementation("androidx.room:room-runtime:2.7.2")
     implementation("androidx.room:room-ktx:2.7.2")
     ksp("androidx.room:room-compiler:2.7.2")
+    // DataStore：设置项（替代 shared_prefs/settings.xml）。写入是事务性的
+    //（临时文件 + rename），不会出现"写一半进程被杀→设置文件损坏"。
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // 本地单元测试：Parsers / UpdateChecker.isNewer 等纯逻辑（无 Android 依赖）在此覆盖。
