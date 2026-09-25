@@ -15,10 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
@@ -232,7 +232,7 @@ internal fun ExperimentalSection(
                 // 多书架是**通用**实验功能（Material 与 MIUIX 都生效），
                 // 因此和"仅 MIUIX 生效"的悬浮底栏/液态玻璃不同，它两套设置页都放。
                 SegmentedSwitchItem(
-                    icon = Icons.Filled.Collections,
+                    icon = Icons.AutoMirrored.Filled.LibraryBooks,
                     title = stringResource(R.string.settings_multi_shelf),
                     summary = stringResource(R.string.settings_multi_shelf_summary),
                     checked = rs.multiShelfEnabled,

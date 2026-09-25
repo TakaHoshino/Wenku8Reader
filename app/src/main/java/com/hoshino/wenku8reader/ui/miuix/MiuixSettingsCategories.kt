@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
@@ -259,7 +259,7 @@ fun MiuixExperimentalPage(
             MiuixSwitchRow(
                 title = stringResource(R.string.settings_multi_shelf),
                 summary = stringResource(R.string.settings_multi_shelf_summary),
-                icon = Icons.Filled.Collections,
+                icon = Icons.AutoMirrored.Filled.LibraryBooks,
                 checked = rs.multiShelfEnabled,
                 onCheckedChange = vm::setMultiShelfEnabled,
             )

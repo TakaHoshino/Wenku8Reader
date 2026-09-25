@@ -21,8 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
@@ -81,7 +81,7 @@ fun MiuixBookcasePage(
             // 管理书架只属于多书架模式：关闭时顶栏与本功能上线前一致
             if (ui.multiShelfEnabled) {
                 MiuixIconButton(
-                    icon = Icons.Filled.Collections,
+                    icon = Icons.AutoMirrored.Filled.LibraryBooks,
                     contentDescription = stringResource(R.string.bookcase_manage_shelves),
                     onClick = onOpenShelfManage,
                 )
@@ -121,12 +121,10 @@ fun MiuixBookcasePage(
                     .padding(inner),
             )
 
-            ui.entries.isEmpty() -> MiuixEmptyState(
-                // 开启多书架时"当前书架为空"与"本地书架为空"要分开说
-                title = stringResource(
-                    if (ui.multiShelfEnabled) R.string.bookcase_shelf_empty
-                    else R.string.bookcase_empty_local,
-                ),
+            // 只有**关闭**多书架且整库为空时才用整屏空态（与上线前一致）。
+            // 开启时整屏空态会连同顶部的书架切换条一起盖掉，用户新建空书架后就切不回去了。
+            ui.entries.isEmpty() && !ui.multiShelfEnabled -> MiuixEmptyState(
+                title = stringResource(R.string.bookcase_empty_local),
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 modifier = Modifier
                     .fillMaxSize()
@@ -181,12 +179,26 @@ fun MiuixBookcasePage(
                         )
                     }
                 }
-                items(ui.entries, key = { it.bookId }) { entry ->
-                    MiuixBookCard(
-                        entry = entry,
-                        onOpenBook = onOpenBook,
-                        onLongPress = { if (ui.multiShelfEnabled) movingEntry = entry },
-                    )
+                if (ui.entries.isEmpty()) {
+                    // 当前书架为空：空态作为列表的一项，切换条与排序条依然可见可用。
+                    // 固定高度是必要的——LazyColumn 的项在主轴上没有上界，fillMaxSize 无从生效。
+                    item(key = "shelf_empty") {
+                        MiuixEmptyState(
+                            title = stringResource(R.string.bookcase_shelf_empty),
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp),
+                        )
+                    }
+                } else {
+                    items(ui.entries, key = { it.bookId }) { entry ->
+                        MiuixBookCard(
+                            entry = entry,
+                            onOpenBook = onOpenBook,
+                            onLongPress = { if (ui.multiShelfEnabled) movingEntry = entry },
+                        )
+                    }
                 }
             }
         }

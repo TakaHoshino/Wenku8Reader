@@ -23,8 +23,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
@@ -98,7 +98,7 @@ fun BookcasePage(
                     if (ui.multiShelfEnabled) {
                         IconButton(onClick = onOpenShelfManage) {
                             Icon(
-                                Icons.Filled.Collections,
+                                Icons.AutoMirrored.Filled.LibraryBooks,
                                 contentDescription = stringResource(R.string.bookcase_manage_shelves),
                             )
                         }
@@ -136,12 +136,11 @@ fun BookcasePage(
                     .padding(inner),
             )
 
-            ui.entries.isEmpty() -> ExpressiveEmptyState(
-                // 开启多书架时"当前书架为空"和"本地书架为空"是两件事，文案要分开
-                title = stringResource(
-                    if (ui.multiShelfEnabled) R.string.bookcase_shelf_empty
-                    else R.string.bookcase_empty_local,
-                ),
+            // 只有**关闭**多书架且整库为空时才用整屏空态（与上线前一致）。
+            // 开启时不能这么做：整屏空态会把顶部的书架切换条一起盖掉，
+            // 用户新建一个空书架后就再也切不回去，等于被困住。
+            ui.entries.isEmpty() && !ui.multiShelfEnabled -> ExpressiveEmptyState(
+                title = stringResource(R.string.bookcase_empty_local),
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 shape = MaterialShapes.Cookie9Sided,
                 modifier = Modifier
@@ -182,13 +181,28 @@ fun BookcasePage(
                         ),
                     )
                 }
-                items(ui.entries, key = { it.bookId }) { entry ->
-                    BookcaseCard(
-                        entry = entry,
-                        onOpenBook = onOpenBook,
-                        onLongPress = { if (ui.multiShelfEnabled) movingEntry = entry },
-                        modifier = Modifier.animateItem(),
-                    )
+                if (ui.entries.isEmpty()) {
+                    // 当前书架为空：空态作为**列表的一项**，切换条与排序条仍然可见可用。
+                    // 固定高度是必要的——LazyColumn 的项在主轴上没有上界，fillMaxSize 无从生效。
+                    item(key = "shelf_empty") {
+                        ExpressiveEmptyState(
+                            title = stringResource(R.string.bookcase_shelf_empty),
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            shape = MaterialShapes.Cookie9Sided,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp),
+                        )
+                    }
+                } else {
+                    items(ui.entries, key = { it.bookId }) { entry ->
+                        BookcaseCard(
+                            entry = entry,
+                            onOpenBook = onOpenBook,
+                            onLongPress = { if (ui.multiShelfEnabled) movingEntry = entry },
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
