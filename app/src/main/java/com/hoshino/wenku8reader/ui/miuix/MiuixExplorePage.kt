@@ -544,6 +544,7 @@ private fun MiuixSearchBody(ui: ExploreUiState, onOpenBook: (Int) -> Unit) {
                     summary = stringResource(R.string.search_result_id, result.id),
                     onClick = { onOpenBook(result.id) },
                 )
+                MiuixRowDivider(startIndent = 76.dp)
             }
             item(key = "tail") { Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current)) }
         }
@@ -588,47 +589,5 @@ private fun MiuixCoverCard(
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
         )
-    }
-}
-
-/** 带封面的结果行（搜索结果、榜单之外的列表场景）。 */
-@Composable
-private fun MiuixCoverRow(
-    coverUrl: String?,
-    title: String,
-    summary: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverImage(
-            url = coverUrl,
-            width = 48.dp,
-            height = 68.dp,
-            contentDescription = title,
-            cornerRadius = 8.dp,
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-            Text(
-                text = title,
-                style = MiuixTheme.textStyles.body1,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = summary,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceSecondary,
-                maxLines = 1,
-            )
-        }
     }
 }

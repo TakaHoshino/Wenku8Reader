@@ -116,6 +116,7 @@
     <string name="detail_start_reading">開始閱讀</string>
     <string name="detail_continue_reading">繼續閱讀</string>
     <string name="detail_offline_download">離線下載</string>
+    <string name="detail_download_hint">選擇格式後整本下載到「下載/Wenku8」</string>
     <string name="detail_format_txt">TXT</string>
     <string name="detail_format_epub">EPUB</string>
     <string name="detail_downloading">下載中 %1$d%%</string>

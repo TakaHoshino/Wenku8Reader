@@ -89,6 +89,11 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixCustomizationPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixUpdateDialog
 import com.hoshino.wenku8reader.ui.miuix.MiuixExplorePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixSearchPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixDetailPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixTocPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixAuthorBooksPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixTagBooksPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixStatsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
@@ -271,10 +276,17 @@ fun MainScaffold() {
                 }
             }
             composable(Routes.STATS) {
-                ReadingStatsScreen(
-                    onBack = { nav.popBackStack() },
-                    onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
-                )
+                if (isMiuixStyle()) {
+                    MiuixStatsPage(
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                } else {
+                    ReadingStatsScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                }
             }
             composable(Routes.SETTINGS_CUSTOM) {
                 // MIUIX 模式使用完全独立的 miuix 阅读设置页（不复用 Material 版）
@@ -333,10 +345,17 @@ fun MainScaffold() {
                 arguments = listOf(navArgument("tag") { type = NavType.StringType }),
             ) { entry ->
                 val tag = android.net.Uri.decode(entry.arguments?.getString("tag") ?: "")
-                TagBooksScreen(
-                    onBack = { nav.popBackStack() },
-                    onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
-                )
+                if (isMiuixStyle()) {
+                    MiuixTagBooksPage(
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                } else {
+                    TagBooksScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                }
             }
             composable(Routes.DOWNLOADS) {
                 if (isMiuixStyle()) {
@@ -350,34 +369,59 @@ fun MainScaffold() {
                 arguments = listOf(navArgument("name") { type = NavType.StringType }),
             ) { entry ->
                 val name = android.net.Uri.decode(entry.arguments?.getString("name") ?: "")
-                AuthorBooksScreen(
-                    authorName = name,
-                    onBack = { nav.popBackStack() },
-                    onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
-                )
+                if (isMiuixStyle()) {
+                    MiuixAuthorBooksPage(
+                        authorName = name,
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                } else {
+                    AuthorBooksScreen(
+                        authorName = name,
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                }
             }
             composable(
                 Routes.TOC,
                 arguments = listOf(navArgument("id") { type = NavType.IntType }),
             ) { entry ->
                 val id = entry.arguments?.getInt("id") ?: 0
-                TocScreen(
-                    onBack = { nav.popBackStack() },
-                    onOpenChapter = { bookId, cid -> nav.navigate(Routes.reader(bookId, cid)) },
-                )
+                if (isMiuixStyle()) {
+                    MiuixTocPage(
+                        onBack = { nav.popBackStack() },
+                        onOpenChapter = { bookId, cid -> nav.navigate(Routes.reader(bookId, cid)) },
+                    )
+                } else {
+                    TocScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenChapter = { bookId, cid -> nav.navigate(Routes.reader(bookId, cid)) },
+                    )
+                }
             }
             composable(
                 Routes.DETAIL,
                 arguments = listOf(navArgument("id") { type = NavType.IntType }),
             ) { entry ->
                 val id = entry.arguments?.getInt("id") ?: 0
-                DetailScreen(
-                    onBack = { nav.popBackStack() },
-                    onRead = { bookId -> nav.navigate(Routes.reader(bookId)) },
-                    onOpenAuthor = { name -> nav.navigate(Routes.author(name)) },
-                    onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
-                    onOpenToc = { bookId -> nav.navigate(Routes.toc(bookId)) },
-                )
+                if (isMiuixStyle()) {
+                    MiuixDetailPage(
+                        onBack = { nav.popBackStack() },
+                        onRead = { bookId -> nav.navigate(Routes.reader(bookId)) },
+                        onOpenAuthor = { name -> nav.navigate(Routes.author(name)) },
+                        onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
+                        onOpenToc = { bookId -> nav.navigate(Routes.toc(bookId)) },
+                    )
+                } else {
+                    DetailScreen(
+                        onBack = { nav.popBackStack() },
+                        onRead = { bookId -> nav.navigate(Routes.reader(bookId)) },
+                        onOpenAuthor = { name -> nav.navigate(Routes.author(name)) },
+                        onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
+                        onOpenToc = { bookId -> nav.navigate(Routes.toc(bookId)) },
+                    )
+                }
             }
             composable(
                 Routes.READER,
