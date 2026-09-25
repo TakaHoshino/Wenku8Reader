@@ -68,6 +68,7 @@
     <string name="explore_tags_empty">暫無分類</string>
     <string name="tag_books_load_more">載入更多（已顯示 %1$d 本）</string>
     <string name="explore_tags_blocked">無法取得分類，可能被網站阻擋，請重試</string>
+    <string name="explore_tag_preview_failed">分類預覽載入失敗 · 點此重試</string>
 
     <!-- 首頁 -->
     <string name="home_subtitle">今日書庫</string>

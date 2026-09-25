@@ -131,7 +131,8 @@ fun ExplorePage(
                         ui,
                         onOpenBook,
                         onOpenTag,
-                        onLoadTagPreview = vm::loadTagPreview,
+                        onLoadTagPreview = { tag -> vm.loadTagPreview(tag) },
+                        onRetryTagPreview = { tag -> vm.loadTagPreview(tag, force = true) },
                         onRetryTags = { vm.loadTags(force = true) },
                     )
                 }

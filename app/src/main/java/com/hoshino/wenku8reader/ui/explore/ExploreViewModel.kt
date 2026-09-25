@@ -38,6 +38,15 @@ data class ExploreUiState(
     val tagBooks: Map<String, List<HomeBook>> = emptyMap(),
     /** 正在加载预览的标签（用于占位与去重）。 */
     val loadingTags: Set<String> = emptySet(),
+    /**
+     * 预览加载失败的标签。
+     *
+     * 必须单独记一份：以前失败被压成空列表写进 [tagBooks]，于是"加载失败"和
+     * "这个分类确实没有书"在界面上完全一样，而且 [tagBooks] 已有该 key 会让
+     * 后续滚动回来也**不再重试**——用户看到的是永久空白。现在失败不留空列表、
+     * 该行显示可点重试，重试成功后错误标记被清掉。
+     */
+    val tagPreviewErrors: Set<String> = emptySet(),
     /** 强制刷新计数：可见行以它为 key 重新触发加载（见 TagsBody）。 */
     val tagsGeneration: Int = 0,
     val tagsError: UiText? = null,
@@ -138,18 +147,38 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
      *
      * 并发度天然受"同时可见的行数"约束（一屏 3~4 行），无需再自建信号量；
      * 已加载或正在加载的标签直接返回，滚动来回不会重复请求。
+     *
+     * [force] 供"加载失败后点重试"使用：失败的行不会随滚动自动重试
+     * （否则一个持续失败的分类会随滚动反复压向站点）。
      */
-    fun loadTagPreview(tag: String) {
+    fun loadTagPreview(tag: String, force: Boolean = false) {
         val state = _ui.value
-        if (tag in state.loadingTags || state.tagBooks.containsKey(tag)) return
+        if (tag in state.loadingTags) return
+        if (!force && (state.tagBooks.containsKey(tag) || tag in state.tagPreviewErrors)) return
         viewModelScope.launch {
-            _ui.update { it.copy(loadingTags = it.loadingTags + tag) }
-            val books = repository.tagBooks(tag).getOrDefault(emptyList()).take(TAG_PREVIEW_COUNT)
             _ui.update {
                 it.copy(
-                    loadingTags = it.loadingTags - tag,
-                    tagBooks = it.tagBooks + (tag to books),
+                    loadingTags = it.loadingTags + tag,
+                    tagPreviewErrors = it.tagPreviewErrors - tag,
                 )
+            }
+            val result = repository.tagBooks(tag)
+            _ui.update {
+                if (result.isFailure) {
+                    it.copy(
+                        loadingTags = it.loadingTags - tag,
+                        tagPreviewErrors = it.tagPreviewErrors + tag,
+                        // 刻意不写入空列表：留条重试的路（见 tagPreviewErrors 的说明）
+                        tagBooks = it.tagBooks - tag,
+                    )
+                } else {
+                    it.copy(
+                        loadingTags = it.loadingTags - tag,
+                        tagBooks = it.tagBooks + (
+                            tag to result.getOrDefault(emptyList()).take(TAG_PREVIEW_COUNT)
+                            ),
+                    )
+                }
             }
         }
     }

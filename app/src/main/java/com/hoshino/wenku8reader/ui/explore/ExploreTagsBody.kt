@@ -50,6 +50,7 @@ internal fun TagsBody(
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
     onLoadTagPreview: (String) -> Unit,
+    onRetryTagPreview: (String) -> Unit,
     onRetryTags: () -> Unit,
 ) {
     when {
@@ -78,8 +79,10 @@ internal fun TagsBody(
                     tag = tag,
                     books = ui.tagBooks[tag].orEmpty(),
                     loading = tag in ui.loadingTags,
+                    failed = tag in ui.tagPreviewErrors,
                     generation = ui.tagsGeneration,
                     onLoadTagPreview = onLoadTagPreview,
+                    onRetryPreview = { onRetryTagPreview(tag) },
                     onOpenBook = onOpenBook,
                     onOpenTag = onOpenTag,
                 )
@@ -94,8 +97,10 @@ private fun TagRow(
     tag: String,
     books: List<HomeBook>,
     loading: Boolean,
+    failed: Boolean,
     generation: Int,
     onLoadTagPreview: (String) -> Unit,
+    onRetryPreview: () -> Unit,
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
 ) {
@@ -138,6 +143,17 @@ private fun TagRow(
             }
 
             loading -> CoverPlaceholderRow()
+
+            // 加载失败：明确提示 + 点击重试（以前与"没有书"无法区分，且不会重试）
+            failed -> Text(
+                text = stringResource(R.string.explore_tag_preview_failed),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onRetryPreview)
+                    .padding(start = 20.dp, top = 2.dp, bottom = 10.dp),
+            )
 
             // 已加载但没有书：只保留可点击的分类标题（可进入"查看全部"）
             else -> Unit

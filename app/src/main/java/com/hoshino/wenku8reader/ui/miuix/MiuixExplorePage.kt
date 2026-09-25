@@ -136,7 +136,8 @@ fun MiuixExplorePage(
                         ui = ui,
                         onOpenBook = onOpenBook,
                         onOpenTag = onOpenTag,
-                        onLoadTagPreview = vm::loadTagPreview,
+                        onLoadTagPreview = { tag -> vm.loadTagPreview(tag) },
+                        onRetryTagPreview = { tag -> vm.loadTagPreview(tag, force = true) },
                         onRetryTags = { vm.loadTags(force = true) },
                     )
                 }
@@ -418,6 +419,7 @@ private fun MiuixTagsBody(
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
     onLoadTagPreview: (String) -> Unit,
+    onRetryTagPreview: (String) -> Unit,
     onRetryTags: () -> Unit,
 ) {
     when {
@@ -447,8 +449,10 @@ private fun MiuixTagsBody(
                             tag = tag,
                             books = ui.tagBooks[tag].orEmpty(),
                             loading = tag in ui.loadingTags,
+                            failed = tag in ui.tagPreviewErrors,
                             generation = ui.tagsGeneration,
                             onLoadTagPreview = onLoadTagPreview,
+                            onRetryPreview = { onRetryTagPreview(tag) },
                             onOpenBook = onOpenBook,
                             onOpenTag = onOpenTag,
                         )
@@ -471,8 +475,10 @@ private fun MiuixTagRow(
     tag: String,
     books: List<com.hoshino.wenku8reader.data.HomeBook>,
     loading: Boolean,
+    failed: Boolean,
     generation: Int,
     onLoadTagPreview: (String) -> Unit,
+    onRetryPreview: () -> Unit,
     onOpenBook: (Int) -> Unit,
     onOpenTag: (String) -> Unit,
 ) {
@@ -517,6 +523,17 @@ private fun MiuixTagRow(
             }
 
             loading -> MiuixCoverPlaceholderRow()
+
+            // 加载失败：给一条明确的可点重试（以前与"没有书"长得一样，只能干等）
+            failed -> Text(
+                text = stringResource(R.string.explore_tag_preview_failed),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.error,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onRetryPreview)
+                    .padding(start = 16.dp, top = 2.dp, bottom = 10.dp),
+            )
 
             // 已加载但没有书：只保留可点击的分类标题（可进入"查看全部"）
             else -> Unit
