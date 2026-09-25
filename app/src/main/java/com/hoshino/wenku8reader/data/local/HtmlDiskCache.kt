@@ -16,11 +16,24 @@ import kotlin.concurrent.write
  *   旧格式（无前缀 `{md5}.html`）读取时兼容，重新写入时自动迁移为新格式；
  * - 总大小超过上限时按「最旧优先」删除（LRU 简化版），上限可通过 [setMaxBytes] 动态调整。
  */
-class HtmlDiskCache(
-    context: Context,
-    initialMaxBytes: Long = 30L * 1024 * 1024,
+class HtmlDiskCache internal constructor(
+    private val dir: File,
+    initialMaxBytes: Long,
 ) {
-    private val dir = File(context.filesDir, DIR_NAME).apply { mkdirs() }
+    /**
+     * 生产入口：缓存目录固定为 `filesDir/html_cache`。
+     *
+     * 主构造改成接收 [File] 只是为了可测——淘汰/迁移/分组统计这些逻辑最容易出错，
+     * 却完全依赖文件系统，只有能把目录换成临时目录才写得出单测。
+     */
+    constructor(
+        context: Context,
+        initialMaxBytes: Long = DEFAULT_MAX_BYTES,
+    ) : this(File(context.filesDir, DIR_NAME), initialMaxBytes)
+
+    init {
+        dir.mkdirs()
+    }
 
     /**
      * 缓存目录（`filesDir/html_cache`）。
@@ -154,5 +167,8 @@ class HtmlDiskCache(
 
         /** 旧格式（无 category 前缀）缓存的归类名。 */
         const val LEGACY_CATEGORY = "legacy"
+
+        /** 默认上限 30MB（可在设置页动态调整）。 */
+        const val DEFAULT_MAX_BYTES = 30L * 1024 * 1024
     }
 }
