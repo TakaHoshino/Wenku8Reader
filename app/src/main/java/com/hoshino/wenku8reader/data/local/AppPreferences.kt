@@ -1,9 +1,10 @@
 package com.hoshino.wenku8reader.data.local
 
 import android.content.Context
-
-/** 最后阅读时间戳的 key 前缀（`progress_at_{bookId}`）。 */
-internal const val KEY_PROGRESS_AT = "progress_at_"
+import com.hoshino.wenku8reader.data.local.db.LEGACY_KEY_FINISHED
+import com.hoshino.wenku8reader.data.local.db.LEGACY_KEY_PROGRESS_AT
+import com.hoshino.wenku8reader.data.local.db.LEGACY_KEY_PROGRESS_TOTAL
+import com.hoshino.wenku8reader.data.local.db.LEGACY_KEY_RESUME_CID
 
 /**
  * 从 SharedPreferences 的全量快照中挑出「最后阅读时间早于 [cutoff]」的书 id。
@@ -15,11 +16,11 @@ internal const val KEY_PROGRESS_AT = "progress_at_"
  */
 internal fun staleReadingBookIds(all: Map<String, Any?>, cutoff: Long): List<Int> =
     all.entries
-        .filter { (key, _) -> key.startsWith(KEY_PROGRESS_AT) }
+        .filter { (key, _) -> key.startsWith(LEGACY_KEY_PROGRESS_AT) }
         .mapNotNull { (key, value) ->
             val at = value as? Long ?: return@mapNotNull null
             if (at >= cutoff) return@mapNotNull null
-            key.removePrefix(KEY_PROGRESS_AT).toIntOrNull()
+            key.removePrefix(LEGACY_KEY_PROGRESS_AT).toIntOrNull()
         }
 
 /**
@@ -38,10 +39,10 @@ class AppPreferences(context: Context) {
     private val ui = context.getSharedPreferences("ui", Context.MODE_PRIVATE)
 
     fun resumeCid(bookId: Int): String? =
-        reading.getString("progress_$bookId", null)
+        reading.getString("$LEGACY_KEY_RESUME_CID$bookId", null)
 
     fun hasProgress(bookId: Int): Boolean =
-        reading.contains("progress_$bookId")
+        reading.contains("$LEGACY_KEY_RESUME_CID$bookId")
 
     /**
      * 保存阅读进度，并记录**最后阅读时间**（`progress_at_$bookId`）。
@@ -51,15 +52,15 @@ class AppPreferences(context: Context) {
      */
     fun saveProgress(bookId: Int, cid: String, at: Long = System.currentTimeMillis()) {
         reading.edit()
-            .putString("progress_$bookId", cid)
-            .putLong("${KEY_PROGRESS_AT}$bookId", at)
+            .putString("$LEGACY_KEY_RESUME_CID$bookId", cid)
+            .putLong("$LEGACY_KEY_PROGRESS_AT$bookId", at)
             .apply()
     }
 
     /** 某书最后阅读时间（毫秒）；从未记录（旧版本写入的进度）返回 null。 */
     fun lastReadAt(bookId: Int): Long? =
-        if (reading.contains("${KEY_PROGRESS_AT}$bookId")) {
-            reading.getLong("${KEY_PROGRESS_AT}$bookId", 0L)
+        if (reading.contains("$LEGACY_KEY_PROGRESS_AT$bookId")) {
+            reading.getLong("$LEGACY_KEY_PROGRESS_AT$bookId", 0L)
         } else {
             null
         }
@@ -83,10 +84,10 @@ class AppPreferences(context: Context) {
 
         reading.edit().apply {
             staleIds.forEach { id ->
-                remove("progress_$id")
-                remove("progress_total_$id")
-                remove("finished_$id")
-                remove("${KEY_PROGRESS_AT}$id")
+                remove("$LEGACY_KEY_RESUME_CID$id")
+                remove("$LEGACY_KEY_PROGRESS_TOTAL$id")
+                remove("$LEGACY_KEY_FINISHED$id")
+                remove("$LEGACY_KEY_PROGRESS_AT$id")
             }
         }.apply()
         return staleIds.size
@@ -100,10 +101,10 @@ class AppPreferences(context: Context) {
      * `resumeCid` 承担。留着两套语义相近的位置数据只会互相漂移，故只保留 total。
      */
     fun progressTotal(bookId: Int): Int =
-        reading.getInt("progress_total_$bookId", 0)
+        reading.getInt("$LEGACY_KEY_PROGRESS_TOTAL$bookId", 0)
 
     fun saveProgressTotal(bookId: Int, total: Int) {
-        reading.edit().putInt("progress_total_$bookId", total).apply()
+        reading.edit().putInt("$LEGACY_KEY_PROGRESS_TOTAL$bookId", total).apply()
     }
 
     // ------------------------------------------------------------------ //
@@ -113,7 +114,7 @@ class AppPreferences(context: Context) {
 
     /** 某书所有已完成章节的 cid 集合。 */
     fun finishedChapters(bookId: Int): Set<String> {
-        val raw = reading.getString("finished_$bookId", null) ?: return emptySet()
+        val raw = reading.getString("$LEGACY_KEY_FINISHED$bookId", null) ?: return emptySet()
         return runCatching {
             val arr = org.json.JSONArray(raw)
             (0 until arr.length()).mapTo(mutableSetOf()) { arr.getString(it) }
@@ -139,7 +140,7 @@ class AppPreferences(context: Context) {
     private fun saveFinished(bookId: Int, set: Set<String>) {
         val arr = org.json.JSONArray()
         set.forEach { arr.put(it) }
-        reading.edit().putString("finished_$bookId", arr.toString()).apply()
+        reading.edit().putString("$LEGACY_KEY_FINISHED$bookId", arr.toString()).apply()
     }
 
     var bookcaseSortType: String
