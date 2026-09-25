@@ -14,6 +14,8 @@ import android.content.Context
  * 经全仓检索确认从未被调用，属于纯粹的安全暴露面，故整体移除——登录态由
  * [com.hoshino.wenku8reader.data.CookieStore] 持久化的会话 Cookie 承担，
  * 无需保存密码即可免登录。
+ * 实验性「账户登录」同样只保存**用户名**（见 [AccountStore]），密码仅在登录请求期间
+ * 存在于内存中。
  */
 class AppPreferences(context: Context) {
 

@@ -6,6 +6,7 @@ import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.UpdateChecker
 import com.hoshino.wenku8reader.data.Wenku8Client
 import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.LibraryStore
@@ -59,12 +60,23 @@ class AppContainer(context: Context) {
     /** 设置存储需要应用级作用域来串行落盘（见 ReaderSettings 的说明）。 */
     val readerSettings: ReaderSettings = ReaderSettings(context, applicationScope)
 
+    /**
+     * 账户登录（实验性）的状态：只存用户名（激活账户 + 预填用的上一次用户名），不存密码。
+     * 声明在 [client] 之前——客户端回落内置账号时要靠它清掉"激活账户"标记。
+     */
+    val accountStore: AccountStore = AccountStore(context)
+
     /** 主镜像随设置可切换（见 ReaderSettings.primaryMirror）；注入内置账号供静默登录。 */
     val client: Wenku8Client = Wenku8Client(
         context,
         { readerSettings.flow.value.primaryMirror },
         { DefaultAccount.USERNAME to DefaultAccount.PASSWORD },
         { readerSettings.flow.value.cacheMaxMb },
+        // 回落到内置账号 ⇒ 用户账户的"激活标记"随之失效。
+        // 必须这么做：内置账号登录后同样有会话，"有没有会话"区分不出账户归属。
+        onUserSessionLost = {
+            if (accountStore.read().activeUsername != null) accountStore.setActive(null)
+        },
     )
 
     val repository: Wenku8Repository = Wenku8Repository(client)

@@ -29,7 +29,15 @@ class Wenku8Application : Application() {
         super.onTerminate()
     }
 
-    /** Signs in with the built-in default account so content works without any login UI. */
+    /**
+     * 确保有可用会话，让内容无需任何登录界面即可访问。
+     *
+     * 注意这里用的是 [com.hoshino.wenku8reader.data.Wenku8Client.ensureLoggedIn] 而**不是**
+     * 无条件用内置账号登录：后者会在启动时把用户账户的会话顶掉（用户明明登录过，重启却变回
+     * 内置账号）。`ensureLoggedIn()` 有会话就直接返回，所以两条路径互不干扰。
+     *
+     * 失败重试 3 次是历史行为：弱网/冷启动时首请求容易超时，稍后重试通常能成。
+     */
     private fun silentLogin() {
         // 从容器统一启动：后台任务与下载/更新共用同一个应用级作用域（见 AppContainer.launchIo）
         container.launchIo {

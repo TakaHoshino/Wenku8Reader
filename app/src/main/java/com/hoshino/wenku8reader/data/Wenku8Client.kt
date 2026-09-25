@@ -64,6 +64,15 @@ class Wenku8Client(
     private val defaultCredentials: () -> Pair<String, String>? = { null },
     /** 磁盘缓存上限（MB，设置页可调）；每次写入前同步，动态生效 */
     private val cacheMaxMbProvider: () -> Int = { 30 },
+    /**
+     * 回落到内置共享账号时的回调（用于清掉"当前激活账户"标记）。
+     *
+     * 内置账号登录后同样持有会话，所以"有没有会话"区分不出内置与用户；这个回调保证
+     * **只要发生回落，激活标记就一定被清掉**，界面不会出现"其实已经掉回内置、却还显示
+     * 某个用户已登录"。用回调而不是直接依赖 `AccountStore`，是为了让客户端不反向依赖
+     * 具体存储（与镜像、缓存上限的注入方式一致）。
+     */
+    private val onUserSessionLost: suspend () -> Unit = {},
 ) {
 
     private val appContext = context.applicationContext
@@ -449,6 +458,9 @@ class Wenku8Client(
         if (isLoggedIn()) return true
         return loginMutex.withLock {
             if (isLoggedIn()) return@withLock true
+            // 走到这里说明没有可用会话：若之前是用户账户登录，此刻它已经失效 →
+            // 先清掉激活标记，再用内置账号登录（顺序不能反）
+            onUserSessionLost()
             val creds = defaultCredentials() ?: return@withLock false
             loginInternal(creds.first, creds.second)
         }
@@ -480,9 +492,11 @@ class Wenku8Client(
         ok
     }
 
-    // 说明：这里**没有** logout()。本应用全程使用内置共享账号、不提供退出入口，
-    // 原先的 logout() 在全仓已无任何调用点（清除会话统一走 clearCookies()），
-    // 故一并移除，避免留下"可以退出登录"的误导性 API。
+    // 关于「退出登录」：客户端这里只提供 [clearCookies]（清会话），**不提供 logout()**。
+    // 因为退出登录还牵扯"当前激活账户"这一层状态（见 AccountStore），而客户端并不持有它；
+    // 由 ui/account 的 ViewModel 编排「clearCookies() + AccountStore.setActive(null)」两步，
+    // 之后 ensureLoggedIn() 会自动用内置共享账号静默登录，阅读与探索无感续用。
+    // 另：内置共享账号仍是**默认路径**，用户账户（由实验性开关控制）只是可选的覆盖。
 
     // ------------------------------------------------------------------ //
     // read operations
@@ -649,9 +663,27 @@ class Wenku8Client(
         return AppParsers.parseAppChapter(text)
     }
 
+    /**
+     * 站方书架（账号的默认分组）。
+     *
+     * 与 `tags()` / `tagBooks()` 一样**必须先确保登录**：本方法以前漏了这一步，未登录时
+     * 站点会 302 到登录页，解析出来是个空书架——一个静默的错误结果。
+     */
     suspend fun bookcase(): List<BookcaseItem> = withContext(Dispatchers.IO) {
-        Parsers.parseBookcase(getHtml("$base/modules/article/bookcase.php"))
+        ensureLoggedIn()
+        val html = getHtml("$base/modules/article/bookcase.php")
+        // 会话在服务端失效时 OkHttp 会跟随 302 拿到登录页。正常书架页**一定**带这个表单
+        // （空书架也有，页面里有"您的书架可收藏 300 本"那一段），据此把"真的没有书"与
+        // "掉登录了"分开——否则用户会看到"书架空了"而不是"请重新登录"。
+        if (!html.contains("checkform") && html.contains("login.php")) {
+            onUserSessionLost()
+            throw SessionExpiredException()
+        }
+        Parsers.parseBookcase(html)
     }
+
+    /** 用户会话在服务端已失效（请求被重定向到登录页）。 */
+    class SessionExpiredException : IllegalStateException("登录状态已失效，请重新登录")
 
     /**
      * 首页栏目。快路径：默认 UA 直连（常规情况毫秒级返回）；

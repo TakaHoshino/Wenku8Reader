@@ -14,9 +14,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * Single source of truth for wenku8 data. Exposes suspend functions that return
  * [Result] so the UI layer owns error handling without leaking network types.
  *
- * 账号说明：本应用**全程使用内置共享账号**，不提供登录 / 退出 / 切换账号入口，
- * 因此这里不暴露 login/logout 之类的 API——原先存在但全仓无调用点，已移除；
- * 需要会话时由 [Wenku8Client.ensureLoggedIn] 静默完成。
+ * 账号说明：默认路径是**内置共享账号**——需要会话时由 [Wenku8Client.ensureLoggedIn]
+ * 静默完成；实验性「账户登录」开启并登录用户账户后，同一个 ensureLoggedIn 会**复用**那份会话。
+ * 仓库层仍然**不暴露 login/logout API**：登录与退出是需要编排多步状态（会话 Cookie、
+ * 激活账户标记、错误反馈）的交互动作，归属 `ui/account` 的 ViewModel。
  */
 class Wenku8Repository(private val client: Wenku8Client) {
 
