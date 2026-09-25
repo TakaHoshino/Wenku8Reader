@@ -686,6 +686,32 @@ class Wenku8Client(
     class SessionExpiredException : IllegalStateException("登录状态已失效，请重新登录")
 
     /**
+     * 把一本书加入站方书架（`addbookcase.php?bid=<书 id>`）。
+     *
+     * 站点无论成功与否都返回 200（成功后会跳回书架页），所以这里**不解析返回值**——
+     * 调用方应在之后刷新一次站方书架来确认真的是否加上了（`Wenku8Shelf.add` 就是这么做的）。
+     */
+    suspend fun addToSiteBookcase(bookId: Int) {
+        withContext(Dispatchers.IO) {
+            ensureLoggedIn()
+            getHtml("$base/modules/article/addbookcase.php?bid=$bookId")
+        }
+    }
+
+    /**
+     * 把一本书从站方书架移出（`bookcase.php?delid=<书架记录 id>`）。
+     *
+     * 注意参数是 [bookcaseId]（站点行里的 `bid`），**不是书 id**——两者不相等，
+     * 传错会移不掉或移错书。同样不解析返回值，由调用方刷新确认。
+     */
+    suspend fun removeFromSiteBookcase(bookcaseId: Int) {
+        withContext(Dispatchers.IO) {
+            ensureLoggedIn()
+            getHtml("$base/modules/article/bookcase.php?delid=$bookcaseId")
+        }
+    }
+
+    /**
      * 首页栏目。快路径：默认 UA 直连（常规情况毫秒级返回）；
      * 若直连失败或返回疑似 CF 挑战页（解析为空），自动升级到
      * WebView → Cronet → OkHttp 随机 UA 的三级 Cloudflare 绕过栈。

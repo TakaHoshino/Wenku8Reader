@@ -36,6 +36,14 @@ class Wenku8Repository(private val client: Wenku8Client) {
     suspend fun bookcase(): Result<List<BookcaseItem>> =
         runCatchingNotCancelling { client.bookcase() }
 
+    /** 加入站方书架（按**书 id**）。 */
+    suspend fun addToSiteBookcase(bookId: Int): Result<Unit> =
+        runCatchingNotCancelling { client.addToSiteBookcase(bookId) }
+
+    /** 从站方书架移出（按**书架记录 id**，即 `BookcaseItem.bid`）。 */
+    suspend fun removeFromSiteBookcase(bookcaseId: Int): Result<Unit> =
+        runCatchingNotCancelling { client.removeFromSiteBookcase(bookcaseId) }
+
     suspend fun homepage(): Result<List<HomeSection>> =
         runCatchingNotCancelling { client.homepage() }
 

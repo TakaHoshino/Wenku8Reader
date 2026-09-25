@@ -359,6 +359,7 @@ object Parsers {
     fun parseBookcase(html: String): List<BookcaseItem> {
         class Row {
             var aid: Int = 0
+            var bid: Int = 0
             var name: String = ""
             var latest: String? = null
             var latestCid: String? = null
@@ -375,7 +376,13 @@ object Parsers {
                     if (p.size == 2) p[0] to p[1] else null
                 }.toMap()
             val bid = params["bid"] ?: continue
-            val row = rows.getOrPut(bid) { Row().apply { aid = params["aid"]?.toIntOrNull() ?: 0 } }
+            val row = rows.getOrPut(bid) {
+                Row().apply {
+                    aid = params["aid"]?.toIntOrNull() ?: 0
+                    // bid 是"移出书架"必需的记录 id（站点 checkbox 的 value 也是它）
+                    this.bid = bid.toIntOrNull() ?: 0
+                }
+            }
             if (params.containsKey("cid")) {
                 row.latest = text
                 row.latestCid = params["cid"]
@@ -383,7 +390,7 @@ object Parsers {
                 row.name = text
             }
         }
-        return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid) }
+        return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid, it.bid) }
     }
 
     // ------------------------------------------------------------------ //
