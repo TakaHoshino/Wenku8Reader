@@ -48,7 +48,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -68,6 +70,7 @@ import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.StatusTag
 import com.hoshino.wenku8reader.ui.components.TonalCard
 import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
+import com.hoshino.wenku8reader.ui.shelf.ShelfPickerDialog
 
 /**
  * 书籍详情页（子页）。参考 SukiSU-Ultra：折叠大顶栏 + 封面信息卡片 +
@@ -94,6 +97,9 @@ fun DetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
+    // 多书架：收藏前选择目标书架（仅开关开启且尚未收藏时用得到）
+    var showShelfPicker by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         vm.favoriteMessages.collect { msg ->
             snackbarHostState.showSnackbar(msg.asString(context))
@@ -119,7 +125,11 @@ fun DetailScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { vm.toggleLocalFavorite() },
+                        // 多书架开启且尚未收藏 → 先选书架；其余情况（含关闭开关）走原来的收藏/移出
+                        onClick = {
+                            if (ui.multiShelfEnabled && !ui.inLocalLibrary) showShelfPicker = true
+                            else vm.toggleLocalFavorite()
+                        },
                         enabled = info != null,
                     ) {
                         // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
@@ -355,6 +365,19 @@ fun DetailScreen(
                 }
             }
         }
+    }
+
+    if (showShelfPicker) {
+        ShelfPickerDialog(
+            title = stringResource(R.string.shelf_picker_add_title),
+            shelves = ui.shelves,
+            current = null,
+            onDismiss = { showShelfPicker = false },
+            onPick = { shelf ->
+                showShelfPicker = false
+                vm.addToShelf(shelf)
+            },
+        )
     }
 }
 

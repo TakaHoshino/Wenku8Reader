@@ -26,7 +26,9 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +78,8 @@ fun MiuixDetailPage(
         (job.status == JobStatus.RUNNING || job.status == JobStatus.PENDING)
 
     val context = LocalContext.current
+    // 多书架：收藏前选择目标书架（仅开关开启且尚未收藏时用得到）
+    var showShelfPicker by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         vm.favoriteMessages.collect { message ->
             Toast.makeText(context, message.asString(context), Toast.LENGTH_SHORT).show()
@@ -87,7 +91,13 @@ fun MiuixDetailPage(
         actions = {
             // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
             // 与「收藏」文案一致；这里不复用 MiuixIconButton 是因为需要按状态改 tint
-            top.yukonga.miuix.kmp.basic.IconButton(onClick = { vm.toggleLocalFavorite() }) {
+            top.yukonga.miuix.kmp.basic.IconButton(
+                // 多书架开启且尚未收藏 → 先选书架；其余情况（含关闭开关）走原来的收藏/移出
+                onClick = {
+                    if (ui.multiShelfEnabled && !ui.inLocalLibrary) showShelfPicker = true
+                    else vm.toggleLocalFavorite()
+                },
+            ) {
                 Icon(
                     imageVector = if (ui.inLocalLibrary) {
                         Icons.Filled.Star
@@ -184,6 +194,19 @@ fun MiuixDetailPage(
                 Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
             }
         }
+    }
+
+    if (showShelfPicker) {
+        MiuixShelfPicker(
+            title = stringResource(R.string.shelf_picker_add_title),
+            shelves = ui.shelves,
+            current = null,
+            onDismiss = { showShelfPicker = false },
+            onPick = { shelf ->
+                showShelfPicker = false
+                vm.addToShelf(shelf)
+            },
+        )
     }
 }
 

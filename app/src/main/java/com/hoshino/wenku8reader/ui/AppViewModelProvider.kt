@@ -57,6 +57,8 @@ object AppViewModelProvider {
                 application().container.downloadEngine,
                 application().container.libraryStore,
                 application().container.readingProgressStore,
+                application().container.shelfStore,
+                application().container.readerSettings,
             )
         }
         initializer { DownloadsViewModel(application().container.downloadEngine) }

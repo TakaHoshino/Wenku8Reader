@@ -8,7 +8,11 @@ import com.hoshino.wenku8reader.data.BookInfo
 import com.hoshino.wenku8reader.data.DownloadEngine
 import com.hoshino.wenku8reader.data.DownloadJob
 import com.hoshino.wenku8reader.data.local.LibraryStore
+import com.hoshino.wenku8reader.data.local.DEFAULT_SHELF
+import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
+import com.hoshino.wenku8reader.data.local.ShelfStore
+import com.hoshino.wenku8reader.data.local.shelfNames
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
 import com.hoshino.wenku8reader.ui.common.toUiText
@@ -20,6 +24,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -33,6 +38,12 @@ data class DetailUiState(
      * UI 组合期只读 state（此前每次重组都要读一次 SharedPreferences）。
      */
     val hasProgress: Boolean = false,
+    /**
+     * 多书架开关 + 书架清单：开启且**尚未收藏**时，点星标先弹"加入哪个书架"。
+     * 关闭时这两个字段不参与任何判断，收藏行为与旧版完全一致（直接进默认书架）。
+     */
+    val multiShelfEnabled: Boolean = false,
+    val shelves: List<String> = listOf(DEFAULT_SHELF),
 )
 
 class DetailViewModel(
@@ -41,6 +52,8 @@ class DetailViewModel(
     val downloadEngine: DownloadEngine,
     private val libraryStore: LibraryStore,
     private val progressStore: ReadingProgressStore,
+    private val shelfStore: ShelfStore,
+    private val readerSettings: ReaderSettings,
 ) : ViewModel() {
 
     val bookId: Int = savedStateHandle["id"] ?: 0
@@ -88,14 +101,35 @@ class DetailViewModel(
             combine(
                 libraryStore.observeContains(bookId),
                 progressStore.observe(bookId),
-            ) { inLibrary, progress -> inLibrary to progress.isStarted }
-                .collect { (inLocalLibrary, hasProgress) ->
+                shelfStore.observe(),
+                readerSettings.flow.map { it.multiShelfEnabled },
+            ) { inLibrary, progress, customShelves, multiShelf ->
+                LocalState(
+                    inLocalLibrary = inLibrary,
+                    hasProgress = progress.isStarted,
+                    multiShelfEnabled = multiShelf,
+                    shelves = shelfNames(customShelves),
+                )
+            }
+                .collect { local ->
                     _ui.update {
-                        it.copy(inLocalLibrary = inLocalLibrary, hasProgress = hasProgress)
+                        it.copy(
+                            inLocalLibrary = local.inLocalLibrary,
+                            hasProgress = local.hasProgress,
+                            multiShelfEnabled = local.multiShelfEnabled,
+                            shelves = local.shelves,
+                        )
                     }
                 }
         }
     }
+
+    private data class LocalState(
+        val inLocalLibrary: Boolean,
+        val hasProgress: Boolean,
+        val multiShelfEnabled: Boolean,
+        val shelves: List<String>,
+    )
 
     fun download(format: String, encoding: String = "utf8") {
         val title = _ui.value.book?.title ?: return
@@ -118,6 +152,26 @@ class DetailViewModel(
                 libraryStore.add(book)
                 _favoriteMessages.tryEmit(UiText.StringResource(R.string.detail_fav_local_done))
             }
+        }
+    }
+
+    /**
+     * 收藏到指定书架（多书架开启时由弹层选择）。
+     *
+     * 与 [toggleLocalFavorite] 的分工：那个负责"移出/默认收藏"，这个只负责"收藏到某个书架"。
+     * 已经收藏过的书不会被这里重复加入（UI 也不会给它弹层），避免"改归属"与"移出"两种语义混淆。
+     */
+    fun addToShelf(shelf: String) {
+        val book = _ui.value.book ?: return
+        viewModelScope.launch {
+            libraryStore.add(book, shelf)
+            _favoriteMessages.tryEmit(
+                if (shelf == DEFAULT_SHELF) {
+                    UiText.StringResource(R.string.detail_fav_local_done)
+                } else {
+                    UiText.StringResource(R.string.detail_fav_local_done_shelf, shelf)
+                },
+            )
         }
     }
 }
