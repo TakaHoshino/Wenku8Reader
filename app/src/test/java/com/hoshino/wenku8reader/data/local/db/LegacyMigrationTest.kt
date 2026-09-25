@@ -151,6 +151,23 @@ class LegacyMigrationTest {
     }
 
     @Test
+    fun `时间戳类型不是 Long 时视为缺失`() {
+        // 旧偏好里若混进字符串/空值，读取必须退化为"没有时间戳"（→ 清理时保留），
+        // 而不是抛异常或猜一个数字。
+        val parse = parseLegacyReading(
+            mapOf(
+                "progress_401" to "cid-401",
+                "progress_at_401" to "not-a-long",
+                "progress_402" to "cid-402",
+                "progress_at_402" to null,
+            )
+        )
+        assertEquals(2, parse.rows.size)
+        assertTrue(parse.rows.all { it.lastReadAt == null })
+        assertEquals(listOf("cid-401", "cid-402"), parse.rows.map { it.resumeCid }.sortedBy { it })
+    }
+
+    @Test
     fun `已读标记损坏时标记丢条并保留旧键`() {
         val parse = parseLegacyReading(mapOf("finished_404" to "{不是数组"))
         assertEquals(1, parse.rows.size)
