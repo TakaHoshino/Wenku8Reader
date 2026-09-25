@@ -1,8 +1,8 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.plugin.compose")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
     // Room 的注解处理走 KSP（KSP 2.3.x 跟随 Kotlin 2.3 的版式）
-    id("com.google.devtools.ksp") version "2.3.12"
+    alias(libs.plugins.ksp)
 }
 
 // ---- 版本号来源（自动化版本管理，详见根目录 VERSIONING.md）----
@@ -121,49 +121,49 @@ kotlin {
 dependencies {
     // Compose BOM 统一 ui/foundation/material 系列版本；material3 单列覆盖到 Expressive 版本
     // （BOM 内的 material3 是 1.4.0，其 MaterialExpressiveTheme 仍为 internal，不可用）
-    implementation(platform("androidx.compose:compose-bom:2026.05.01"))
-    implementation("androidx.compose.material3:material3:1.5.0-alpha18")
-    implementation("androidx.core:core-ktx:1.13.1")
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.material3)
+    implementation(libs.androidx.core.ktx)
     // 必须 ≥1.11：miuix 的弹层（下拉/对话框/底部弹层）用 NavigationEvent 处理返回键，
     // 需要宿主提供 LocalNavigationEventDispatcherOwner，而它由该版本的 ComponentActivity 提供。
     // 旧版（1.9.x）下打开任意 miuix 弹层都会抛
     // "No NavigationEventDispatcher was provided via LocalNavigationEventDispatcherOwner"。
-    implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.6")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.savedstate)
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.graphics)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material.icons.extended)
     // MIUIX（第三方 HyperOS/MIUI 设计语言实现，作者 yukonga）：实验性 UI 风格可切换，
     // 见 ui/theme/UiStyle.kt。0.9.1 的 kotlin-stdlib 与项目一致（2.3.21）；
     // miuix-blur 提供悬浮组件的液态玻璃（背景模糊 + 高光描边），SukiSU-Ultra 同款。
-    implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.1")
-    implementation("top.yukonga.miuix.kmp:miuix-blur:0.9.1")
+    implementation(libs.miuix.ui)
+    implementation(libs.miuix.blur)
     // 0.9.x 起设置行/下拉等"偏好项"组件被拆到 miuix-preference（原 extra 包）
-    implementation("top.yukonga.miuix.kmp:miuix-preference:0.9.1")
-    implementation("androidx.navigation:navigation-compose:2.8.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation("com.github.houbb:opencc4j:1.14.0")
-    implementation("org.chromium.net:cronet-embedded:119.6045.31")
+    implementation(libs.miuix.preference)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.okhttp)
+    implementation(libs.coil.compose)
+    implementation(libs.opencc4j)
+    implementation(libs.cronet.embedded)
     // Room：书架与阅读进度（替代整份 JSON 解析 + SharedPreferences 的进度键）
-    implementation("androidx.room:room-runtime:2.7.2")
-    implementation("androidx.room:room-ktx:2.7.2")
-    ksp("androidx.room:room-compiler:2.7.2")
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
     // DataStore：设置项（替代 shared_prefs/settings.xml）。写入是事务性的
     //（临时文件 + rename），不会出现"写一半进程被杀→设置文件损坏"。
-    implementation("androidx.datastore:datastore-preferences:1.2.1")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(libs.androidx.datastore.preferences)
+    debugImplementation(libs.compose.ui.tooling)
 
     // 本地单元测试：Parsers / UpdateChecker.isNewer 等纯逻辑（无 Android 依赖）在此覆盖。
     // 这两处是历史上 bug 最密集、且最容易在重构中悄悄回归的区域。
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit)
     // android.jar 里的 org.json 在单元测试中只是抛 "Stub!" 的空壳，而书架迁移要解析
     // 旧 SharedPreferences 里的 JSON。引入同名的纯 Java 实现顶上：API 与 Android 端一致，
     // 且只作用于测试运行时 classpath（AGP 把 mockable android.jar 排在最后，不会遮蔽它）。
-    testImplementation("org.json:json:20240303")
+    testImplementation(libs.org.json)
 }

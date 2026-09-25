@@ -28,7 +28,17 @@
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
 
-关键 build 文件：`app/build.gradle.kts`。用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
+关键 build 文件：`app/build.gradle.kts`（模块配置）+ `gradle/libs.versions.toml`（**版本目录**，
+所有依赖与插件版本集中在此）+ 根 `build.gradle.kts`（AGP/Compose 插件声明与 KGP classpath 覆盖）。
+用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
+
+> **加依赖请走版本目录**：在 `gradle/libs.versions.toml` 的 `[versions]`/`[libraries]` 里登记，
+> 再在 `app/build.gradle.kts` 里用 `libs.xxx.yyy` 引用；不要往 build 文件里写死坐标。
+> 目录里的版本号以**实际解析到的版本**为准（跑
+> `./gradlew :app:dependencies --configuration releaseRuntimeClasspath` 看直接依赖那一层
+> `x.y.z -> a.b.c` 的右侧），例如 `core-ktx` 与 `lifecycle` 早已被传递依赖顶到 1.18.0 / 2.9.4。
+> 唯一的例外是根 `build.gradle.kts` 的 `buildscript` classpath：它在 accessor 可用之前求值，
+> 只能写字面量，必须与目录里的 `kotlin` 保持一致。
 
 > ⚠️ **JDK 版本要求 17–21（CI 用 21）**：Gradle 9.7.1 支持 JDK 17–24，JDK 25 仍不受支持。若 `JAVA_HOME` 指向过新的 JDK（例如 25），构建会在启动阶段直接失败并只打印版本号（`What went wrong: 25.0.2`）。此时把 `JAVA_HOME` 指到 JDK 17/21（如 Android Studio 自带 JBR 或 `C:\Users\<用户>\.jdks\jbr-21.x`）即可：
 > ```powershell
