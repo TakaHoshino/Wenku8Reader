@@ -194,7 +194,7 @@
     <string name="settings_category_network_summary">主站鏡像與存取方式</string>
     <string name="settings_category_update_summary">更新通道、更新來源與檢查頻率</string>
     <string name="settings_category_storage_summary">快取佔用與清理</string>
-    <string name="settings_category_experimental_summary">UI 風格、懸浮底欄與液態玻璃</string>
+    <string name="settings_category_experimental_summary">UI 風格、多書架、懸浮底欄與液態玻璃</string>
     <string name="settings_category_about_summary">版本、開源倉庫與回饋管道</string>
     <string name="settings_ui_style">UI 風格</string>
     <string name="settings_ui_style_summary">切換 Material 3 Expressive 與 MIUIX（HyperOS）；實驗性功能，介面可能隨版本調整</string>
@@ -204,6 +204,26 @@
     <string name="settings_floating_bottom_bar_summary">HyperOS 風格的膠囊式底欄（僅 MIUIX 風格生效）</string>
     <string name="settings_bottom_bar_glass">底欄液態玻璃</string>
     <string name="settings_bottom_bar_glass_summary">對底欄背後內容做即時模糊（僅懸浮底欄、Android 12L+ 生效）</string>
+
+    <!-- 多書架（實驗性） -->
+    <string name="settings_multi_shelf">多書架</string>
+    <string name="settings_multi_shelf_summary">書架頁可新增/切換書架，收藏時可選擇放進哪個書架；關閉後僅隱藏入口，資料保留</string>
+    <string name="shelf_manage_title">管理書架</string>
+    <string name="shelf_new">新增書架</string>
+    <string name="shelf_rename">重新命名</string>
+    <string name="shelf_delete">刪除</string>
+    <string name="shelf_name_label">書架名稱</string>
+    <string name="shelf_book_count">%1$d 本</string>
+    <string name="shelf_name_error_empty">書架名稱不能為空</string>
+    <string name="shelf_name_error_too_long">書架名稱最多 %1$d 個字</string>
+    <string name="shelf_name_error_duplicate">已存在同名書架</string>
+    <string name="shelf_delete_confirm_title">刪除書架</string>
+    <string name="shelf_delete_confirm_message">「%1$s」中的書籍不會被刪除，將移回預設書架。</string>
+    <string name="shelf_picker_add_title">加入哪個書架</string>
+    <string name="shelf_picker_move_title">移動到書架</string>
+    <string name="bookcase_shelf_empty">這個書架還沒有書</string>
+    <string name="bookcase_manage_shelves">管理書架</string>
+    <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>
     <string name="settings_storage">儲存設定</string>
     <string name="settings_storage_desc">快取管理、快取上限與過期紀錄清理</string>
     <string name="settings_section_general">一般</string>

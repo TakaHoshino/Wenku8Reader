@@ -188,6 +188,7 @@ class SettingsViewModel(
     fun setUiStyle(style: String) = readerSettings.setUiStyle(style)
     fun setFloatingBottomBar(enabled: Boolean) = readerSettings.setFloatingBottomBar(enabled)
     fun setBottomBarGlass(enabled: Boolean) = readerSettings.setBottomBarGlass(enabled)
+    fun setMultiShelfEnabled(enabled: Boolean) = readerSettings.setMultiShelfEnabled(enabled)
     fun setHapticsEnabled(enabled: Boolean) = readerSettings.setHapticsEnabled(enabled)
     fun setHapticsStrength(value: Int) = readerSettings.setHapticsStrength(value)
     fun setCheckUpdatesOnStartup(enabled: Boolean) = readerSettings.setCheckUpdatesOnStartup(enabled)

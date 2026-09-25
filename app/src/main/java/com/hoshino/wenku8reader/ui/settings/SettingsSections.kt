@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
@@ -225,6 +226,17 @@ internal fun ExperimentalSection(
                     },
                     selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
                     onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
+                )
+            },
+            {
+                // 多书架是**通用**实验功能（Material 与 MIUIX 都生效），
+                // 因此和"仅 MIUIX 生效"的悬浮底栏/液态玻璃不同，它两套设置页都放。
+                SegmentedSwitchItem(
+                    icon = Icons.Filled.Collections,
+                    title = stringResource(R.string.settings_multi_shelf),
+                    summary = stringResource(R.string.settings_multi_shelf_summary),
+                    checked = rs.multiShelfEnabled,
+                    onCheckedChange = vm::setMultiShelfEnabled,
                 )
             },
             // 说明：这里**不再**放「悬浮底栏 / 液态玻璃」两个开关。

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -23,6 +24,12 @@ class ReaderSettingsCodecTest {
     @Test
     fun `空存储读出全套默认值`() {
         assertEquals(ReaderSettingsState(), emptyPreferences().toState())
+    }
+
+    @Test
+    fun `多书架开关默认关闭`() {
+        // 产品要求：实验性功能必须默认关闭，老用户升级后书架页与收藏行为不得有任何变化
+        assertFalse(emptyPreferences().toState().multiShelfEnabled)
     }
 
     @Test
@@ -63,6 +70,7 @@ class ReaderSettingsCodecTest {
             uiStyle = "miuix",
             floatingBottomBar = false,
             bottomBarGlass = false,
+            multiShelfEnabled = true,
             autoPadding = false,
             topPadding = 1,
             bottomPadding = 2,

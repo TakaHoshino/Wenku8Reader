@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
@@ -252,6 +253,15 @@ fun MiuixExperimentalPage(
                 checked = rs.bottomBarGlass,
                 enabled = rs.floatingBottomBar,
                 onCheckedChange = vm::setBottomBarGlass,
+            )
+            MiuixRowDivider()
+            // 多书架是通用实验功能（Material 与 MIUIX 都生效），不像上面两个只影响 MIUIX
+            MiuixSwitchRow(
+                title = stringResource(R.string.settings_multi_shelf),
+                summary = stringResource(R.string.settings_multi_shelf_summary),
+                icon = Icons.Filled.Collections,
+                checked = rs.multiShelfEnabled,
+                onCheckedChange = vm::setMultiShelfEnabled,
             )
         }
     }
