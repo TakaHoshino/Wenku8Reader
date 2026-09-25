@@ -94,6 +94,18 @@ class LibraryStore internal constructor(
         migration.ensure()
         dao.moveShelf(from, to)
     }
+
+    /**
+     * 书架重命名。
+     *
+     * 与 [moveShelf] 是同一条 SQL（批量改 `shelf` 列），单独留个名字只是为了让调用点
+     * 读起来是它本来的意思：**重命名必须同时改书的归属**，否则那批书会指向一个
+     * 已不存在的书架（展示层虽有兜底，但用户会看到书架凭空清空）。
+     */
+    suspend fun renameShelf(from: String, to: String) {
+        migration.ensure()
+        dao.moveShelf(from, to)
+    }
 }
 
 private fun BookEntity.toLibraryBook(): LibraryBook =

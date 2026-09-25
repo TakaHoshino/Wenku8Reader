@@ -277,7 +277,7 @@ private fun MiuixClearRow(
 
 /** 弹窗内的两枚 miuix 按钮（确认 / 取消）。 */
 @Composable
-private fun MiuixDialogButtons(
+internal fun MiuixDialogButtons(
     confirmText: String,
     dismissText: String,
     onConfirm: () -> Unit,

@@ -14,6 +14,7 @@ import com.hoshino.wenku8reader.ui.explore.ExploreViewModel
 import com.hoshino.wenku8reader.ui.explore.TagBooksViewModel
 import com.hoshino.wenku8reader.ui.reader.ReaderViewModel
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
+import com.hoshino.wenku8reader.ui.shelf.ShelfManageViewModel
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsViewModel
 import com.hoshino.wenku8reader.ui.toc.TocViewModel
 
@@ -41,6 +42,12 @@ object AppViewModelProvider {
                 application().container.shelfStore,
                 application().container.readerSettings,
                 application().container.preferences,
+            )
+        }
+        initializer {
+            ShelfManageViewModel(
+                application().container.libraryStore,
+                application().container.shelfStore,
             )
         }
         initializer {
