@@ -48,8 +48,7 @@ class Wenku8Repository(private val client: Wenku8Client) {
         runCatchingNotCancelling { client.downloadFullTxt(id, type) }
 
     /** The `gid` required by /novel/ URLs. Falls back to id/1000 when the detail page omits it. */
-    fun groupIdOf(info: BookInfo): Int =
-        info.groupId ?: (info.id / 1000).coerceAtLeast(1)
+    fun groupIdOf(info: BookInfo): Int = bookGroupId(info)
 }
 
 /**
