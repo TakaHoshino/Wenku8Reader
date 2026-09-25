@@ -3,77 +3,38 @@ package com.hoshino.wenku8reader.ui.reader
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.os.BatteryManager
-import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Battery4Bar
-import androidx.compose.material.icons.filled.BatteryAlert
-import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.BatteryStd
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,9 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -93,22 +52,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
-import coil.request.ImageRequest
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.ChapterContent
-import com.hoshino.wenku8reader.data.Wenku8Hosts
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
@@ -139,18 +92,14 @@ private val CONTENT_BOTTOM_INSET = 80.dp
 /** 阅读进度整数口径的"完成"阈值（100%）。 */
 private const val PROGRESS_COMPLETE_PERCENT = 100
 
-/** 状态指示器（电量/时钟）刷新间隔：30 秒足够，且避免过频唤醒。 */
-private const val BATTERY_CLOCK_REFRESH_MS = 30_000L
+/** 插图预览目标：URL + 本章内的序号（序号用于生成保存时的文件名）。 */
+private data class ReaderPreviewTarget(val url: String, val index: Int)
 
-/** 电量读取失败时的兜底百分比（沿用旧逻辑：读不到按满电显示）。 */
-private const val BATTERY_FALLBACK_PERCENT = 100
-
-/** 阅读时长计时器滴答间隔（毫秒）与每次累加的秒数，两者必须一致以免统计漂移。 */
-private const val READING_TICK_MS = 5_000L
-private const val READING_TICK_SECONDS = 5L
-
-/** 阅读时长落盘阈值：累计满 60 秒才写一次，降低 I/O 与重组开销。 */
-private const val READING_FLUSH_SECONDS = 60L
+/** 按 [ReaderPreviewTarget] 生成保存用的文件名（不含扩展名，扩展名由预览按图片类型补）。 */
+private fun ReaderPreviewTarget.fileName(bookTitle: String): String {
+    val safeTitle = bookTitle.ifBlank { "wenku8" }
+    return "${safeTitle}_插图${index + 1}"
+}
 
 /**
  * 阅读进度整数百分比（0..100）：翻页模式取「当前页/总页数」，滚动模式取滚动比例。
@@ -162,12 +111,11 @@ private fun readingPercentOf(
     pageMode: Boolean,
     currentPage: Int,
     pageCount: Int,
-    scrollValue: Int,
-    scrollMaxValue: Int,
+    scrollFraction: Float,
 ): Int = if (pageMode) {
     if (pageCount > 0) (currentPage + 1) * 100 / pageCount else 0
 } else {
-    if (scrollMaxValue > 0) scrollValue * 100 / scrollMaxValue else 0
+    (scrollFraction * 100).roundToInt()
 }
 
 /**
@@ -178,12 +126,34 @@ private fun readingFractionOf(
     pageMode: Boolean,
     currentPage: Int,
     pageCount: Int,
-    scrollValue: Int,
-    scrollMaxValue: Int,
+    scrollFraction: Float,
 ): Float = if (pageMode) {
     if (pageCount > 1) currentPage.toFloat() / (pageCount - 1) else 0f
 } else {
-    if (scrollMaxValue > 0) scrollValue.toFloat() / scrollMaxValue else 0f
+    scrollFraction
+}
+
+/**
+ * 滚动模式的进度比例（0f..1f）。
+ *
+ * 滚动模式现在是按段落懒加载的 [LazyListState]，没有 `ScrollState.value/maxValue` 那对像素口径，
+ * 于是用「已滚过的段落数 + 当前段落内的偏移比例」估算——对进度指示与"切模式不丢进度"足够，
+ * 且与旧的像素比例在单调性上一致。
+ *
+ * 注意：这里读的是 `firstVisibleItemScrollOffset`（每帧都会变），与旧实现读 `ScrollState.value`
+ * 的重组开销同级，不算回归。
+ */
+private fun LazyListState.scrollFraction(): Float {
+    val total = layoutInfo.totalItemsCount
+    if (total <= 1) return 0f
+    val current = layoutInfo.visibleItemsInfo.firstOrNull { it.index == firstVisibleItemIndex }
+    val itemSize = current?.size ?: 0
+    val within = if (itemSize > 0) {
+        firstVisibleItemScrollOffset.toFloat() / itemSize
+    } else {
+        0f
+    }
+    return ((firstVisibleItemIndex + within) / (total - 1)).coerceIn(0f, 1f)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -198,16 +168,22 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val scope = rememberCoroutineScope()
-    val scrollState = rememberScrollState()
+    // 滚动模式按段落懒加载（章节正文不再是一个巨型 Text）
+    val listState = rememberLazyListState()
 
     var immersive by rememberSaveable { mutableStateOf(true) }
     var showSettings by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
     var autoTurn by rememberSaveable { mutableStateOf(false) }
     var suppressImmersiveUntil by remember { mutableStateOf(0L) }
+    // 长按插图 → 全屏预览（记录 URL 与序号，序号用于生成保存时的文件名）
+    var previewTarget by remember { mutableStateOf<ReaderPreviewTarget?>(null) }
 
     val pageMode = !rs.scrollMode
     val chapter = ui.currentChapter
+    val paragraphs = remember(chapter) {
+        chapter?.text?.let(::splitReaderParagraphs).orEmpty()
+    }
     val loadError = ui.error
     val idx = ui.flatChapters.indexOfFirst { it.cid == ui.currentCid }
     val prev = if (idx > 0) ui.flatChapters[idx - 1] else null
@@ -245,6 +221,10 @@ fun ReaderScreen(
         onDispose { insetsController?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
+    // 返回键：预览打开时先关预览，而不是直接退出阅读器
+    BackHandler(enabled = previewTarget != null) { previewTarget = null }
+
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = if (rs.backgroundMode == "image") Color.Transparent else paperColor,
         topBar = {
@@ -342,7 +322,7 @@ fun ReaderScreen(
             val pagerState = rememberPagerState { pagedChapters.size }
             LaunchedEffect(chapter) {
                 suppressImmersiveUntil = System.currentTimeMillis() + 500
-                scrollState.scrollTo(0)
+                listState.scrollToItem(0)
                 pagerState.scrollToPage(0)
             }
 
@@ -352,13 +332,9 @@ fun ReaderScreen(
             var scrollRatioForRestore by remember { mutableStateOf(0f) }
             LaunchedEffect(pageMode) {
                 if (pageMode) return@LaunchedEffect
-                snapshotFlow {
-                    if (scrollState.maxValue > 0) {
-                        scrollState.value.toFloat() / scrollState.maxValue
-                    } else {
-                        0f
-                    }
-                }.distinctUntilChanged().collect { scrollRatioForRestore = it }
+                snapshotFlow { listState.scrollFraction() }
+                    .distinctUntilChanged()
+                    .collect { scrollRatioForRestore = it }
             }
             LaunchedEffect(pageMode, pagedChapters.size) {
                 val ratio = scrollRatioForRestore
@@ -387,10 +363,9 @@ fun ReaderScreen(
                                 prev?.let { vm.loadChapter(it.cid) }
                         }
                     } else if (!pageMode) {
-                        val step = (scrollState.viewportSize * 0.85f * delta).toInt()
-                        scrollState.animateScrollTo(
-                            (scrollState.value + step).coerceIn(0, scrollState.maxValue)
-                        )
+                        // 段落懒加载模式下按"视口高度的 85%"滚动：与旧的按页翻动观感一致
+                        val step = listState.layoutInfo.viewportSize.height * 0.85f * delta
+                        listState.animateScrollBy(step)
                     }
                 }
             }
@@ -447,21 +422,27 @@ fun ReaderScreen(
                 Modifier
                     .fillMaxSize()
                     .pointerInput(pageMode, rs.pageTurnDirection, rs.clickTurnPage) {
-                        detectTapGestures { offset ->
-                            val w = size.width
-                            val rtl = !rs.pageTurnDirection
-                            when {
-                                offset.x < w / 3f ->
-                                    if (pageMode && rs.clickTurnPage) currentTurnPage(if (rtl) 1 else -1)
-                                    else immersive = true
-                                offset.x > w * 2f / 3f ->
-                                    if (pageMode && rs.clickTurnPage) currentTurnPage(if (rtl) -1 else 1)
-                                    else immersive = true
+                        detectTapGestures(
+                            onTap = { offset ->
+                                val w = size.width
+                                val rtl = !rs.pageTurnDirection
+                                when {
+                                    offset.x < w / 3f ->
+                                        if (pageMode && rs.clickTurnPage) currentTurnPage(if (rtl) 1 else -1)
+                                        else immersive = true
+                                    offset.x > w * 2f / 3f ->
+                                        if (pageMode && rs.clickTurnPage) currentTurnPage(if (rtl) -1 else 1)
+                                        else immersive = true
 
-                                else ->
-                                    immersive = !immersive
-                            }
-                        }
+                                    else ->
+                                        immersive = !immersive
+                                }
+                            },
+                            // 长按必须显式接住：否则它会被当成"松手后才触发的点击"，
+                            // 于是长按选字/长按插图的同时还会顺手切换沉浸态。
+                            // 文本选择与插图预览各自处理长按，这里只需消费掉它。
+                            onLongPress = {},
+                        )
                     },
             ) {
                 when {
@@ -504,30 +485,30 @@ fun ReaderScreen(
                                                 .fillMaxSize()
                                                 .padding(contentPadding),
                                         ) {
-                                            Text(
-                                                page.text,
-                                                color = textColor,
-                                                fontFamily = fontFamilyFor(rs.fontFamily),
-                                                fontSize = rs.fontSize.sp,
-                                                fontWeight = FontWeight(rs.fontWeight),
-                                                lineHeight = (rs.fontSize * rs.lineSpacing).sp,
-                                            )
+                                            // 文本选择：长按选词、拖动句柄；选区工具栏由系统提供
+                                            SelectionContainer {
+                                                Text(
+                                                    page.text,
+                                                    color = textColor,
+                                                    fontFamily = fontFamilyFor(rs.fontFamily),
+                                                    fontSize = rs.fontSize.sp,
+                                                    fontWeight = FontWeight(rs.fontWeight),
+                                                    lineHeight = (rs.fontSize * rs.lineSpacing).sp,
+                                                )
+                                            }
                                         }
-                                        is ReaderPage.Image -> SubcomposeAsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                // 归一化为 https：站点给 http 地址，明文流量已被禁用
-                                                .data(Wenku8Hosts.normalizeImageUrl(page.url))
-                                                .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
-                                                .crossfade(true)
-                                                .build(),
-                                            contentDescription = stringResource(R.string.reader_illustration),
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(contentPadding)
-                                                // LNR 风格占位底色：加载中/失败时保持稳定视觉
-                                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                                            contentScale = ContentScale.Fit,
-                                        )
+                                        is ReaderPage.Image ->
+                                            // 插图组件化：长按进入全屏预览（可缩放/保存）
+                                            ReaderIllustration(
+                                                url = page.url,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(contentPadding),
+                                                // 分页模式：整页只放一张图，按 Fit 保证不裁切
+                                                contentScale = ContentScale.Fit,
+                                                onClick = { immersive = !immersive },
+                                                onLongPress = { previewTarget = ReaderPreviewTarget(page.url, index) },
+                                            )
                                         null -> {}
                                     }
                                 }
@@ -541,11 +522,16 @@ fun ReaderScreen(
                             )
                             ScrollContent(
                                 chapter = chapter,
+                                paragraphs = paragraphs,
                                 rs = rs,
                                 textColor = textColor,
-                                scrollState = scrollState,
+                                listState = listState,
                                 paddingValues = contentPadding,
                                 positionText = positionText,
+                                onImageClick = { immersive = !immersive },
+                                onImageLongPress = { imageIndex, url ->
+                                    previewTarget = ReaderPreviewTarget(url, imageIndex)
+                                },
                             )
                         }
                     }
@@ -571,8 +557,7 @@ fun ReaderScreen(
                             pageMode = pageMode,
                             currentPage = pagerState.currentPage,
                             pageCount = pagedChapters.size,
-                            scrollValue = scrollState.value,
-                            scrollMaxValue = scrollState.maxValue,
+                            scrollFraction = listState.scrollFraction(),
                         ) >= PROGRESS_COMPLETE_PERCENT
                     }
                         .distinctUntilChanged()
@@ -590,8 +575,7 @@ fun ReaderScreen(
                         pageMode = pageMode,
                         currentPage = pagerState.currentPage,
                         pageCount = pagedChapters.size,
-                        scrollValue = scrollState.value,
-                        scrollMaxValue = scrollState.maxValue,
+                        scrollFraction = listState.scrollFraction(),
                     )
                     IndicatorBar(
                         title = chapter?.title ?: "",
@@ -613,8 +597,7 @@ fun ReaderScreen(
                         pageMode = pageMode,
                         currentPage = pagerState.currentPage,
                         pageCount = pagedChapters.size,
-                        scrollValue = scrollState.value,
-                        scrollMaxValue = scrollState.maxValue,
+                        scrollFraction = listState.scrollFraction(),
                     )
                     Surface(
                         modifier = Modifier
@@ -635,8 +618,14 @@ fun ReaderScreen(
                                             (progress * (pagedChapters.size - 1)).roundToInt()
                                                 .coerceIn(0, pagedChapters.lastIndex)
                                         )
-                                    } else if (scrollState.maxValue > 0) {
-                                        scrollState.scrollTo((progress * scrollState.maxValue).roundToInt())
+                                    } else {
+                                        val itemCount = listState.layoutInfo.totalItemsCount
+                                        if (itemCount > 1) {
+                                            listState.scrollToItem(
+                                                (progress * (itemCount - 1)).roundToInt()
+                                                    .coerceIn(0, itemCount - 1)
+                                            )
+                                        }
                                     }
                                 }
                             },
@@ -655,11 +644,23 @@ fun ReaderScreen(
         }
     }
 
+        // 插图全屏预览：叠在阅读器之上（可缩放/平移、点空白返回、长按保存）
+        previewTarget?.let { target ->
+            ReaderImagePreview(
+                url = target.url,
+                displayName = target.fileName(ui.title),
+                onDismiss = { previewTarget = null },
+            )
+        }
+    }
+
     // ---- immersive auto-trigger on scroll ----
-    LaunchedEffect(scrollState) {
+    LaunchedEffect(listState) {
         // 布尔派生 + distinctUntilChanged：只在"是否已滚动"翻转时发射一次，
         // 避免滚动模式下每帧（60Hz）重复写入 immersive（值不变属于无效工作）。
-        snapshotFlow { scrollState.value > 0 }
+        snapshotFlow {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
+        }
             .distinctUntilChanged()
             .collect { scrolled ->
                 if (!scrolled) return@collect
@@ -692,610 +693,12 @@ fun ReaderScreen(
 }
 
 // ------------------------------------------------------------------ //
-// bars
-// ------------------------------------------------------------------ //
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReaderTopBar(title: String, onBack: () -> Unit) {
-    TopAppBar(
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.action_back))
-            }
-        },
-    )
-}
-
-@Composable
-private fun ReaderBottomBar(
-    prevEnabled: Boolean,
-    nextEnabled: Boolean,
-    autoTurn: Boolean,
-    onToggleAutoTurn: () -> Unit,
-    onOpenToc: () -> Unit,
-    onSettings: () -> Unit,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.navigationBarsPadding(),
-        tonalElevation = 2.dp,
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ChapterNavButton(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                stringResource(R.string.reader_prev_chapter),
-                prevEnabled,
-                onPrev,
-            )
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onToggleAutoTurn) {
-                Icon(
-                    if (autoTurn) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = stringResource(R.string.reader_auto_turn),
-                    tint = if (autoTurn) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            IconButton(onClick = onOpenToc) {
-                Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.reader_toc))
-            }
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Filled.Settings,
-                    contentDescription = stringResource(R.string.reader_settings))
-            }
-            Spacer(Modifier.weight(1f))
-            ChapterNavButton(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                stringResource(R.string.reader_next_chapter),
-                nextEnabled,
-                onNext,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ChapterNavButton(
-    icon: ImageVector,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val color = if (enabled) {
-        MaterialTheme.colorScheme.onSurface
-    } else {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    }
-    Column(
-        Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = color)
-        Spacer(Modifier.height(2.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = color)
-    }
-}
-
-/**
- * 状态指示器（沉浸时屏幕最底部的电量/时间/章节名/进度）。
- * 电池与时钟状态只在本组件内维护，避免每 30 秒触发整个阅读器重组。
- */
-@Composable
-private fun IndicatorBar(
-    title: String,
-    progressPercent: Int,
-    color: Color,
-) {
-    val context = LocalContext.current
-    var batteryPercent by remember { mutableIntStateOf(readBattery(context)) }
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            batteryPercent = readBattery(context)
-            now = System.currentTimeMillis()
-            delay(BATTERY_CLOCK_REFRESH_MS)
-        }
-    }
-    val timeText = remember(now) { DateFormat.getTimeFormat(context).format(Date(now)) }
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(40.dp)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val batteryIcon = when {
-            batteryPercent >= 80 -> Icons.Filled.BatteryFull
-            batteryPercent >= 50 -> Icons.Filled.BatteryStd
-            batteryPercent >= 20 -> Icons.Filled.Battery4Bar
-            else -> Icons.Filled.BatteryAlert
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(R.string.reader_battery, batteryPercent),
-                style = MaterialTheme.typography.labelMedium,
-                color = color,
-            )
-            Spacer(Modifier.width(4.dp))
-            Icon(batteryIcon, contentDescription = null, modifier = Modifier.size(14.dp), tint = color)
-            Spacer(Modifier.width(10.dp))
-            Text(timeText, style = MaterialTheme.typography.labelMedium, color = color)
-        }
-        Box(
-            Modifier
-                .weight(1f)
-                .padding(horizontal = 8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.labelMedium,
-                color = color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(
-            stringResource(R.string.reader_progress_percent, progressPercent),
-            style = MaterialTheme.typography.labelMedium,
-            color = color,
-        )
-    }
-}
-
-// ------------------------------------------------------------------ //
-// scroll content
-// ------------------------------------------------------------------ //
-@Composable
-private fun ScrollContent(
-    chapter: ChapterContent,
-    rs: ReaderSettingsState,
-    textColor: Color,
-    scrollState: ScrollState,
-    paddingValues: PaddingValues,
-    positionText: String,
-) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(paddingValues),
-    ) {
-        Text(
-            chapter.title,
-            color = textColor,
-            fontFamily = fontFamilyFor(rs.fontFamily),
-            fontSize = (rs.fontSize + 4).sp,
-            fontWeight = FontWeight.Bold,
-            lineHeight = ((rs.fontSize + 4) * rs.lineSpacing).sp,
-        )
-        if (chapter.text.isNotBlank()) {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                chapter.text,
-                color = textColor,
-                fontFamily = fontFamilyFor(rs.fontFamily),
-                fontSize = rs.fontSize.sp,
-                fontWeight = FontWeight(rs.fontWeight),
-                lineHeight = (rs.fontSize * rs.lineSpacing).sp,
-            )
-        }
-        if (chapter.images.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            chapter.images.forEach { url ->
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        // 归一化为 https：站点给 http 地址，明文流量已被禁用
-                        .data(Wenku8Hosts.normalizeImageUrl(url))
-                        .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = stringResource(R.string.reader_illustration),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                        // LNR 风格占位底色：加载中/失败时保持稳定视觉
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                    contentScale = ContentScale.FillWidth,
-                    loading = {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(240.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                        }
-                    },
-                )
-            }
-        }
-        if (chapter.text.isBlank() && chapter.images.isEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                stringResource(R.string.reader_no_content),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            positionText,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        )
-        Spacer(Modifier.height(32.dp))
-    }
-}
-
-// ------------------------------------------------------------------ //
-// chapter selection (volume-grouped)
-// ------------------------------------------------------------------ //
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ChapterSelectionSheet(
-    ui: ReaderUiState,
-    vm: ReaderViewModel,
-    onDismiss: () -> Unit,
-) {
-    var expandedVolumes by remember { mutableStateOf(setOf<String>()) }
-    LaunchedEffect(ui.currentCid, ui.volumes) {
-        ui.volumes.firstOrNull { v -> v.chapters.any { it.cid == ui.currentCid } }?.name?.let {
-            if (it !in expandedVolumes) expandedVolumes = expandedVolumes + it
-        }
-    }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(
-            stringResource(R.string.reader_toc),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        LazyColumn(Modifier.heightIn(max = 480.dp)) {
-            ui.volumes.forEach { volume ->
-                val expanded = volume.name in expandedVolumes
-                item(key = "vol_${volume.name}") {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                expandedVolumes = if (expanded) expandedVolumes - volume.name
-                                else expandedVolumes + volume.name
-                            }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            volume.name,
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Icon(
-                            if (expanded) Icons.Filled.KeyboardArrowUp
-                            else Icons.Filled.KeyboardArrowDown,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                if (expanded) {
-                    items(volume.chapters, key = { it.cid }) { ch ->
-                        val current = ch.cid == ui.currentCid
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    ch.name,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (current) MaterialTheme.colorScheme.primary else Color.Unspecified,
-                                )
-                            },
-                            supportingContent = { if (current) Text(stringResource(R.string.reader_current)) },
-                            modifier = Modifier.clickable {
-                                vm.loadChapter(ch.cid)
-                                onDismiss()
-                            },
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-    }
-}
-
-// ------------------------------------------------------------------ //
-// settings sheet (tabs)
-// ------------------------------------------------------------------ //
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SettingsSheet(
-    rs: ReaderSettingsState,
-    vm: ReaderViewModel,
-    onDismiss: () -> Unit,
-) {
-    var tab by remember { mutableIntStateOf(0) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            Text(
-                stringResource(R.string.reader_settings),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            SecondaryTabRow(selectedTabIndex = tab) {
-                listOf(
-                    R.string.reader_settings_appearance,
-                    R.string.reader_settings_action,
-                    R.string.reader_settings_margin,
-                ).forEachIndexed { index, res ->
-                    Tab(
-                        selected = tab == index,
-                        onClick = { tab = index },
-                        text = { Text(stringResource(res)) },
-                    )
-                }
-            }
-            when (tab) {
-                0 -> AppearanceSettings(rs, vm)
-                1 -> ActionSettings(rs, vm)
-                else -> MarginSettings(rs, vm)
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppearanceSettings(rs: ReaderSettingsState, vm: ReaderViewModel) {
-    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
-        item {
-            SettingSliderRow(
-                stringResource(R.string.reader_font_size),
-                rs.fontSize.toFloat(),
-                14f..28f,
-            ) { vm.setFontSize(it.roundToInt()) }
-        }
-        item {
-            SettingSliderRow(
-                stringResource(R.string.settings_font_weight),
-                rs.fontWeight.toFloat(),
-                300f..700f,
-            ) { vm.setFontWeight(it.roundToInt()) }
-        }
-        item {
-            SettingSliderRow(
-                stringResource(R.string.settings_line_spacing),
-                rs.lineSpacing,
-                1.2f..2.5f,
-            ) { vm.setLineSpacing((it * 10f).roundToInt() / 10f) }
-        }
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                listOf(
-                    "default" to R.string.settings_font_default,
-                    "sans" to R.string.settings_font_sans,
-                    "serif" to R.string.settings_font_serif,
-                    "mono" to R.string.settings_font_mono,
-                ).forEach { (key, res) ->
-                    FilterChip(
-                        selected = rs.fontFamily == key,
-                        onClick = { vm.setFontFamily(key) },
-                        label = { Text(stringResource(res)) },
-                    )
-                }
-            }
-        }
-        item {
-            SettingRow(stringResource(R.string.reader_turn_mode)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = !rs.scrollMode,
-                        onClick = { vm.setScrollMode(false) },
-                        label = { Text(stringResource(R.string.reader_mode_page)) },
-                    )
-                    FilterChip(
-                        selected = rs.scrollMode,
-                        onClick = { vm.setScrollMode(true) },
-                        label = { Text(stringResource(R.string.reader_mode_scroll)) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActionSettings(rs: ReaderSettingsState, vm: ReaderViewModel) {
-    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
-        item {
-            SettingRow(stringResource(R.string.reader_turn_direction)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = rs.pageTurnDirection,
-                        onClick = { vm.setPageTurnDirection(true) },
-                        label = { Text(stringResource(R.string.reader_turn_left)) },
-                    )
-                    FilterChip(
-                        selected = !rs.pageTurnDirection,
-                        onClick = { vm.setPageTurnDirection(false) },
-                        label = { Text(stringResource(R.string.reader_turn_right)) },
-                    )
-                }
-            }
-        }
-        item {
-            SettingRow(stringResource(R.string.reader_click_turn)) {
-                ExpressiveSwitch(checked = rs.clickTurnPage, onCheckedChange = { vm.setClickTurnPage(it) })
-            }
-        }
-        item {
-            SettingRow(stringResource(R.string.reader_volume_turn)) {
-                ExpressiveSwitch(checked = rs.volumeKeyTurnPage, onCheckedChange = { vm.setVolumeKeyTurnPage(it) })
-            }
-        }
-        item {
-            SettingRow(stringResource(R.string.reader_auto_next)) {
-                ExpressiveSwitch(checked = rs.autoNextChapter, onCheckedChange = { vm.setAutoNextChapter(it) })
-            }
-        }
-        item {
-            var intervalText by remember { mutableStateOf(rs.autoTurnInterval.toString()) }
-            LaunchedEffect(rs.autoTurnInterval) { intervalText = rs.autoTurnInterval.toString() }
-            SettingRow(stringResource(R.string.reader_auto_interval)) {
-                OutlinedTextField(
-                    value = intervalText,
-                    onValueChange = { input ->
-                        val digits = input.filter { it.isDigit() }.take(3)
-                        intervalText = digits
-                        digits.toIntOrNull()?.takeIf { it in 1..999 }
-                            ?.let { vm.setAutoTurnInterval(it) }
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.width(96.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MarginSettings(rs: ReaderSettingsState, vm: ReaderViewModel) {
-    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
-        item {
-            SettingRow(stringResource(R.string.reader_auto_margin)) {
-                ExpressiveSwitch(checked = rs.autoPadding, onCheckedChange = { vm.setAutoPadding(it) })
-            }
-        }
-        if (!rs.autoPadding) {
-            item {
-                SettingSliderRow(stringResource(R.string.reader_margin_top), rs.topPadding.toFloat(), 0f..128f) { vm.setTopPadding(it.roundToInt()) }
-            }
-            item {
-                SettingSliderRow(stringResource(R.string.reader_margin_bottom), rs.bottomPadding.toFloat(), 0f..128f) { vm.setBottomPadding(it.roundToInt()) }
-            }
-            item {
-                SettingSliderRow(stringResource(R.string.reader_margin_left), rs.leftPadding.toFloat(), 0f..128f) { vm.setLeftPadding(it.roundToInt()) }
-            }
-            item {
-                SettingSliderRow(stringResource(R.string.reader_margin_right), rs.rightPadding.toFloat(), 0f..128f) { vm.setRightPadding(it.roundToInt()) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingRow(label: String, control: @Composable () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        control()
-    }
-}
-
-@Composable
-private fun SettingSliderRow(
-    label: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit,
-) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        ExpressiveSlider(value = value, onValueChange = onValueChange, valueRange = valueRange)
-    }
-}
-
-// ------------------------------------------------------------------ //
 // helpers
 // ------------------------------------------------------------------ //
+
+/** 从 Compose 的 Context 链上找到宿主 Activity（沉浸式系统栏控制需要窗口）。 */
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
-}
-
-private fun readBattery(context: Context): Int {
-    // 改用 BatteryManager.getIntProperty 直接读取系统服务中缓存的电量属性（无广播 IPC），
-    // 替代原先 registerReceiver(null, ACTION_BATTERY_CHANGED) 的同步粘性广播读取，
-    // 避免在 remember 初值与每 30 秒轮询时于主线程做一次进程间通信。
-    val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-    val capacity = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-    return if (capacity in 0..100) capacity else BATTERY_FALLBACK_PERCENT
-}
-
-// ------------------------------------------------------------------ //
-// 阅读时长埋点
-// ------------------------------------------------------------------ //
-
-/**
- * 阅读时长统计（阅读热力图数据源）：
- * - 仅应用在前台（Lifecycle RESUMED）且阅读器可见时累计；
- * - 每 60 秒把整段时长写入 [ReadingStatsStore] 并持久化；
- * - 退出阅读器（组合销毁）时把不足 60 秒的余量也冲刷进去，保证不丢。
- * 聚合口径：每日/每书分钟数 = ceil(秒数 / 60)，不足 1 分钟按 1 分钟计（由 UI 层聚合）。
- */
-@Composable
-private fun ReadingTimeTracker(
-    bookId: Int,
-    bookName: String,
-    store: com.hoshino.wenku8reader.data.local.ReadingStatsStore,
-) {
-    if (bookId <= 0) return
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var pendingSeconds by remember { mutableLongStateOf(0L) }
-    // 书名可能在阅读器打开后由 openReader() 回填（首帧为空），
-    // 用 rememberUpdatedState 取最新值，避免 LaunchedEffect(bookId) 的闭包长期写入空书名。
-    val currentBookName by rememberUpdatedState(bookName)
-
-    // 功耗优化：每 5s 计一次（每次累加 5s），较原 1s 滴答减少 5 倍 CPU 唤醒；
-    // 仍满足「分钟级 + 向上取整」的统计精度。
-    LaunchedEffect(bookId) {
-        while (true) {
-            delay(READING_TICK_MS)
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                pendingSeconds += READING_TICK_SECONDS
-                if (pendingSeconds >= READING_FLUSH_SECONDS) {
-                    store.addSeconds(bookId, currentBookName, pendingSeconds)
-                    store.persist()
-                    pendingSeconds = 0
-                }
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            // 冲刷余量，避免退出阅读器时丢失最后不足 60 秒的阅读
-            if (pendingSeconds > 0) {
-                store.addSeconds(bookId, currentBookName, pendingSeconds)
-                store.persist()
-            }
-        }
-    }
 }

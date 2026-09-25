@@ -145,6 +145,11 @@
     <string name="reader_current">当前</string>
     <string name="reader_no_content">（本章无正文）</string>
     <string name="reader_illustration">插图</string>
+    <string name="reader_image_save">保存图片</string>
+    <string name="reader_image_save_title">保存图片</string>
+    <string name="reader_image_save_message">将这张插图保存到「下载/Wenku8」？</string>
+    <string name="reader_image_saved">已保存：%1$s</string>
+    <string name="reader_image_save_failed">保存失败，请检查网络后重试</string>
     <string name="reader_toc_empty">目录为空</string>
     <string name="reader_settings">阅读器设置</string>
     <string name="reader_turn_mode">翻页方式</string>

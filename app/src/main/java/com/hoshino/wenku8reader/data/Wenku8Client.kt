@@ -993,6 +993,21 @@ class Wenku8Client(
         getBytes("$DL/down.php?type=$type&node=1&id=$id")
 
     /**
+     * 抓取图片原始字节（阅读器插图的「保存图片」用）。
+     *
+     * 与 [getBytes] 的唯一差别是 Referer：图片走站点防盗链，必须带
+     * [Wenku8Hosts.IMAGE_REFERER]，用同域根地址会被拒绝。地址同样统一升级为 HTTPS
+     * （站点页面给的是 http，明文流量已被 networkSecurityConfig 禁止）。
+     */
+    suspend fun imageBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url(Wenku8Hosts.normalizeImageUrl(url))
+            .browserHeaders(Wenku8Hosts.IMAGE_REFERER, UA)
+            .build()
+        readBytes(execute(req))
+    }
+
+    /**
      * 统一限流组件：本项目**全部**请求节流状态的唯一所有者。
      *
      * 三层语义各自独立、不可合并成一个延时：
