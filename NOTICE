@@ -1,0 +1,69 @@
+Wenku8Reader（轻小说文库）
+Copyright (C) 2026 TakaHoshino
+
+本程序是自由软件：你可以根据自由软件基金会发布的 GNU 通用公共许可证第 3 版
+（或你选择的任何更新版本）的条款重新分发和/或修改它。
+
+本程序分发时希望它有用，但不提供任何担保；甚至没有适销性或特定用途适用性的
+默示担保。详见 GNU 通用公共许可证（仓库根目录的 LICENSE 文件，或
+<https://www.gnu.org/licenses/>）。
+
+================================================================================
+第三方组件与代码来源
+================================================================================
+
+## 一、本项目改编/移植的第三方代码
+
+### 1. 液态玻璃底栏与相关工具
+以下文件改编或移植自 SukiSU-Ultra 项目的对应实现：
+
+  app/src/main/java/com/hoshino/wenku8reader/ui/miuix/MiuixLiquidBottomBar.kt
+  app/src/main/java/com/hoshino/wenku8reader/ui/miuix/liquid/CombinedBackdrop.kt
+  app/src/main/java/com/hoshino/wenku8reader/ui/miuix/liquid/DampedDragAnimation.kt
+  app/src/main/java/com/hoshino/wenku8reader/ui/miuix/liquid/DragGestureInspector.kt
+  app/src/main/java/com/hoshino/wenku8reader/ui/miuix/liquid/InteractiveHighlight.kt
+  app/src/main/java/com/hoshino/wenku8reader/ui/miuix/LiquidGlass.kt
+  app/src/main/java/com/hoshino/wenku8reader/ui/miuix/LiquidInnerShadow.kt
+
+  SukiSU-Ultra：https://github.com/ShirkNeko/SukiSU-Ultra
+  许可：GNU General Public License v3.0
+
+上述实现的上游来源（SukiSU-Ultra 亦改编自它们）：
+
+  * Kyant0/AndroidLiquidGlass — Apache License 2.0
+    https://github.com/Kyant0/AndroidLiquidGlass
+    （折射 lens 着色器、内阴影 InnerShadow）
+  * compose-miuix-ui 官方示例 IosLiquidGlassNavigationBar — Apache License 2.0
+    https://github.com/compose-miuix-ui/miuix
+    （悬浮液玻璃底栏的形态与交互）
+
+请注意：改编自 Apache-2.0 代码的部分，按 Apache-2.0 的要求保留了来源与许可说明；
+本项目整体仍以 GPL-3.0 分发。
+
+## 二、设计参考（未复制代码）
+
+以下项目仅在界面结构、交互与架构思路层面作为参考，未逐段复制其源码：
+
+  * LightNovelReader（阅读器分页、缓存与状态指示条的形态参考）
+  * PiliPlus（设置项按分类进入二级页的组织方式）
+  * SukiSU-Ultra（折叠大顶栏、卡片式列表等信息层级）
+
+## 三、运行时依赖（均为二进制依赖，未修改其源码）
+
+| 组件 | 许可 | 用途 |
+| --- | --- | --- |
+| AndroidX / Jetpack Compose（含 Material 3、material-icons-extended、Navigation、Lifecycle） | Apache License 2.0 | 基础框架与 MD3 界面 |
+| top.yukonga.miuix.kmp（miuix-ui / miuix-blur / miuix-preference） | Apache License 2.0 | MIUIX（HyperOS）界面与液态玻璃模糊 |
+| Kotlin / kotlinx.coroutines | Apache License 2.0 | 语言运行时与协程 |
+| OkHttp | Apache License 2.0 | 网络请求 |
+| Coil | Apache License 2.0 | 图片加载 |
+| OpenCC4J（含其依赖 nlp-common） | Apache License 2.0 | 简体/繁体转换（构建时排除其未使用的分词词典） |
+| Cronet（org.chromium.net） | BSD 3-Clause License | Cloudflare 挑战与站点抓取 |
+| JUnit | Eclipse Public License 1.0 | 单元测试（仅测试期） |
+
+各依赖的完整许可文本随其构件分发，可在对应的 Maven 坐标或上述项目主页获取。
+
+## 四、内容版权
+
+本应用仅为个人学习与交流用途的第三方客户端。站点内容（小说正文、封面等）版权归
+原作者及 wenku8.net 所有，与本项目无关，请支持正版。

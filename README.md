@@ -75,3 +75,13 @@
 ## 声明
 
 - 本应用仅用于**个人学习与交流**，请遵守 wenku8.net 站点使用条款，支持正版。
+
+## 许可证
+
+本项目以 **GNU General Public License v3.0** 发布，全文见 [LICENSE](LICENSE)。
+
+项目的部分界面实现改编自其他开源项目（液态玻璃底栏来自
+[SukiSU-Ultra](https://github.com/ShirkNeko/SukiSU-Ultra)，其上游为
+[Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 与
+compose-miuix-ui 示例），运行时依赖包含 AndroidX、miuix-kmp、OkHttp、Coil、OpenCC4J、Cronet 等。
+逐项来源与许可见 [NOTICE](NOTICE)。
