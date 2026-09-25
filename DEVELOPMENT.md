@@ -76,9 +76,12 @@ Wenku8Reader/
         │   ├── FileSaver.kt           # MediaStore 保存到 Downloads/Wenku8/
         │   ├── EpubBuilder.kt         # 最小 EPUB3 打包器
         │   └── local/
-        │       ├── AppPreferences.kt  # 账号凭据 + 阅读进度（SharedPreferences）
-        │       ├── ReaderSettings.kt  # 全局阅读器外观/交互设置（StateFlow）
-        │       ├── LocalLibraryStore.kt # 本地书架快照（JSON in SharedPreferences）
+        │       ├── AppPreferences.kt  # 书架排序 + 更新检查节流（SharedPreferences）
+        │       ├── ReaderSettings.kt  # 全局设置源（DataStore + 同步可读 StateFlow）
+        │       ├── LibraryStore.kt    # 书架读写（Room: books）
+        │       ├── ReadingProgressStore.kt # 进度/已读标记（Room: reading_progress）
+        │       ├── LocalDataMigration.kt   # 旧 SharedPreferences → Room 的一次性搬迁门
+        │       ├── db/               # Room 实体/DAO/AppDatabase + 搬迁解析与校验
         │       └── DefaultAccount.kt  # 内置账号（首启静默登录用）
         ├── data/repository/Wenku8Repository.kt  # 统一仓库层（Result 包装）
         └── ui/
@@ -151,9 +154,13 @@ Wenku8Reader/
 - `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。**重名即覆盖**：插入前先按 `RELATIVE_PATH` 查回本目录的文件并删掉同名/自动重命名副本（判定见 `isDuplicateDownloadName()`：标准形态 `书名 (1).txt` 与部分 ROM 的 `书名.txt(1)` 都算副本，另有单测覆盖），否则 MediaProvider 会把新文件改名成 `书名 (1).txt`，每重新下载一次就多一份副本；写入用 `IS_PENDING`，其他应用在写完前看不到半截文件。
 
 ### 4.6 本地存储
-- `AppPreferences`（prefs：`reading`/`ui`）：**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。每书 `progress_{bookId}` = 当前 cid；`progress_at_{bookId}` = **最后阅读时间戳**（毫秒，与进度同一次 edit 写入；「清理过期阅读记录」的唯一依据）；`progress_total_{bookId}` = 总章节数（书架进度用）；书柜排序；**章节完成状态** `finished_{bookId}` = JSONArray(cid)（目录页"已读"标记 + 重读重置）。`cleanupStaleReadingData(keepDays)` 删除「有时间戳且早于截止时间」的书本记录，判定逻辑抽成纯函数 `staleReadingBookIds()` 并单测（`AppPreferencesCleanupTest`）——**没有时间戳的旧记录一律保留**，避免凭猜测删用户数据。
-- `ReaderSettings`（prefs：`settings`）：**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题与阅读器。所有 setter 均先更新内存 StateFlow 再写 SharedPreferences（`emit()`，**只写发生变化的 key**——原实现每次全量重写 30+ 个 key，Slider 拖动时每帧都在全量落盘）。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
-- `LocalLibraryStore`（prefs：`library`）：本地书架快照（JSONArray 序列化 `LibraryBook`）。**只存书目与入架信息**——阅读进度统一由 `AppPreferences` 承担，避免两套并行存储必然不一致。读取走内存缓存（`contains`/`all` 在详情页与书架页高频调用，原先每次都全量 JSON 解析）。
+- **用户数据（Room，`data/local/db/`）**：书架与阅读进度在 2026-09 从 SharedPreferences 迁到 Room（库文件 `wenku8.db`）。
+  - `LibraryStore` → 表 `books`：书目快照 + 入架时间，字段与旧 `library.json` 逐字段对齐；按 `addedAt` 倒序查询。
+  - `ReadingProgressStore` → 表 `reading_progress`：`resumeCid`（继续阅读）、`lastReadAt`（最后阅读时间，**清理过期记录的唯一依据**）、`totalChapters`（书架进度分母）、`finishedCids`（目录页"已读"标记 + 重读重置）。
+  - **一次性搬迁**：`LocalDataMigration` 是唯一入口，两个 store 的每次读写都先 `ensure()`——首帧不会读到"空书架"或丢续读位置。顺序是 解析 → upsert → **逐条读回比对** → 全部一致才清旧数据；任何异常或丢条都保留旧数据、下次启动重试（幂等：主键 upsert 不产生重复行）。旧 `library`/`reading` 偏好键已清理，文件保留作降级兜底。
+  - 清理过期阅读用 `ReadingProgressStore.cleanupStale(keepDays)`，判定抽成纯函数 `staleProgressBookIds()` 并单测（`ReadingProgressCleanupTest`）——**没有时间戳的旧记录一律保留**，避免凭猜测删用户数据。
+- **设置（DataStore）**：`ReaderSettings` 仍是**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题、阅读器与设置页。存储改为 `files/datastore/settings.preferences_pb`，键名与旧 `settings.xml` **完全同名**，首次运行把旧值搬进来并置 `migrated_from_prefs` 标记（旧文件保留作降级兜底，置位后不再读）。对外仍**同步可读**：`Application.onCreate` 里同步读一次首值，避免启动瞬间按默认值渲染出"设置被重置"的闪烁；写入立即更新内存、再经 conflated 通道按顺序合并落盘（Slider 拖动时不会后写先落）。`hapticsStrength`/`cacheMaxMb` 读取时夹紧；逐字段编解码有单测（`ReaderSettingsCodecTest`）。应用内语言由 `MainActivity.attachBaseContext` 经应用级静态引用读取——那个时点 `activity.application` 尚未赋值。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
+- **其余偏好（SharedPreferences）**：`AppPreferences`（prefs：`ui`）只剩书架排序与更新检查节流/跳过版本，**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
 - `DefaultAccount`：**内置共享账号，本应用唯一且全程使用的账号**——不提供登录/退出/切换入口，首启与切换镜像时静默登录。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录）。
 
@@ -167,7 +174,7 @@ Wenku8Reader/
 - **作者**：详情页作者名强调色 + 可点击 → `author/{name}` 路由 → `AuthorBooksScreen`（复用 `repository.search(name, byAuthor=true)` 按作者搜索接口）。
 - **Tag**：`StatusTag` 增加可选 `onClick`；详情页 Tag 可点击 → 复用 `tag/{tag}` 路由（TagBooksScreen，**分页加载该标签下全部书籍**）。
 - **目录页**：`toc/{id}` 路由 → `TocScreen`（独立二级页）：分卷可折叠（`AnimatedVisibility`），**默认全部展开、全卷已读自动折叠**，顶栏可全部展开/折叠；已读章节灰色 + "已读"标记，当前章节主题色加粗；点章节 → `reader/{id}?cid=...`（阅读器新增可选 `cid` 起始章节参数）。
-- **章节完成状态**：`AppPreferences.finishedChapters(bookId)`（JSONArray）；阅读器读至章节 100%（页模式最后一页 / 滚动模式到底，`snapshotFlow` 检测）→ `markChapterFinished`；**重读重置**：`loadChapter` 进入已完成章节时立即 `resetChapterFinished`（回到未完成），再次读完才恢复"已读"。仅章节级，不影响书级统计。
+- **章节完成状态**：`ReadingProgressStore.finishedChapters(bookId)`（Room 表 `reading_progress.finishedCids`，见 §4.6）；阅读器读至章节 100%（页模式最后一页 / 滚动模式到底，`snapshotFlow` 检测）→ `markFinished`；**重读重置**：`loadChapter` 进入已完成章节时立即 `resetFinished`（回到未完成），再次读完才恢复"已读"。仅章节级，不影响书级统计。
 - **书架已读统计**：`BookcaseEntry.readCount = finishedChapters(bookId).size`（与目录页"已读"同源），进度条 = 已读/总数（原为阅读位置 `(pos+1)/total`，已改为基于目录已读标记）。
 
 ### 4.9 应用内更新（`UpdateChecker` / `UpdateCenter` / `ui/update/`）
@@ -427,16 +434,16 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 ## 9. 构建与运行
 
 ```bash
-# 项目根目录无 gradlew wrapper。推荐直接用 Android Studio 打开本目录同步后 Run。
-# 命令行（wrapper 会自动拉取 Gradle 8.14.3 到 ~/.gradle/wrapper/dists/...）：
-$env:JAVA_HOME="<JDK17或Android Studio 的 jbr>"
-gradle :app:assembleDebug        # 产物 app/build/outputs/apk/debug/app-debug.apk
+# wrapper 已入库（gradlew / gradlew.bat），会自动拉取 Gradle 9.7.1 到 ~/.gradle/wrapper/dists/
+$env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
+.\gradlew.bat :app:assembleDebug        # 产物 app/build/outputs/apk/debug/app-debug.apk
+.\gradlew.bat :app:testDebugUnitTest    # 纯 JVM 单测（CI 每次推送都会先跑这个）
 ```
 
 ⚠️ **命令行构建注意**：
-- AGP 8.5.2 要求 **JDK 17+**；系统默认 `java` 是 JDK 1.8，直接跑会报 `Dependency requires at least JVM runtime version 11`。需用 Android Studio 自带 JBR 或设置 `JAVA_HOME`。
-- 本机路径示例：`C:\Users\a3451\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9\bin\gradle.bat`。
-- 本仓库无 `gradlew`；若在 Android Studio 里首次 Sync 会自动生成 wrapper 与 `~/.gradle` 缓存。
+- **JDK 必须是 17–21（CI 用 21）**：Gradle 9.7.1 支持 JDK 17–24，JDK 25 会在启动阶段直接失败（只打印 `25.0.2`），详见 §2 的说明。
+- **必须加 `--no-daemon`**：本机页面文件小，Gradle/Kotlin 守护进程容易因提交内存不足直接崩 JVM（`gradle.properties` 已把堆压到 `-Xmx1536m` + SerialGC + 进程内 Kotlin 编译）。
+- 依赖版本集中在 `gradle/libs.versions.toml`（见 §2）。
 
 ---
 
