@@ -264,6 +264,13 @@ class Wenku8Client(
     private val chapterCache = TimedCache(30 * 60 * 1000L, maxEntries = 64)
 
     /**
+     * 同键并发去重：缓存只挡"已完成"的重复访问，挡不住"同时发起"的重复请求
+     * （详情页 + 目录页 + 阅读器 + 下载器可能同时要同一本书的数据）。
+     * 见 [SingleFlight] 的说明；章节正文按 `bookId+cid` 分键，不同章节仍可并行。
+     */
+    private val singleFlight = SingleFlight()
+
+    /**
      * 释放网络资源（应用退出或数据源被替换时调用）。
      * 仅在 Cronet 引擎确实创建过时才 shutdown，避免"释放"反而触发初始化。
      */
@@ -525,47 +532,58 @@ class Wenku8Client(
     }
 
     suspend fun bookInfo(id: Int): BookInfo = withContext(Dispatchers.IO) {
-        infoCache.get("info_$id") ?: run {
-            // 网页优先（含磁盘缓存 + cf_clearance 快路径）；失败/空则走官方 App API（免 CF）
-            val web = runCatchingNotCancelling {
-                Parsers.parseBookInfo(getHtmlCached("$base/book/$id.htm", TTL_BOOK, "book"), id)
-            }.getOrNull()
-            val info = web?.takeIf { it.title.isNotBlank() }
-                ?: appApiBookInfo(id)
-                ?: throw IOException("书籍信息获取失败")
-            infoCache.put("info_$id", info)
-            info
+        // 同键并发只放行一个：排队者拿到锁时缓存已写好，不会再发一次请求
+        singleFlight.run("info_$id") {
+            infoCache.get("info_$id") ?: run {
+                // 网页优先（含磁盘缓存 + cf_clearance 快路径）；失败/空则走官方 App API（免 CF）
+                val web = runCatchingNotCancelling {
+                    Parsers.parseBookInfo(
+                        getHtmlCached("$base/book/$id.htm", TTL_BOOK, "book"),
+                        id,
+                    )
+                }.getOrNull()
+                val info = web?.takeIf { it.title.isNotBlank() }
+                    ?: appApiBookInfo(id)
+                    ?: throw IOException("书籍信息获取失败")
+                infoCache.put("info_$id", info)
+                info
+            }
         }
     }
 
     suspend fun chapters(bookId: Int, groupId: Int): List<Volume> = withContext(Dispatchers.IO) {
-        tocCache.get("toc_$bookId") ?: run {
-            val web = runCatchingNotCancelling {
-                Parsers.parseChapterIndex(
-                    getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK, "book")
-                )
-            }.getOrNull()
-            val volumes = web?.takeIf { it.isNotEmpty() }
-                ?: appApiVolumes(bookId)
-                ?: throw IOException("章节目录加载失败")
-            tocCache.put("toc_$bookId", volumes)
-            volumes
+        singleFlight.run("toc_$bookId") {
+            tocCache.get("toc_$bookId") ?: run {
+                val web = runCatchingNotCancelling {
+                    Parsers.parseChapterIndex(
+                        getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK, "book")
+                    )
+                }.getOrNull()
+                val volumes = web?.takeIf { it.isNotEmpty() }
+                    ?: appApiVolumes(bookId)
+                    ?: throw IOException("章节目录加载失败")
+                tocCache.put("toc_$bookId", volumes)
+                volumes
+            }
         }
     }
 
     suspend fun chapterContent(gid: Int, bookId: Int, cid: String): ChapterContent =
         withContext(Dispatchers.IO) {
-            chapterCache.get("chap_${bookId}_$cid") ?: run {
-                val web = runCatchingNotCancelling {
-                    Parsers.parseChapter(
-                        getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER, "chapter")
-                    )
-                }.getOrNull()
-                val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
-                    ?: appApiChapter(bookId, cid)
-                    ?: throw IOException("章节加载失败")
-                chapterCache.put("chap_${bookId}_$cid", chapter)
-                chapter
+            // 按 bookId+cid 分键：同一章的并发请求合并，不同章节照旧并行
+            singleFlight.run("chap_${bookId}_$cid") {
+                chapterCache.get("chap_${bookId}_$cid") ?: run {
+                    val web = runCatchingNotCancelling {
+                        Parsers.parseChapter(
+                            getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER, "chapter")
+                        )
+                    }.getOrNull()
+                    val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
+                        ?: appApiChapter(bookId, cid)
+                        ?: throw IOException("章节加载失败")
+                    chapterCache.put("chap_${bookId}_$cid", chapter)
+                    chapter
+                }
             }
         }
 
