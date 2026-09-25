@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,7 @@ import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
 import com.hoshino.wenku8reader.ui.theme.UiStyle
+import kotlin.math.roundToInt
 
 /**
  * 设置分类二级页（PiliPlus 模式：设置主页只放分类入口，具体设置项都在二级页里）。
@@ -93,6 +95,28 @@ fun MiuixAppearancePage(
             )
             // MIUIX 不使用动态取色：配色由 miuix 色板决定，故此处不出现
             // 「动态取色 / 手动主题色 / 纯黑模式」这些 MD3 专属设置项。
+        }
+        Spacer(Modifier.height(13.dp))
+        // 通用：触觉反馈（与 Material 版同在一处分组的做法一致）。
+        // 这是应用行为设置、不是 MD3 专属项，所以 MIUIX 下同样要能调。
+        MiuixSection(title = stringResource(R.string.settings_section_general)) {
+            MiuixSwitchRow(
+                title = stringResource(R.string.settings_haptics),
+                summary = stringResource(R.string.settings_haptics_summary),
+                icon = Icons.Filled.Vibration,
+                checked = rs.hapticsEnabled,
+                onCheckedChange = vm::setHapticsEnabled,
+            )
+            if (rs.hapticsEnabled) {
+                MiuixRowDivider()
+                MiuixSliderRow(
+                    title = stringResource(R.string.settings_haptics_strength),
+                    valueText = "${rs.hapticsStrength}%",
+                    value = rs.hapticsStrength.toFloat(),
+                    onValueChange = { vm.setHapticsStrength(it.roundToInt()) },
+                    valueRange = 0f..100f,
+                )
+            }
         }
     }
 }
