@@ -146,23 +146,4 @@ class BookcaseViewModel(
         return if (reversed) sorted.reversed() else sorted
     }
 
-    private fun parseWordCount(raw: String): Int {
-        val s = raw.trim().uppercase().replace(",", "").replace("，", "")
-        val m = WORD_COUNT.find(s) ?: return 0
-        val num = m.groupValues[1].toDoubleOrNull() ?: return 0
-        val mult = when (m.groupValues[2]) {
-            "K", "千" -> 1000
-            "M" -> 1_000_000
-            "万" -> 10_000
-            else -> 1
-        }
-        // 先按 Long 计算再钳制：异常数据（如 "99999M"）会让 Double→Int 截断甚至溢出，
-        // 得到负数参与排序时会把这类书错排到极前/极后。
-        return (num * mult).toLong().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
-    }
-
-    private companion object {
-        /** 字数文本解析（如 "390K" / "1.2万" / "12M"）；提为常量避免每本书都新建正则。 */
-        val WORD_COUNT = Regex("([0-9.]+)\\s*([KM千]|万)?")
-    }
 }
