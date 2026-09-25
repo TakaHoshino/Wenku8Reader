@@ -282,16 +282,6 @@ class BookcaseViewModel(
         }
     }
 
-    /** 站方书架条目 → 书架卡片（站点只有书名与最新章，其余字段留空由卡片自动省略）。 */
-    private fun BookcaseItem.toSiteEntry(): BookcaseEntry = BookcaseEntry(
-        bookId = aid,
-        title = name,
-        // 站点不提供作者；把"最新章"放在副标题位置，是这一栏能给出的最有用的信息
-        author = latestName.orEmpty(),
-        lastUpdate = latestName.orEmpty(),
-        shelves = setOf(WENKU8_SHELF),
-    )
-
     private fun LibraryBook.toEntry(
         customShelves: List<String>,
         progress: Map<Int, ReadingProgress>,
