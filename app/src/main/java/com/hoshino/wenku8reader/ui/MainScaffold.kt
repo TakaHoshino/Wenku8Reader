@@ -85,6 +85,8 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixAppearancePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixNetworkPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixUpdatePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixExperimentalPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
@@ -291,7 +293,11 @@ fun MainScaffold() {
                 }
             }
             composable(Routes.ABOUT) {
-                AboutScreen(onBack = { nav.popBackStack() })
+                if (isMiuixStyle()) {
+                    MiuixAboutPage(onBack = { nav.popBackStack() })
+                } else {
+                    AboutScreen(onBack = { nav.popBackStack() })
+                }
             }
             composable(
                 Routes.TAG,
@@ -304,7 +310,11 @@ fun MainScaffold() {
                 )
             }
             composable(Routes.DOWNLOADS) {
-                DownloadsScreen(onBack = { nav.popBackStack() })
+                if (isMiuixStyle()) {
+                    MiuixDownloadsPage(onBack = { nav.popBackStack() })
+                } else {
+                    DownloadsScreen(onBack = { nav.popBackStack() })
+                }
             }
             composable(
                 Routes.AUTHOR,
