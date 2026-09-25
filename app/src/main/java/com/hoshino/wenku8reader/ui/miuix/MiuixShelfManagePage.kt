@@ -1,6 +1,8 @@
 package com.hoshino.wenku8reader.ui.miuix
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -81,16 +84,24 @@ fun MiuixShelfManagePage(
                         summary = stringResource(R.string.shelf_book_count, row.bookCount),
                         trailing = if (row.deletable) {
                             {
-                                MiuixIconButton(
-                                    icon = Icons.Filled.Edit,
-                                    contentDescription = stringResource(R.string.shelf_rename),
-                                    onClick = { editor = ShelfEditorState.Rename(row.name) },
-                                )
-                                MiuixIconButton(
-                                    icon = Icons.Filled.Delete,
-                                    contentDescription = stringResource(R.string.shelf_delete),
-                                    onClick = { pendingDelete = row },
-                                )
+                                // 必须自己包一层 Row：miuix 的 `BasicComponent.endActions` 虽然签名写的是
+                                // RowScope，实现里却把内容放进 Column —— 直接并排两个按钮会变成**竖排堆叠**
+                                // （行高翻倍）。包一层 Row 才能得到并排的两个图标。
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    MiuixIconButton(
+                                        icon = Icons.Filled.Edit,
+                                        contentDescription = stringResource(R.string.shelf_rename),
+                                        onClick = { editor = ShelfEditorState.Rename(row.name) },
+                                    )
+                                    MiuixIconButton(
+                                        icon = Icons.Filled.Delete,
+                                        contentDescription = stringResource(R.string.shelf_delete),
+                                        onClick = { pendingDelete = row },
+                                    )
+                                }
                             }
                         } else {
                             null

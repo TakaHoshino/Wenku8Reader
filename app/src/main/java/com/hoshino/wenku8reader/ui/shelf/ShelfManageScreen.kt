@@ -1,6 +1,7 @@
 package com.hoshino.wenku8reader.ui.shelf
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -33,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -131,20 +133,24 @@ fun ShelfManageScreen(
                                 },
                                 trailingContent = if (row.deletable) {
                                     {
-                                        IconButton(onClick = {
-                                            editor = ShelfEditorState.Rename(row.name)
-                                        }) {
-                                            Icon(
-                                                Icons.Filled.Edit,
-                                                contentDescription = stringResource(R.string.shelf_rename),
-                                            )
-                                        }
-                                        IconButton(onClick = { pendingDelete = row }) {
-                                            Icon(
-                                                Icons.Filled.Delete,
-                                                contentDescription = stringResource(R.string.shelf_delete),
-                                                tint = MaterialTheme.colorScheme.error,
-                                            )
+                                        // 必须自己包一层 Row：ListItem 的 trailingContent 是**单子项**插槽，
+                                        // 直接并排放两个 IconButton 会让它们叠在同一位置（表现为图标重叠）。
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(onClick = {
+                                                editor = ShelfEditorState.Rename(row.name)
+                                            }) {
+                                                Icon(
+                                                    Icons.Filled.Edit,
+                                                    contentDescription = stringResource(R.string.shelf_rename),
+                                                )
+                                            }
+                                            IconButton(onClick = { pendingDelete = row }) {
+                                                Icon(
+                                                    Icons.Filled.Delete,
+                                                    contentDescription = stringResource(R.string.shelf_delete),
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                )
+                                            }
                                         }
                                     }
                                 } else {
