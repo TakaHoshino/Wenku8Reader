@@ -87,6 +87,8 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixUpdatePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixExperimentalPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixCustomizationPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixUpdateDialog
+import com.hoshino.wenku8reader.ui.miuix.MiuixExplorePage
+import com.hoshino.wenku8reader.ui.miuix.MiuixSearchPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
@@ -252,12 +254,21 @@ fun MainScaffold() {
                     entry.arguments?.getString("keyword") ?: "",
                 )
                 val byAuthor = entry.arguments?.getBoolean("byAuthor") ?: false
-                SearchScreen(
-                    initialKeyword = keyword,
-                    initialByAuthor = byAuthor,
-                    onBack = { nav.popBackStack() },
-                    onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
-                )
+                if (isMiuixStyle()) {
+                    MiuixSearchPage(
+                        initialKeyword = keyword,
+                        initialByAuthor = byAuthor,
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                } else {
+                    SearchScreen(
+                        initialKeyword = keyword,
+                        initialByAuthor = byAuthor,
+                        onBack = { nav.popBackStack() },
+                        onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
+                    )
+                }
             }
             composable(Routes.STATS) {
                 ReadingStatsScreen(
@@ -418,12 +429,23 @@ private fun MainPagerScreen(
         beyondViewportPageCount = 1,
     ) { page ->
         when (page) {
-            0 -> ExplorePage(
-                onOpenBook = onOpenBook,
-                onOpenTag = onOpenTag,
-                onOpenDownloads = onOpenDownloads,
-                onSearch = onSearch,
-            )
+            0 ->
+                // MIUIX 模式下探索页是独立的 miuix 实现
+                if (isMiuixStyle()) {
+                    MiuixExplorePage(
+                        onOpenBook = onOpenBook,
+                        onOpenTag = onOpenTag,
+                        onOpenDownloads = onOpenDownloads,
+                        onSearch = onSearch,
+                    )
+                } else {
+                    ExplorePage(
+                        onOpenBook = onOpenBook,
+                        onOpenTag = onOpenTag,
+                        onOpenDownloads = onOpenDownloads,
+                        onSearch = onSearch,
+                    )
+                }
             1 ->
                 // MIUIX 模式下书架是独立的 miuix 实现
                 if (isMiuixStyle()) {
