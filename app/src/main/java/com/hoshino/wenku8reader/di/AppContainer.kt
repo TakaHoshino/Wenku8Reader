@@ -5,6 +5,7 @@ import com.hoshino.wenku8reader.data.DownloadEngine
 import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.UpdateChecker
 import com.hoshino.wenku8reader.data.Wenku8Client
+import com.hoshino.wenku8reader.data.Wenku8Shelf
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
@@ -80,6 +81,12 @@ class AppContainer(context: Context) {
     )
 
     val repository: Wenku8Repository = Wenku8Repository(client)
+
+    /**
+     * 站方书架（Wenku8 账户的书架）的应用内状态：远端镜像、不落库。
+     * 书架页要渲染"Wenku8书架"这一栏、详情页要判断某本书是否已在网站书架，故为容器级单例。
+     */
+    val wenku8Shelf: Wenku8Shelf = Wenku8Shelf(repository)
 
     val preferences: AppPreferences = AppPreferences(context)
 

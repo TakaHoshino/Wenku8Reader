@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -87,6 +89,8 @@ fun BookcasePage(
 
     // 长按卡片 → 选择目标书架（多书架开启时才有入口）
     var movingEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
+    // 长按站方条目 → 从网站书架移出（与本地归属是两套独立状态）
+    var removingSiteEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
 
     // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
@@ -186,7 +190,10 @@ fun BookcasePage(
                     // 固定高度是必要的——LazyColumn 的项在主轴上没有上界，fillMaxSize 无从生效。
                     item(key = "shelf_empty") {
                         ExpressiveEmptyState(
-                            title = stringResource(R.string.bookcase_shelf_empty),
+                            title = stringResource(
+                                if (ui.siteShelf) R.string.wenku8_shelf_empty
+                                else R.string.bookcase_shelf_empty,
+                            ),
                             icon = Icons.AutoMirrored.Filled.MenuBook,
                             shape = MaterialShapes.Cookie9Sided,
                             modifier = Modifier
@@ -199,7 +206,11 @@ fun BookcasePage(
                         BookcaseCard(
                             entry = entry,
                             onOpenBook = onOpenBook,
-                            onLongPress = { if (ui.multiShelfEnabled) movingEntry = entry },
+                            onLongPress = {
+                                // 站方书架：移出网站书架；本地书架：编辑所属书架
+                                if (ui.siteShelf) removingSiteEntry = entry
+                                else if (ui.multiShelfEnabled) movingEntry = entry
+                            },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -220,6 +231,27 @@ fun BookcasePage(
                 movingEntry = null
                 // 勾选没变就不写库
                 if (selected != entry.shelves) vm.setShelves(entry.bookId, selected)
+            },
+        )
+    }
+
+    removingSiteEntry?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { removingSiteEntry = null },
+            title = { Text(stringResource(R.string.wenku8_shelf_remove)) },
+            text = { Text(stringResource(R.string.wenku8_shelf_remove_message, entry.title)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        removingSiteEntry = null
+                        vm.removeFromSiteShelf(entry.bookId)
+                    },
+                ) { Text(stringResource(R.string.wenku8_shelf_remove)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { removingSiteEntry = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
             },
         )
     }

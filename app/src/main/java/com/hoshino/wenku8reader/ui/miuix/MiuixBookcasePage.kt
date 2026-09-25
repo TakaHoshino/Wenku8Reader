@@ -53,6 +53,7 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * MIUIX 书架页（主 Tab）——与 Material 版（`ui/bookcase/BookcaseScreen.kt`）完全独立。
@@ -74,6 +75,8 @@ fun MiuixBookcasePage(
     LaunchedEffect(Unit) { vm.load() }
 
     var movingEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
+    // 长按站方条目 → 从网站书架移出（与本地归属是两套独立状态）
+    var removingSiteEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
 
     MiuixPage(
         title = stringResource(R.string.bookcase_title),
@@ -184,7 +187,10 @@ fun MiuixBookcasePage(
                     // 固定高度是必要的——LazyColumn 的项在主轴上没有上界，fillMaxSize 无从生效。
                     item(key = "shelf_empty") {
                         MiuixEmptyState(
-                            title = stringResource(R.string.bookcase_shelf_empty),
+                            title = stringResource(
+                                if (ui.siteShelf) R.string.wenku8_shelf_empty
+                                else R.string.bookcase_shelf_empty,
+                            ),
                             icon = Icons.AutoMirrored.Filled.MenuBook,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -196,7 +202,11 @@ fun MiuixBookcasePage(
                         MiuixBookCard(
                             entry = entry,
                             onOpenBook = onOpenBook,
-                            onLongPress = { if (ui.multiShelfEnabled) movingEntry = entry },
+                            onLongPress = {
+                                // 站方书架：移出网站书架；本地书架：编辑所属书架
+                                if (ui.siteShelf) removingSiteEntry = entry
+                                else if (ui.multiShelfEnabled) movingEntry = entry
+                            },
                         )
                     }
                 }
@@ -217,6 +227,25 @@ fun MiuixBookcasePage(
                 if (selected != entry.shelves) vm.setShelves(entry.bookId, selected)
             },
         )
+    }
+
+    removingSiteEntry?.let { entry ->
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.wenku8_shelf_remove),
+            summary = stringResource(R.string.wenku8_shelf_remove_message, entry.title),
+            onDismissRequest = { removingSiteEntry = null },
+        ) {
+            MiuixDialogButtons(
+                confirmText = stringResource(R.string.wenku8_shelf_remove),
+                dismissText = stringResource(R.string.action_cancel),
+                onConfirm = {
+                    removingSiteEntry = null
+                    vm.removeFromSiteShelf(entry.bookId)
+                },
+                onDismiss = { removingSiteEntry = null },
+            )
+        }
     }
 }
 

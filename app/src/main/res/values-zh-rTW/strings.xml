@@ -244,6 +244,11 @@
     <string name="shelf_picker_membership_title">所屬書架</string>
     <string name="shelf_picker_remove_title">取消收藏</string>
     <string name="shelf_picker_remove_message">該書位於以下書架；取消勾選即從對應書架移除，全部取消勾選則完全取消收藏。</string>
+    <!-- Wenku8 書架（虛擬書架，需登入使用者帳戶） -->
+    <string name="wenku8_shelf_load_failed">網站書架載入失敗，請下拉重試</string>
+    <string name="wenku8_shelf_empty">網站書架暫無書籍</string>
+    <string name="wenku8_shelf_remove">移出網站書架</string>
+    <string name="wenku8_shelf_remove_message">將從你的 wenku8 帳戶書架中移出《%1$s》。</string>
     <string name="bookcase_shelf_empty">該書架暫無書籍</string>
     <string name="bookcase_manage_shelves">管理書架</string>
     <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>
