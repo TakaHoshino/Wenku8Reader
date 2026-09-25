@@ -239,3 +239,44 @@ jobs:
           files: |
             dist/app-release.apk
             dist/SHA256SUMS
+
+      # ---- 旧测试版清理：只保留最近 10 个 ----
+      # 每次 push 到 dev 都会产出一个 Prerelease，不清理就会无限堆积
+      #（2026-09-25 实测已积到 48 个），Releases 列表与 Actions 页面都会被刷屏。
+      #
+      # 安全边界：只匹配 "vX.Y.Z-dev.N" 形式的预发布。正式版（vX.Y.Z）的 release
+      # 与它们的 tag 一律不碰——判据是 tag 名正则 + isPrerelease 双重条件。
+      #
+      # 出现失败只告警不红：这一步在产物已发布之后运行，属于清理卫生，
+      # 不该因为 GitHub 抽风就把一次成功的构建标成失败。
+      - name: 清理旧测试版预发布（保留最近 10 个）
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # 下面 jq 里的 [10:] 与这里的 KEEP 是同一个数字，改的时候两处一起改
+          KEEP=10
+
+          # 排序用 publishedAt（发布时刻）。dev.N 就是 CI 的 run_number，天然单调，
+          # 与发布时间顺序一致；两者都用会让 jq 更绕，取发布时刻即可。
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 300 \
+            --json tagName,isPrerelease,publishedAt \
+            --jq '[.[] | select(.isPrerelease)]
+                  | map(select(.tagName | test("^v[0-9]+[.][0-9]+[.][0-9]+-dev[.][0-9]+$")))
+                  | sort_by(.publishedAt) | reverse | .[10:] | .[].tagName' \
+            > "$RUNNER_TEMP/old_dev_tags.txt"
+
+          echo "当前保留上限：$KEEP；本次待清理：$(grep -c . "$RUNNER_TEMP/old_dev_tags.txt" || true) 个"
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            echo "清理 $tag"
+            # 单独删 release：不要用 `gh release delete --cleanup-tag`。它删 tag 时请求
+            # /git/refs/tags%2F<tag>（把 "tags" 后的斜杠一并编码进 ref 名），GitHub 回
+            # 422 Reference does not exist —— 结果是 release 删掉了、tag 永久残留
+            #（实测 38 个 tag 一个都没删掉）。删 tag 走下面的 refs API。
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes \
+              || echo "::warning::删除 release $tag 失败（可能本就没有 release），继续"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" \
+              || echo "::warning::删除 tag $tag 失败，继续"
+          done < "$RUNNER_TEMP/old_dev_tags.txt"
