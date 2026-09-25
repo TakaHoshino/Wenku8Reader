@@ -20,6 +20,7 @@
     <string name="stats_empty">暂无阅读记录，先去读几页吧～</string>
     <string name="stats_books_title">书籍阅读时长</string>
     <string name="stats_minutes">%1$d 分钟</string>
+    <string name="date_format_ymd">%1$d年%2$d月%3$d日</string>
     <string name="stats_summary_total">累计分钟</string>
     <string name="stats_summary_week">本周分钟</string>
     <string name="stats_summary_streak">连续天数</string>
@@ -68,6 +69,7 @@
     <string name="explore_tags_empty">暂无分类</string>
     <string name="tag_books_load_more">加载更多（已显示 %1$d 本）</string>
     <string name="explore_tags_blocked">未能获取分类，可能被站点拦截，请重试</string>
+    <string name="explore_tag_preview_failed">分类预览加载失败 · 点此重试</string>
 
     <!-- 首页 -->
     <string name="home_subtitle">今日书库</string>
@@ -116,6 +118,7 @@
     <string name="detail_start_reading">开始阅读</string>
     <string name="detail_continue_reading">继续阅读</string>
     <string name="detail_offline_download">离线下载</string>
+    <string name="detail_download_hint">选择格式后整本下载到「下载/Wenku8」</string>
     <string name="detail_format_txt">TXT</string>
     <string name="detail_format_epub">EPUB</string>
     <string name="detail_downloading">下载中 %1$d%%</string>
@@ -143,6 +146,11 @@
     <string name="reader_current">当前</string>
     <string name="reader_no_content">（本章无正文）</string>
     <string name="reader_illustration">插图</string>
+    <string name="reader_image_save">保存图片</string>
+    <string name="reader_image_save_title">保存图片</string>
+    <string name="reader_image_save_message">将这张插图保存到「下载/Wenku8」？</string>
+    <string name="reader_image_saved">已保存：%1$s</string>
+    <string name="reader_image_save_failed">保存失败，请检查网络后重试</string>
     <string name="reader_toc_empty">目录为空</string>
     <string name="reader_settings">阅读器设置</string>
     <string name="reader_turn_mode">翻页方式</string>
@@ -177,9 +185,27 @@
     <!-- 设置 -->
     <string name="settings_section_account">账号</string>
     <string name="settings_builtin_account">内置账户</string>
-    <string name="settings_builtin_account_hint">使用内置账户访问内容</string>
     <string name="settings_account_builtin_desc">应用全程使用内置共享账号，无需登录或切换</string>
     <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_storage">存储</string>
+    <string name="settings_section_experimental">实验性</string>
+    <string name="settings_category_appearance_summary">深色模式、主题色与振动反馈</string>
+    <string name="settings_category_reading_summary">字号、字体、行距与翻页方式</string>
+    <string name="settings_category_network_summary">主站镜像与访问方式</string>
+    <string name="settings_category_update_summary">更新通道、更新源与检查频率</string>
+    <string name="settings_category_storage_summary">缓存占用与清理</string>
+    <string name="settings_category_experimental_summary">UI 风格、悬浮底栏与液态玻璃</string>
+    <string name="settings_category_about_summary">版本、开源仓库与反馈渠道</string>
+    <string name="settings_ui_style">UI 风格</string>
+    <string name="settings_ui_style_summary">切换 Material 3 Expressive 与 MIUIX（HyperOS）；实验性功能，界面可能随版本调整</string>
+    <string name="settings_ui_style_material3">Material 3 Expressive</string>
+    <string name="settings_ui_style_miuix">MIUIX</string>
+    <string name="settings_floating_bottom_bar">悬浮底栏</string>
+    <string name="settings_floating_bottom_bar_summary">HyperOS 风格的胶囊式底栏（仅 MIUIX 风格生效）</string>
+    <string name="settings_bottom_bar_glass">底栏液态玻璃</string>
+    <string name="settings_bottom_bar_glass_summary">对底栏背后内容做实时模糊（仅悬浮底栏、Android 12L+ 生效）</string>
+    <string name="settings_storage">存储设置</string>
+    <string name="settings_storage_desc">缓存管理、缓存上限与过期记录清理</string>
     <string name="settings_section_general">通用</string>
     <string name="settings_section_reading">阅读设置</string>
     <string name="settings_section_about">关于</string>
@@ -216,6 +242,34 @@
     <string name="settings_cache_clear_all_desc">同时清空内存缓存</string>
     <string name="settings_cache_max">最大缓存</string>
     <string name="settings_cache_max_summary">磁盘缓存大小上限，超出后自动清理最旧内容</string>
+    <string name="settings_cache_storage_title">存储占用</string>
+    <string name="settings_cache_html_detail">网页离线缓存明细</string>
+    <string name="settings_cache_total_cache">缓存合计</string>
+    <string name="settings_cache_total_cache_desc">对应系统设置的「缓存」：图片缓存、更新安装包、WebView 缓存与临时文件</string>
+    <string name="settings_cache_total_data">应用数据合计</string>
+    <string name="settings_cache_total_data_desc">对应系统设置的「用户数据」：网页离线缓存、阅读进度、WebView 数据等</string>
+    <string name="settings_cache_code_cache">系统代码缓存</string>
+    <string name="settings_cache_code_cache_desc">JIT/ART 生成，由系统管理，应用无法清理</string>
+    <string name="settings_cache_images">图片缓存</string>
+    <string name="settings_cache_images_desc">封面与插图（Coil 磁盘缓存）</string>
+    <string name="settings_cache_updates">更新安装包</string>
+    <string name="settings_cache_updates_desc">已下载的更新 APK，安装后即可清理</string>
+    <string name="settings_cache_other_title">WebView 与其他缓存</string>
+    <string name="settings_cache_other_desc">WebView 缓存与临时文件，不影响登录状态</string>
+    <string name="settings_cache_reading_data">本地数据</string>
+    <string name="settings_cache_reading_data_desc">阅读进度、已读标记、书架与设置（SharedPreferences，含登录 Cookie）</string>
+    <string name="settings_cache_cleanup_reading">清理过期阅读记录</string>
+    <string name="settings_cache_cleanup_reading_desc">仅清理 %1$d 天前、之后未再阅读的书本记录</string>
+    <string name="settings_cache_freed">已释放 %1$s</string>
+    <string name="settings_cache_nothing">没有可清理的内容</string>
+    <string name="settings_cache_reading_cleaned">已清理 %1$d 本书的过期记录</string>
+    <string name="settings_cache_reading_nothing">没有需要清理的过期记录</string>
+    <string name="settings_cache_confirm_clear_all_title">清理全部缓存？</string>
+    <string name="settings_cache_confirm_clear_all_message">将释放网页离线缓存、图片缓存、更新安装包与临时文件。阅读进度、书架与设置不会被删除。</string>
+    <string name="settings_cache_confirm_cleanup_title">清理过期阅读记录？</string>
+    <string name="settings_cache_confirm_cleanup_message">将删除 %1$d 天前、之后未再阅读的书本进度与已读标记，此操作无法撤销。</string>
+    <string name="action_confirm">确定</string>
+    <string name="action_cancel">取消</string>
 
     <!-- 设置 · 自定义 -->
     <string name="settings_custom">自定义</string>
@@ -226,15 +280,20 @@
     <string name="settings_dark_light">浅色</string>
     <string name="settings_dark_dark">深色</string>
     <string name="settings_dynamic_color">动态取色</string>
+    <string name="settings_expressive_motion">表达性动效</string>
+    <string name="settings_expressive_motion_summary">Material 3 Expressive 的弹性形变动效；关闭后改用克制的标准动效</string>
     <string name="settings_manual_color">手动取色</string>
     <string name="settings_background_color">背景颜色</string>
     <string name="settings_background_image">背景图片</string>
+    <string name="settings_reading_habit">阅读习惯</string>
     <string name="settings_pick_image">选择图片</string>
     <string name="settings_clear_image">清除图片</string>
+    <string name="settings_background_image_desc">整章正文之下铺一张图，浅色与深色模式共用</string>
     <string name="settings_text_color">字体颜色</string>
     <string name="settings_mode_light">浅色模式</string>
     <string name="settings_mode_dark">深色模式</string>
     <string name="settings_font">字体</string>
+    <string name="settings_typography">排版</string>
     <string name="settings_font_default">系统默认</string>
     <string name="settings_font_sans">无衬线</string>
     <string name="settings_font_serif">衬线</string>

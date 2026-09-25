@@ -132,7 +132,8 @@ jobs:
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
-          java-version: 17
+          # AGP 9 / Gradle 9.7 工具链（见 DEVELOPMENT.md §5.6）
+          java-version: 21
 
       # ---- 签名密钥：必须存在，否则直接失败（不再回退 debug 签名）----
       - name: 校验签名密钥已配置
@@ -176,7 +177,9 @@ jobs:
         run: |
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew
-          ./gradlew :app:assembleRelease --no-daemon
+          # 发布前必须先过单元测试：纯 JVM 用例，成本几秒到几十秒，
+          # 但能挡住解析/命名/清理这类"静默出错"的回归（此前 CI 从不跑测试）。
+          ./gradlew :app:testDebugUnitTest :app:assembleRelease --no-daemon
 
       # ---- 产物校验：APK 签名证书必须与我们的 keystore 一致 ----
       - name: 校验 APK 签名并生成校验和

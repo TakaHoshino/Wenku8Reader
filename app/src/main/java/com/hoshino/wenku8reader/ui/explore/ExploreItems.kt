@@ -39,7 +39,8 @@ internal fun HomeCoverCard(b: HomeBook, onOpenBook: (Int) -> Unit) {
             width = 104.dp,
             height = 146.dp,
             contentDescription = b.name,
-            cornerRadius = 10.dp,
+            // 封面圆角对齐 M3 Expressive 形状刻度的 medium（12dp）
+            cornerRadius = 12.dp,
         )
         Spacer(Modifier.height(4.dp))
         Text(

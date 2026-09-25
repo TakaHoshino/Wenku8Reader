@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.ReleaseInfo
 import com.hoshino.wenku8reader.data.UpdateUiState
+import com.hoshino.wenku8reader.ui.components.ActiveProgressBar
 
 /**
  * 更新对话框宿主：监听 [UpdateUiState]，发现新版本（[UpdateUiState.latest] 非空）时弹出
@@ -45,7 +45,8 @@ fun UpdateDialogHost(
                 )
                 if (state.downloading) {
                     Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(
+                    // 下载属于"正在进行"的短时任务：用 Expressive 波浪进度条
+                    ActiveProgressBar(
                         progress = { state.downloadProgress },
                         modifier = Modifier.fillMaxWidth(),
                     )

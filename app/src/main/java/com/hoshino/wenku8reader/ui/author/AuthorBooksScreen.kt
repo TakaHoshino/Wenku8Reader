@@ -14,18 +14,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,9 +33,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 import com.hoshino.wenku8reader.ui.common.CoverImage
 
 /** 作者书籍列表页：展示该作者全部作品，点击进入书籍详情。 */
@@ -49,45 +52,44 @@ fun AuthorBooksScreen(
     vm: AuthorBooksViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val scrollBehavior = rememberExpressiveScrollBehavior()
 
     ExpressiveScaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        stringResource(R.string.author_books_title, authorName),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
+            ExpressiveLargeTopAppBar(
+                title = stringResource(R.string.author_books_title, authorName),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                scrollBehavior = scrollBehavior,
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
     ) { inner ->
         when {
             ui.loading -> Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                ExpressiveLoadingIndicator()
             }
 
-            ui.books.isEmpty() -> Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
-                Text(
-                    ui.error?.asString(LocalContext.current)
-                        ?: stringResource(R.string.author_books_empty),
-                    color = if (ui.error != null) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            ui.books.isEmpty() -> ExpressiveEmptyState(
+                title = ui.error?.asString(LocalContext.current)
+                    ?: stringResource(R.string.author_books_empty),
+                error = ui.error != null,
+                shape = MaterialShapes.SoftBurst,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner),
+            )
 
-            else -> LazyColumn(Modifier.fillMaxSize().padding(inner)) {
+            else -> LazyColumn(
+                Modifier
+                    .fillMaxSize()
+                    .padding(inner)
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+            ) {
                 item {
                     SegmentedColumn(
                         title = stringResource(R.string.author_books_count, ui.books.size),

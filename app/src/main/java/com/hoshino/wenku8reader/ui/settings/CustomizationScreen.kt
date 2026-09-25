@@ -1,9 +1,5 @@
 package com.hoshino.wenku8reader.ui.settings
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -37,15 +33,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -64,15 +55,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
+import com.hoshino.wenku8reader.ui.components.ExpressiveSwitch
+import com.hoshino.wenku8reader.ui.components.ExpressiveToggleGroup
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.common.copyReaderBackgroundToInternal
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
 import com.hoshino.wenku8reader.ui.theme.seedColorOptions
 import java.io.File
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** 浅色模式阅读器背景色（首项为默认纯白）。 */
 private val LIGHT_PAPER_COLORS = listOf(
@@ -116,24 +112,27 @@ fun CustomizationScreen(
     ) { uri ->
         if (uri != null) {
             // ActivityResult 回调在主线程：选中的原图可能几 MB～几十 MB，
-            // 复制与解码压缩放到 IO（见 copyToInternal），避免阻塞 UI 线程。
+            // 复制与解码压缩放到 IO（见 copyReaderBackgroundToInternal），避免阻塞 UI 线程。
             scope.launch {
-                val path = copyToInternal(context, uri)
+                val path = copyReaderBackgroundToInternal(context, uri)
                 if (path != null) vm.setBackgroundImage(path)
             }
         }
     }
 
-    Scaffold(
+    val scrollBehavior = rememberExpressiveScrollBehavior()
+
+    ExpressiveScaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_custom)) },
+            ExpressiveLargeTopAppBar(
+                title = stringResource(R.string.settings_custom),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.action_back))
                     }
                 },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { inner ->
@@ -141,6 +140,7 @@ fun CustomizationScreen(
             Modifier
                 .fillMaxSize()
                 .padding(inner)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
@@ -148,9 +148,9 @@ fun CustomizationScreen(
             ListItem(
                 leadingContent = { Icon(Icons.Filled.Translate, contentDescription = null) },
                 headlineContent = { Text(stringResource(R.string.settings_simplified_traditional)) },
-                supportingContent = { Text(stringResource(R.string.settings_simplified_traditional_desc)) },
-                trailingContent = {
-                    Switch(
+                        supportingContent = { Text(stringResource(R.string.settings_simplified_traditional_desc)) },
+                        trailingContent = {
+                    ExpressiveSwitch(
                         checked = rs.traditionalChinese,
                         onCheckedChange = { vm.setTraditionalChinese(it) },
                     )
@@ -161,33 +161,26 @@ fun CustomizationScreen(
             SectionTitle(stringResource(R.string.settings_theme_paper))
 
             SettingLabel(stringResource(R.string.settings_dark_mode))
-            SingleChoiceSegmentedButtonRow(
+            val darkModeOptions = listOf(
+                "system" to R.string.settings_dark_system,
+                "light" to R.string.settings_dark_light,
+                "dark" to R.string.settings_dark_dark,
+            )
+            ExpressiveToggleGroup(
+                labels = darkModeOptions.map { stringResource(it.second) },
+                selectedIndex = darkModeOptions.indexOfFirst { it.first == rs.darkMode }.coerceAtLeast(0),
+                onSelect = { index -> vm.setDarkMode(darkModeOptions[index].first) },
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp),
-            ) {
-                val options = listOf(
-                    "system" to R.string.settings_dark_system,
-                    "light" to R.string.settings_dark_light,
-                    "dark" to R.string.settings_dark_dark,
-                )
-                options.forEachIndexed { index, (value, labelRes) ->
-                    SegmentedButton(
-                        selected = rs.darkMode == value,
-                        onClick = { vm.setDarkMode(value) },
-                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                    ) {
-                        Text(stringResource(labelRes), maxLines = 1)
-                    }
-                }
-            }
+            )
 
             // 动态取色 / 手动取色
             ListItem(
                 leadingContent = { Icon(Icons.Filled.Palette, contentDescription = null) },
                 headlineContent = { Text(stringResource(R.string.settings_dynamic_color)) },
                 trailingContent = {
-                    Switch(
+                    ExpressiveSwitch(
                         checked = rs.dynamicColor,
                         onCheckedChange = { vm.setDynamicColor(it) },
                     )
@@ -268,7 +261,7 @@ fun CustomizationScreen(
                 stringResource(R.string.settings_font_size) + " · " +
                     stringResource(R.string.settings_font_size_value, rs.fontSize)
             )
-            Slider(
+            ExpressiveSlider(
                 value = rs.fontSize.toFloat(),
                 onValueChange = { vm.setFontSize(it.roundToInt()) },
                 valueRange = 14f..28f,
@@ -281,7 +274,7 @@ fun CustomizationScreen(
                 stringResource(R.string.settings_font_weight) + " · " +
                     stringResource(R.string.settings_font_weight_value, rs.fontWeight)
             )
-            Slider(
+            ExpressiveSlider(
                 value = rs.fontWeight.toFloat(),
                 onValueChange = { vm.setFontWeight(it.roundToInt()) },
                 valueRange = 300f..700f,
@@ -294,7 +287,7 @@ fun CustomizationScreen(
                 stringResource(R.string.settings_line_spacing) + " · " +
                     stringResource(R.string.settings_line_spacing_value, rs.lineSpacing)
             )
-            Slider(
+            ExpressiveSlider(
                 value = rs.lineSpacing,
                 onValueChange = { vm.setLineSpacing((it * 10f).roundToInt() / 10f) },
                 valueRange = 1.2f..2.5f,
@@ -358,74 +351,3 @@ private fun ColorSwatchesRow(colors: List<Long>, selected: Long, onSelect: (Long
     }
 }
 
-/** 背景图目标长边（px）：读取时整份解码，故落盘前先按此降采样，避免数十 MB 的原图常驻私有目录。 */
-private const val BACKGROUND_MAX_EDGE = 2000
-
-/** 压缩质量：背景图非精细素材，90 在体积与观感之间取得平衡。 */
-private const val BACKGROUND_QUALITY = 90
-
-/**
- * 把用户选择的图片复制到应用私有目录并返回路径（失败返回 null）。
- *
- * - 整体在 [Dispatchers.IO] 执行：原图复制/解码对几 MB～几十 MB 的文件足以阻塞主线程；
- * - 复制前先降采样（长边约 [BACKGROUND_MAX_EDGE]）再重新压缩，避免把整份原图存进私有目录；
- * - 解码失败（非位图/流损坏）时退回原样复制，保持与旧实现一致的可用性；
- * - 返回路径仍是 `filesDir/reader_background`，与 `ReaderSettings.backgroundImage` 的消费方式兼容。
- */
-private suspend fun copyToInternal(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
-    runCatching {
-        val dest = File(context.filesDir, "reader_background").apply { parentFile?.mkdirs() }
-        // 先落临时文件：BitmapFactory 需要「先读尺寸、再解码」两次读取，而输入流不可重复读。
-        val temp = File.createTempFile("reader_background_", ".tmp", context.cacheDir)
-        try {
-            val copied = context.contentResolver.openInputStream(uri)?.use { input ->
-                temp.outputStream().use { output -> input.copyTo(output) }
-            }
-            if (copied == null) return@runCatching null
-            // 解码/压缩任一环节失败（非位图、格式不支持、写盘异常）都退回原样复制，
-            // 保证背景图仍能设置成功，而不是留下一个半截的目标文件。
-            val compressed = runCatching {
-                compressDownsampled(temp, dest, keepAlpha = sourceKeepsAlpha(context, uri))
-            }.getOrDefault(false)
-            if (!compressed) {
-                temp.copyTo(dest, overwrite = true)
-            }
-            dest.absolutePath
-        } finally {
-            temp.delete()
-        }
-    }.getOrNull()
-}
-
-/** 源图是否带透明通道（PNG/WebP/GIF）：JPEG 会把透明区域压成黑色，故这些格式仍按 PNG 保存。 */
-private fun sourceKeepsAlpha(context: Context, uri: Uri): Boolean {
-    val mime = context.contentResolver.getType(uri)?.lowercase() ?: return false
-    return mime == "image/png" || mime == "image/webp" || mime == "image/gif"
-}
-
-/**
- * 按长边约 [BACKGROUND_MAX_EDGE] 降采样解码 [src] 并压缩写入 [dest]。
- * 返回 false 表示 [src] 不是可解码的位图（由调用方退回原样复制）。
- */
-private fun compressDownsampled(src: File, dest: File, keepAlpha: Boolean): Boolean {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(src.absolutePath, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false
-    // inSampleSize 只能取 2 的幂：取「不会把长边压到目标以下」的最大档位，尽量贴近 2000px
-    var sampleSize = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= BACKGROUND_MAX_EDGE) {
-        sampleSize *= 2
-    }
-    val bitmap = BitmapFactory.decodeFile(
-        src.absolutePath,
-        BitmapFactory.Options().apply { inSampleSize = sampleSize },
-    ) ?: return false
-    return try {
-        dest.outputStream().use { output ->
-            val format = if (keepAlpha) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-            bitmap.compress(format, BACKGROUND_QUALITY, output)
-        }
-    } finally {
-        bitmap.recycle()
-    }
-}

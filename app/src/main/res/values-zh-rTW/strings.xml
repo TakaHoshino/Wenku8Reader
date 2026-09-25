@@ -20,6 +20,7 @@
     <string name="stats_empty">尚無閱讀記錄，先去讀幾頁吧～</string>
     <string name="stats_books_title">書籍閱讀時長</string>
     <string name="stats_minutes">%1$d 分鐘</string>
+    <string name="date_format_ymd">%1$d年%2$d月%3$d日</string>
     <string name="stats_summary_total">累計分鐘</string>
     <string name="stats_summary_week">本週分鐘</string>
     <string name="stats_summary_streak">連續天數</string>
@@ -68,6 +69,7 @@
     <string name="explore_tags_empty">暫無分類</string>
     <string name="tag_books_load_more">載入更多（已顯示 %1$d 本）</string>
     <string name="explore_tags_blocked">無法取得分類，可能被網站阻擋，請重試</string>
+    <string name="explore_tag_preview_failed">分類預覽載入失敗 · 點此重試</string>
 
     <!-- 首頁 -->
     <string name="home_subtitle">今日書庫</string>
@@ -116,6 +118,7 @@
     <string name="detail_start_reading">開始閱讀</string>
     <string name="detail_continue_reading">繼續閱讀</string>
     <string name="detail_offline_download">離線下載</string>
+    <string name="detail_download_hint">選擇格式後整本下載到「下載/Wenku8」</string>
     <string name="detail_format_txt">TXT</string>
     <string name="detail_format_epub">EPUB</string>
     <string name="detail_downloading">下載中 %1$d%%</string>
@@ -143,6 +146,11 @@
     <string name="reader_current">目前</string>
     <string name="reader_no_content">（本章無內文）</string>
     <string name="reader_illustration">插圖</string>
+    <string name="reader_image_save">儲存圖片</string>
+    <string name="reader_image_save_title">儲存圖片</string>
+    <string name="reader_image_save_message">將這張插圖儲存到「下載/Wenku8」？</string>
+    <string name="reader_image_saved">已儲存：%1$s</string>
+    <string name="reader_image_save_failed">儲存失敗，請檢查網路後重試</string>
     <string name="reader_toc_empty">目錄為空</string>
     <string name="reader_settings">閱讀器設定</string>
     <string name="reader_turn_mode">翻頁方式</string>
@@ -177,9 +185,27 @@
     <!-- 設定 -->
     <string name="settings_section_account">帳號</string>
     <string name="settings_builtin_account">內建帳戶</string>
-    <string name="settings_builtin_account_hint">使用內建帳戶存取內容</string>
     <string name="settings_account_builtin_desc">應用全程使用內建共享帳號，無需登入或切換</string>
     <string name="settings_section_appearance">外觀</string>
+    <string name="settings_section_storage">儲存空間</string>
+    <string name="settings_section_experimental">實驗性</string>
+    <string name="settings_category_appearance_summary">深色模式、主題色與震動回饋</string>
+    <string name="settings_category_reading_summary">字號、字體、行距與翻頁方式</string>
+    <string name="settings_category_network_summary">主站鏡像與存取方式</string>
+    <string name="settings_category_update_summary">更新通道、更新來源與檢查頻率</string>
+    <string name="settings_category_storage_summary">快取佔用與清理</string>
+    <string name="settings_category_experimental_summary">UI 風格、懸浮底欄與液態玻璃</string>
+    <string name="settings_category_about_summary">版本、開源倉庫與回饋管道</string>
+    <string name="settings_ui_style">UI 風格</string>
+    <string name="settings_ui_style_summary">切換 Material 3 Expressive 與 MIUIX（HyperOS）；實驗性功能，介面可能隨版本調整</string>
+    <string name="settings_ui_style_material3">Material 3 Expressive</string>
+    <string name="settings_ui_style_miuix">MIUIX</string>
+    <string name="settings_floating_bottom_bar">懸浮底欄</string>
+    <string name="settings_floating_bottom_bar_summary">HyperOS 風格的膠囊式底欄（僅 MIUIX 風格生效）</string>
+    <string name="settings_bottom_bar_glass">底欄液態玻璃</string>
+    <string name="settings_bottom_bar_glass_summary">對底欄背後內容做即時模糊（僅懸浮底欄、Android 12L+ 生效）</string>
+    <string name="settings_storage">儲存設定</string>
+    <string name="settings_storage_desc">快取管理、快取上限與過期紀錄清理</string>
     <string name="settings_section_general">一般</string>
     <string name="settings_section_reading">閱讀設定</string>
     <string name="settings_section_about">關於</string>
@@ -211,6 +237,34 @@
     <string name="settings_cache_clear_all_desc">同時清空記憶體快取</string>
     <string name="settings_cache_max">最大快取</string>
     <string name="settings_cache_max_summary">磁碟快取大小上限，超出後自動清理最舊內容</string>
+    <string name="settings_cache_storage_title">儲存空間佔用</string>
+    <string name="settings_cache_html_detail">網頁離線快取明細</string>
+    <string name="settings_cache_total_cache">快取合計</string>
+    <string name="settings_cache_total_cache_desc">對應系統設定的「快取」：圖片快取、更新安裝檔、WebView 快取與暫存檔</string>
+    <string name="settings_cache_total_data">應用程式資料合計</string>
+    <string name="settings_cache_total_data_desc">對應系統設定的「使用者資料」：網頁離線快取、閱讀進度、WebView 資料等</string>
+    <string name="settings_cache_code_cache">系統程式碼快取</string>
+    <string name="settings_cache_code_cache_desc">JIT/ART 產生，由系統管理，應用程式無法清理</string>
+    <string name="settings_cache_images">圖片快取</string>
+    <string name="settings_cache_images_desc">封面與插圖（Coil 磁碟快取）</string>
+    <string name="settings_cache_updates">更新安裝檔</string>
+    <string name="settings_cache_updates_desc">已下載的更新 APK，安裝後即可清理</string>
+    <string name="settings_cache_other_title">WebView 與其他快取</string>
+    <string name="settings_cache_other_desc">WebView 快取與暫存檔，不影響登入狀態</string>
+    <string name="settings_cache_reading_data">本機資料</string>
+    <string name="settings_cache_reading_data_desc">閱讀進度、已讀標記、書櫃與設定（SharedPreferences，含登入 Cookie）</string>
+    <string name="settings_cache_cleanup_reading">清理過期閱讀紀錄</string>
+    <string name="settings_cache_cleanup_reading_desc">僅清理 %1$d 天前、之後未再閱讀的書本紀錄</string>
+    <string name="settings_cache_freed">已釋放 %1$s</string>
+    <string name="settings_cache_nothing">沒有可清理的內容</string>
+    <string name="settings_cache_reading_cleaned">已清理 %1$d 本書的過期紀錄</string>
+    <string name="settings_cache_reading_nothing">沒有需要清理的過期紀錄</string>
+    <string name="settings_cache_confirm_clear_all_title">清理全部快取？</string>
+    <string name="settings_cache_confirm_clear_all_message">將釋放網頁離線快取、圖片快取、更新安裝檔與暫存檔。閱讀進度、書櫃與設定不會被刪除。</string>
+    <string name="settings_cache_confirm_cleanup_title">清理過期閱讀紀錄？</string>
+    <string name="settings_cache_confirm_cleanup_message">將刪除 %1$d 天前、之後未再閱讀的書本進度與已讀標記，此操作無法復原。</string>
+    <string name="action_confirm">確定</string>
+    <string name="action_cancel">取消</string>
 
     <!-- 語言 -->
     <string name="settings_language">語言</string>
@@ -228,15 +282,20 @@
     <string name="settings_dark_light">淺色</string>
     <string name="settings_dark_dark">深色</string>
     <string name="settings_dynamic_color">動態取色</string>
+    <string name="settings_expressive_motion">表達性動效</string>
+    <string name="settings_expressive_motion_summary">Material 3 Expressive 的彈性形變動效；關閉後改用克制的標準動效</string>
     <string name="settings_manual_color">手動取色</string>
     <string name="settings_background_color">背景顏色</string>
     <string name="settings_background_image">背景圖片</string>
+    <string name="settings_reading_habit">閱讀習慣</string>
     <string name="settings_pick_image">選擇圖片</string>
     <string name="settings_clear_image">清除圖片</string>
+    <string name="settings_background_image_desc">在整章正文之下鋪一張圖，淺色與深色模式共用</string>
     <string name="settings_text_color">字型顏色</string>
     <string name="settings_mode_light">淺色模式</string>
     <string name="settings_mode_dark">深色模式</string>
     <string name="settings_font">字型</string>
+    <string name="settings_typography">排版</string>
     <string name="settings_font_default">系統預設</string>
     <string name="settings_font_sans">無襯線</string>
     <string name="settings_font_serif">襯線</string>

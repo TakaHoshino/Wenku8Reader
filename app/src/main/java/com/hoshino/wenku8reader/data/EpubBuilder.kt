@@ -190,7 +190,7 @@ $points
      *
      * 注意：这里**暂不支持内嵌插图**，只输出正文，`ch.images` 被有意忽略。
      * 原因：`ChapterContent.images` 只是网页/接口解析出来的**图片 URL 字符串列表**
-     * （见 `Parsers.parseChapter` 的 `CHAPTER_IMG`、`Parsers.parseAppChapter`），
+     * （见 `Parsers.parseChapter` 的 `CHAPTER_IMG`、`AppParsers.parseAppChapter`），
      * 不含任何图片字节；而本类是无网络、无 Context 的纯打包器：
      * 既不能自己去下载图片（网络失败/防盗链会让整本 EPUB 构建失败），
      * 也不能把远程 URL 直接写进 manifest（EPUB3 要求 manifest 项指向包内资源，

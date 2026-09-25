@@ -1,0 +1,497 @@
+package com.hoshino.wenku8reader.ui.miuix
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.ui.common.CoverImage
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Slider
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+/**
+ * MIUIX 独立界面层的基础件。
+ *
+ * 设计原则（与 Material 侧完全分离）：
+ * - 这里**只用 miuix 组件**（Scaffold / TopAppBar / Card / BasicComponent 系列 / Slider / 进度），
+ *   不再经过 `ui/components/Expressive.kt` 那套"M3 ↔ MIUIX 分派门面"；
+ * - 颜色、字号一律取自 `MiuixTheme`，不读 `MaterialTheme`；
+ * - 页面结构直接照 HyperOS 的习惯来（分组卡片 + 缩进分隔线 + 26dp 标题内边距），
+ *   不迁就 Material 3 的观感。
+ *
+ * 图标仍用 `material-icons-extended` 的 `ImageVector`：miuix-icons 的图标集很小
+ * （只有 search/check/arrow 等几个），不足以覆盖本项目需要的书籍/下载/统计等图标。
+ */
+
+/** MIUIX 页面骨架：miuix Scaffold + 大标题顶栏（无返回键版本，主 Tab 用）。 */
+@Composable
+fun MiuixPage(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = title,
+                largeTitle = title,
+                subtitle = subtitle.orEmpty(),
+                actions = actions,
+            )
+        },
+        bottomBar = bottomBar,
+        containerColor = MiuixTheme.colorScheme.surface,
+    ) { inner -> content(inner) }
+}
+
+/** MIUIX 二级页骨架：miuix Scaffold + 小标题顶栏（带返回键）。 */
+@Composable
+fun MiuixSubPage(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            SmallTopAppBar(
+                title = title,
+                navigationIcon = {
+                    MiuixIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        // 与 Material 侧一致走资源：zh-TW 下「返回」应为「返回」以外的本地化文案
+                        contentDescription = stringResource(R.string.action_back),
+                        onClick = onBack,
+                    )
+                },
+                actions = actions,
+            )
+        },
+        containerColor = MiuixTheme.colorScheme.surface,
+    ) { inner -> content(inner) }
+}
+
+/** MIUIX 图标按钮（miuix 原生按压反馈）。 */
+@Composable
+fun MiuixIconButton(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(onClick = onClick, modifier = modifier) {
+        Icon(icon, contentDescription = contentDescription)
+    }
+}
+
+/**
+ * MIUIX 分组卡片：一张圆角卡片 + 标题 + 内部若干行（行之间由调用方插入 [MiuixRowDivider]）。
+ * 对应 HyperOS 设置页里"一组设置项一张卡"的形态。
+ *
+ * 标题用 miuix 自己的 [SmallTitle]：HyperOS 的分组标题是**小号次要色文字**、且缩进与卡片内
+ * 行首对齐（比卡片左边多一个内边距），而不是自绘的主题色大标题。这样字号/颜色/缩进都由
+ * miuix 主题决定，跟随系统换肤也一致。
+ */
+@Composable
+fun MiuixSection(
+    title: String? = null,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (!title.isNullOrEmpty()) {
+            SmallTitle(text = title, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 16.dp,
+            insideMargin = PaddingValues(vertical = 4.dp),
+            colors = CardDefaults.defaultColors(
+                color = MiuixTheme.colorScheme.surfaceContainer,
+                contentColor = MiuixTheme.colorScheme.onSurfaceContainer,
+            ),
+        ) {
+            content()
+        }
+    }
+}
+
+/** 分组卡片内部的分隔线：左右缩进与文字对齐（HyperOS 的做法）。 */
+@Composable
+fun MiuixRowDivider(startIndent: Dp = 16.dp) {
+    HorizontalDivider(
+        modifier = Modifier.padding(
+            start = startIndent,
+            end = 16.dp,
+        ),
+    )
+}
+
+/** 普通设置项（标题 + 说明 + 可选前导图标/尾随内容），miuix `BasicComponent`。 */
+@Composable
+fun MiuixRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    summary: String? = null,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    trailing: @Composable (RowScope.() -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    top.yukonga.miuix.kmp.basic.BasicComponent(
+        modifier = modifier,
+        title = title,
+        summary = summary,
+        startAction = icon?.let { vector -> { MiuixRowIcon(vector) } },
+        endActions = trailing ?: {},
+        onClick = onClick,
+        enabled = enabled,
+    )
+}
+
+/** 跳转项（标题 + 说明 + 内置 chevron），miuix `ArrowPreference`。 */
+@Composable
+fun MiuixArrowRow(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    summary: String? = null,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    ArrowPreference(
+        title = title,
+        summary = summary,
+        modifier = modifier,
+        startAction = icon?.let { vector -> { MiuixRowIcon(vector) } },
+        onClick = onClick,
+        enabled = enabled,
+    )
+}
+
+/** 开关项，miuix `SwitchPreference`。 */
+@Composable
+fun MiuixSwitchRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    summary: String? = null,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    SwitchPreference(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        title = title,
+        summary = summary,
+        modifier = modifier,
+        startAction = icon?.let { vector -> { MiuixRowIcon(vector) } },
+        enabled = enabled,
+    )
+}
+
+/**
+ * 下拉项，miuix `OverlayDropdownPreference`（HyperOS 圆角弹层）。
+ *
+ * 用**覆盖层**版而不是 `Window*`（窗口）版：覆盖层渲染在 miuix 根 Scaffold 的 popup host 里
+ * （见 `MiuixRootHost`），不额外创建 Dialog 窗口；窗口版在"弹层显示期间页面被替换"的
+ * 场景（例如切换 UI 风格）更容易因宿主被销毁而崩溃。
+ */
+@Composable
+fun MiuixDropdownRow(
+    title: String,
+    items: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    summary: String? = null,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
+) {
+    OverlayDropdownPreference(
+        items = items,
+        selectedIndex = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
+        title = title,
+        summary = summary,
+        modifier = modifier,
+        startAction = icon?.let { vector -> { MiuixRowIcon(vector) } },
+        enabled = enabled,
+        onExpandedChange = onExpandedChange,
+        onSelectedIndexChange = onSelected,
+    )
+}
+
+/**
+ * MIUIX 根宿主：在 MIUIX 模式下包住整个导航内容，提供**不会随页面切换而销毁**的 miuix 弹层宿主。
+ *
+ * 为什么需要：miuix 的弹层会优先挂到"根 Scaffold"（`LocalRootPopupStates`）。
+ * 若没有这一层，弹层就挂在页面自己的 Scaffold 上——而"设置 → 实验性 → UI 风格"
+ * 这类选项会在**弹层收起的同时替换整个页面实现**，宿主被销毁就可能闪退。
+ * `contentWindowInsets = 0` 是刻意的：安全区由各页自己的顶栏/底栏处理，这里不加内边距。
+ */
+@Composable
+fun MiuixRootHost(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Scaffold(
+        modifier = modifier,
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { content() }
+}
+
+/** 滑块项：标题 + 数值 + miuix `Slider`（HyperOS 的刻度与按压反馈）。 */
+@Composable
+fun MiuixSliderRow(
+    title: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
+    valueText: String? = null,
+    onValueChangeFinished: (() -> Unit)? = null,
+) {
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onBackground,
+            )
+            if (valueText != null) {
+                Text(
+                    text = valueText,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = steps,
+            onValueChangeFinished = onValueChangeFinished,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/**
+ * 行内图标容器：HyperOS 设置页的每行图标都是"浅色圆角方块 + 主题色图标"，
+ * 这里统一成一个 helper，避免每个调用点各写一遍尺寸/圆角/配色。
+ */
+@Composable
+fun MiuixRowIcon(icon: ImageVector) {
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MiuixTheme.colorScheme.primary,
+        )
+    }
+}
+
+/**
+ * 带封面的列表行（标题 + 说明），搜索结果 / 作者作品 / 标签书单共用。
+ * 封面走 `ui/common/CoverImage`（防盗链与占位色的统一入口），文字与间距用 miuix 排版。
+ */
+@Composable
+fun MiuixCoverRow(
+    coverUrl: String?,
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    summary: String? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CoverImage(
+            url = coverUrl,
+            width = 48.dp,
+            height = 68.dp,
+            contentDescription = title,
+            cornerRadius = 8.dp,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!summary.isNullOrEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = summary,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** MIUIX 加载态。 */
+@Composable
+fun MiuixLoading(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(progress = null)
+    }
+}
+
+/**
+ * MIUIX 空态/错误态（插图 + 标题 + 说明 + 可选操作）。
+ *
+ * 插图是 HyperOS 空页面的习惯做法：一个浅色圆形底 + 主题色图标（错误态换成错误色），
+ * 比只有一行文字的空白页更像系统自带的应用。图标仍取 material-icons-extended 的
+ * `ImageVector`——miuix-icons 自带的图标集只有 search/check/arrow 等几个，覆盖不了书籍/日历。
+ */
+@Composable
+fun MiuixEmptyState(
+    title: String,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+    error: Boolean = false,
+    icon: ImageVector? = null,
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (icon != null) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (error) {
+                            MiuixTheme.colorScheme.errorContainer
+                        } else {
+                            MiuixTheme.colorScheme.surfaceContainer
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(44.dp),
+                    tint = if (error) {
+                        MiuixTheme.colorScheme.error
+                    } else {
+                        MiuixTheme.colorScheme.primary
+                    },
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+        Text(
+            text = title,
+            style = MiuixTheme.textStyles.title2,
+            color = if (error) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onBackground,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        if (!description.isNullOrEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = description,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+        if (actionText != null && onAction != null) {
+            Spacer(Modifier.height(20.dp))
+            top.yukonga.miuix.kmp.basic.Button(onClick = onAction) { Text(actionText) }
+        }
+    }
+}
+
+/**
+ * 悬浮底栏覆盖在内容之上时，页面**滚动内容**需要预留的底部余量。
+ *
+ * 为什么是"滚动内容的内边距"而不是页面级 padding：页面级 padding 会把整页缩短，
+ * 底栏位置就永远空着一条（看起来像固定底栏的槽位）；放进滚动内容里，
+ * 内容可以滚到胶囊下方（玻璃模糊才有东西可糊），最后一项也能完整滚出来看到。
+ * 由 `MainScaffold` 在 MIUIX + 悬浮底栏时提供（其余情况为 0）。
+ */
+val LocalFloatingBarInset = staticCompositionLocalOf { 0.dp }

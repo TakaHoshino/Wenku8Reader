@@ -16,11 +16,37 @@ import kotlin.concurrent.write
  *   旧格式（无前缀 `{md5}.html`）读取时兼容，重新写入时自动迁移为新格式；
  * - 总大小超过上限时按「最旧优先」删除（LRU 简化版），上限可通过 [setMaxBytes] 动态调整。
  */
-class HtmlDiskCache(
-    context: Context,
-    initialMaxBytes: Long = 30L * 1024 * 1024,
+class HtmlDiskCache internal constructor(
+    private val dir: File,
+    initialMaxBytes: Long,
 ) {
-    private val dir = File(context.filesDir, "html_cache").apply { mkdirs() }
+    /**
+     * 生产入口：缓存目录固定为 `filesDir/html_cache`。
+     *
+     * 主构造改成接收 [File] 只是为了可测——淘汰/迁移/分组统计这些逻辑最容易出错，
+     * 却完全依赖文件系统，只有能把目录换成临时目录才写得出单测。
+     */
+    constructor(
+        context: Context,
+        initialMaxBytes: Long = DEFAULT_MAX_BYTES,
+    ) : this(File(context.filesDir, DIR_NAME), initialMaxBytes)
+
+    init {
+        dir.mkdirs()
+    }
+
+    /**
+     * 缓存目录（`filesDir/html_cache`）。
+     *
+     * 对外暴露只读引用，供存储占用统计复用同一条路径——统计与清理必须指向同一个目录，
+     * 各自拼一遍路径字符串迟早会漂移。
+     */
+    val directory: File get() = dir
+
+    /** 缓存目录总大小（含子目录，正常情况下没有子目录，防御性处理）。 */
+    fun totalSize(): Long = lock.read {
+        dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    }
 
     /**
      * 读写锁（替代原先的 `@Synchronized` 互斥锁）。
@@ -119,7 +145,10 @@ class HtmlDiskCache(
         var total = files.sumOf { it.length() }
         if (total <= maxBytes) return
         // 超限：从最旧开始删，直到降到上限的 70%
-        files.sortedBy { it.lastModified() }.forEach { f ->
+        // 次要键取文件名：同一毫秒内写入的多个条目 mtime 相同，只按 mtime 排序时
+        // 顺序取决于文件系统的目录枚举顺序（CI 上实测过淘汰对象随之变化）。
+        // 加上文件名兜底后，同样的目录状态总是淘汰同一批文件，行为可复现、便于排查。
+        files.sortedWith(compareBy({ it.lastModified() }, { it.name })).forEach { f ->
             if (total <= maxBytes * 0.7) return@forEach
             total -= f.length()
             f.delete()
@@ -136,7 +165,13 @@ class HtmlDiskCache(
         category.replace(Regex("[^A-Za-z0-9_-]"), "").ifBlank { "other" }
 
     private companion object {
+        /** 缓存目录名（`filesDir/html_cache`）。 */
+        const val DIR_NAME = "html_cache"
+
         /** 旧格式（无 category 前缀）缓存的归类名。 */
         const val LEGACY_CATEGORY = "legacy"
+
+        /** 默认上限 30MB（可在设置页动态调整）。 */
+        const val DEFAULT_MAX_BYTES = 30L * 1024 * 1024
     }
 }

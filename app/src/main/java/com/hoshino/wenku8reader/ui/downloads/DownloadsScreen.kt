@@ -5,7 +5,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,20 +18,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,12 +40,18 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.JobStatus
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.components.ActiveProgressBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.TonalCard
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 
 /**
- * 下载管理页（子页）。参考 SukiSU-Ultra：折叠大顶栏（返回）+ surfaceBright 任务卡片。
+ * 下载管理页（子页）：Expressive Flexible 大顶栏（返回）+ 卡片化任务列表。
+ *
+ * 进行中的任务用 M3 Expressive 的波浪进度条（[ActiveProgressBar]）——
+ * 波浪动效只用于"正在进行"的短时任务，完成/失败状态仍为纯文本。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,47 +60,55 @@ fun DownloadsScreen(
     vm: DownloadsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val jobs by vm.jobs.collectAsStateWithLifecycle()
+    val scrollBehavior = rememberExpressiveScrollBehavior()
 
     ExpressiveScaffold(
         topBar = {
-            LargeTopAppBar(
-                title = { Text(stringResource(R.string.downloads_title)) },
+            ExpressiveLargeTopAppBar(
+                title = stringResource(R.string.downloads_title),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.action_back))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back),
+                        )
                     }
                 },
-                colors = expressiveLargeTopAppBarColors(),
-                windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                windowInsets = WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                ),
+                scrollBehavior = scrollBehavior,
             )
         },
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+        ),
     ) { inner ->
         if (jobs.isEmpty()) {
-            Box(
-                Modifier
+            ExpressiveEmptyState(
+                title = stringResource(R.string.downloads_empty),
+                icon = Icons.Filled.Download,
+                shape = MaterialShapes.Clover4Leaf,
+                modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(stringResource(R.string.downloads_empty),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            )
         } else {
             LazyColumn(
                 Modifier
                     .fillMaxSize()
-                    .padding(inner),
+                    .padding(inner)
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
             ) {
-                items(jobs.values.sortedByDescending { it.bookId },
-                    key = { it.bookId }) { j ->
+                items(
+                    jobs.values.sortedByDescending { it.bookId },
+                    key = { it.bookId },
+                ) { j ->
                     TonalCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateItem()
                             .padding(horizontal = 16.dp, vertical = 6.dp),
-                        shape = RoundedCornerShape(16.dp),
                     ) {
                         Column(Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -119,11 +132,11 @@ fun DownloadsScreen(
                             }
                             Spacer(Modifier.height(8.dp))
                             if (j.status == JobStatus.RUNNING) {
-                                LinearProgressIndicator(
+                                ActiveProgressBar(
                                     progress = { j.progress },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
-                                Spacer(Modifier.height(4.dp))
+                                Spacer(Modifier.height(6.dp))
                             }
                             AnimatedContent(
                                 targetState = j.status,
@@ -133,10 +146,14 @@ fun DownloadsScreen(
                                 label = "jobStatus",
                             ) { st ->
                                 when (st) {
-                                    JobStatus.RUNNING -> Text(stringResource(R.string.downloads_running),
-                                        style = MaterialTheme.typography.bodySmall)
-                                    JobStatus.PENDING -> Text(stringResource(R.string.detail_queued),
-                                        style = MaterialTheme.typography.bodySmall)
+                                    JobStatus.RUNNING -> Text(
+                                        stringResource(R.string.downloads_running),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    JobStatus.PENDING -> Text(
+                                        stringResource(R.string.detail_queued),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                     JobStatus.DONE -> Text(
                                         stringResource(R.string.downloads_done, j.filePath ?: "-"),
                                         style = MaterialTheme.typography.bodySmall,

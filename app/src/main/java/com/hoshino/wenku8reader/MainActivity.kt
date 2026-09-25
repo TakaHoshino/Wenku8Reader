@@ -18,6 +18,7 @@ import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.components.HapticScope
 import com.hoshino.wenku8reader.ui.reader.VolumeKeyTurn
 import com.hoshino.wenku8reader.ui.theme.Wenku8ReaderTheme
+import com.hoshino.wenku8reader.ui.theme.UiStyle
 
 class MainActivity : ComponentActivity() {
 
@@ -30,11 +31,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyAppLocale(context: Context): Context {
-        // 注意：attachBaseContext 阶段 application 尚未赋值（Activity.attach 先调 attachBaseContext
-        // 再赋 mApplication），不能经 Application/container 读取设置；直接读 SharedPreferences。
-        val language = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            .getString("app_language", "system")
-            ?: "system"
+        // 注意：attachBaseContext 阶段 `activity.application` 尚未赋值（Activity.attach 先调
+        // attachBaseContext 再赋 mApplication），所以走应用级静态引用。设置已由
+        // ReaderSettings 在 Application.onCreate 中同步载入，这里拿到的是真实值。
+        // 仍做一次容错：attachBaseContext 处于进程生命周期最早期，任何异常都不该让 Activity 起不来。
+        val language = runCatching {
+            Wenku8Application.instance?.container?.readerSettings?.flow?.value?.appLanguage
+        }.getOrNull() ?: "system"
         val locale = when (language) {
             "zh-TW" -> java.util.Locale.TRADITIONAL_CHINESE
             "zh-CN" -> java.util.Locale.SIMPLIFIED_CHINESE
@@ -86,13 +89,23 @@ class MainActivity : ComponentActivity() {
                 dynamicColor = settings.dynamicColor,
                 seedColor = Color(settings.seedColor),
                 amoled = settings.amoled,
+                // M3 Expressive 动效（可在设置页「外观」切回标准动效）
+                expressiveMotion = settings.expressiveMotion,
+                // 实验性：Material 3 Expressive / MIUIX 风格（设置 → 实验性）
+                uiStyle = UiStyle.fromKey(settings.uiStyle),
             ) {
                 // 全局点击振动（设置开关 + 强度控制）
                 HapticScope(
                     enabled = settings.hapticsEnabled,
                     strength = settings.hapticsStrength,
                 ) {
-                    MainScaffold()
+                    // MIUIX 模式下再包一层 miuix 根宿主：给 miuix 的下拉/对话框提供
+                    // 不随页面切换而销毁的 popup host（详见 ui/miuix/MiuixComponents.kt）
+                    if (settings.uiStyle == com.hoshino.wenku8reader.ui.theme.UiStyle.MIUIX.key) {
+                        com.hoshino.wenku8reader.ui.miuix.MiuixRootHost { MainScaffold() }
+                    } else {
+                        MainScaffold()
+                    }
                 }
             }
         }
@@ -133,16 +146,16 @@ class MainActivity : ComponentActivity() {
      * 为什么不用裸的 `display`：它是 Activity 从 Context 继承的旧入口。
      * API 30+ 改走「窗口关联的显示设备」——`WindowManager.currentWindowMetrics` 只提供
      * 窗口尺寸与 Insets、**不暴露 Display**，拿不到刷新率模式，因此这里用
-     * `context.display`（API 30 起可用），并以 [DisplayManager] 的默认显示设备兜底
-     * （多屏/未关联显示设备等极端情况仍能取到可用模式）。
+     * `context.display`（API 30 起可用；SDK 标注为非空——Activity 的窗口必然关联显示设备，
+     * 所以不再需要 [DisplayManager] 兜底分支，那是永远走不到的死代码）。
      * API 26-29 无替代 API，只能继续用旧入口。
      */
     private fun currentDisplay(): Display? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val ctx: Context = this
-            ctx.display?.let { return it }
-            return (getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
-                ?.getDisplay(Display.DEFAULT_DISPLAY)
+            // API 30 起 Activity 的窗口一定关联着显示设备，`Context.display`（非 deprecated 入口）
+            // 直接返回；下面的 DisplayManager 兜底只在极端情况（多屏/未关联）才会走到。
+            return ctx.display
         }
         @Suppress("DEPRECATION")
         val legacy = display

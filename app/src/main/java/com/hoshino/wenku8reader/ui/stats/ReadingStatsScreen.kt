@@ -26,17 +26,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -54,7 +51,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.common.heatmapCellColor
+import com.hoshino.wenku8reader.ui.common.weekdayColor
+import com.hoshino.wenku8reader.ui.common.weekendColor
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveToggleGroup
+import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import java.time.DayOfWeek
@@ -77,8 +80,8 @@ fun ReadingStatsScreen(
 
     ExpressiveScaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.stats_title)) },
+            ExpressiveTopAppBar(
+                title = stringResource(R.string.stats_title),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
@@ -89,9 +92,6 @@ fun ReadingStatsScreen(
                         Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.action_refresh))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
             )
         },
@@ -104,30 +104,25 @@ fun ReadingStatsScreen(
         ) {
             // 时间尺度切换（默认：本月）
             val scales = ReadingScale.entries
-            SingleChoiceSegmentedButtonRow(
+            ExpressiveToggleGroup(
+                labels = scales.map { stringResource(it.labelRes) },
+                selectedIndex = scales.indexOf(ui.scale).coerceAtLeast(0),
+                onSelect = { index -> vm.setScale(scales[index]) },
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                scales.forEachIndexed { index, scale ->
-                    SegmentedButton(
-                        selected = ui.scale == scale,
-                        onClick = { vm.setScale(scale) },
-                        shape = SegmentedButtonDefaults.itemShape(index, scales.size),
-                    ) {
-                        Text(stringResource(scale.labelRes))
-                    }
-                }
-            }
+            )
 
             if (!ui.hasAnyData) {
                 // 空状态：尚无阅读记录
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(R.string.stats_empty),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                ExpressiveEmptyState(
+                    title = stringResource(R.string.stats_empty),
+                    icon = Icons.Filled.CalendarMonth,
+                    shape = MaterialShapes.Sunny,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
             } else {
                 Column(
                     Modifier
@@ -224,11 +219,11 @@ private fun HeatmapLegend() {
     Column {
         LegendRow(colors = listOf(
             MaterialTheme.colorScheme.surfaceContainerHighest,
-            WeekdayColor(10), WeekdayColor(30), WeekdayColor(Int.MAX_VALUE),
+            weekdayColor(10), weekdayColor(30), weekdayColor(Int.MAX_VALUE),
         ))
         LegendRow(colors = listOf(
             MaterialTheme.colorScheme.surfaceContainerHighest,
-            WeekendColor(10), WeekendColor(30), WeekendColor(Int.MAX_VALUE),
+            weekendColor(10), weekendColor(30), weekendColor(Int.MAX_VALUE),
         ), labels = true)
     }
 }
@@ -290,7 +285,12 @@ private fun DailyDetailCard(day: HeatmapDay, ui: ReadingStatsUiState) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                formatDate(day.date),
+                stringResource(
+                    R.string.date_format_ymd,
+                    day.date.year,
+                    day.date.monthValue,
+                    day.date.dayOfMonth,
+                ),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.W600,
             )
@@ -386,33 +386,17 @@ private fun HeatmapGrid(
 
 /**
  * 色阶（参考 LNR Levels）：0 分钟 → 中性灰；1~10 → 浅绿/蓝；11~30 → 中；>30 → 深。
- * 工作日绿色系 #329c32、周末蓝色系 #29538f，按 alpha 递增区分强度（深浅主题均清晰）。
+ * 色值集中在 `ui/common/HeatmapPalette.kt`，MIUIX 版共用同一份（避免两处漂移）。
  */
 @Composable
 private fun cellColor(day: HeatmapDay?): Color {
-    val scheme = MaterialTheme.colorScheme
-    if (day == null || !day.hasData || day.minutes <= 0) return scheme.surfaceContainerHighest
-    val weekend = day.date.dayOfWeek == DayOfWeek.SATURDAY || day.date.dayOfWeek == DayOfWeek.SUNDAY
-    return when {
-        day.minutes <= 10 -> if (weekend) WeekendColor(10) else WeekdayColor(10)
-        day.minutes <= 30 -> if (weekend) WeekendColor(30) else WeekdayColor(30)
-        else -> if (weekend) WeekendColor(Int.MAX_VALUE) else WeekdayColor(Int.MAX_VALUE)
-    }
+    val weekend = day != null && (
+        day.date.dayOfWeek == DayOfWeek.SATURDAY || day.date.dayOfWeek == DayOfWeek.SUNDAY
+        )
+    return heatmapCellColor(
+        minutes = day?.minutes ?: 0,
+        hasData = day?.hasData == true,
+        weekend = weekend,
+        emptyColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    )
 }
-
-/** 工作日（绿）分级色：alpha 随分钟递增（参考 LNR #329c32 系）。 */
-private fun WeekdayColor(minutes: Int): Color = when {
-    minutes <= 10 -> Color(0x44329c32)
-    minutes <= 30 -> Color(0x8C329c32)
-    else -> Color(0xFF329c32)
-}
-
-/** 周末（蓝）分级色（参考 LNR #29538f 系）。 */
-private fun WeekendColor(minutes: Int): Color = when {
-    minutes <= 10 -> Color(0x4429538f)
-    minutes <= 30 -> Color(0x8C29538f)
-    else -> Color(0xFF29538f)
-}
-
-private fun formatDate(date: java.time.LocalDate): String =
-    "${date.year}年${date.monthValue}月${date.dayOfMonth}日"

@@ -1,10 +1,10 @@
 package com.hoshino.wenku8reader.ui.components
 
-import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -19,12 +19,14 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
- * SukiSU-Ultra 风格的主 Tab 分页状态：底栏点击用弹簧动画平滑滑动到目标页，
+ * 主 Tab 分页状态：底栏点击用主题 motion scheme 的空间弹簧平滑滑动到目标页，
  * 手动滑动时同步选中态。
  */
 class MainPagerState(
     val pagerState: PagerState,
     private val coroutineScope: CoroutineScope,
+    /** Tab 切换的滑动动画（来自 [MaterialTheme.motionScheme] 的默认空间动效）。 */
+    private val scrollSpec: FiniteAnimationSpec<Float>,
 ) {
     var selectedPage by mutableIntStateOf(pagerState.currentPage)
         private set
@@ -46,7 +48,7 @@ class MainPagerState(
         navJob = coroutineScope.launch {
             val myJob = coroutineContext.job
             try {
-                pagerState.springAnimateToPage(targetIndex)
+                pagerState.springAnimateToPage(targetIndex, scrollSpec)
             } finally {
                 if (navJob == myJob) {
                     isNavigating = false
@@ -70,19 +72,17 @@ fun rememberMainPagerState(
     pagerState: PagerState,
     coroutineScope: CoroutineScope = rememberCoroutineScope(),
 ): MainPagerState {
-    return remember(pagerState, coroutineScope) {
-        MainPagerState(pagerState, coroutineScope)
+    // Expressive 主题下是弹性空间动效；标准主题下自动退化为低弹过渡
+    val scrollSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    return remember(pagerState, coroutineScope, scrollSpec) {
+        MainPagerState(pagerState, coroutineScope, scrollSpec)
     }
 }
 
-/** 与 SukiSU 一致的 Tab 切换弹簧参数（dampingRatio ≈ 0.9）。 */
-private val PagerNavigationSpringSpec: SpringSpec<Float> = spring(
-    stiffness = 322.2f,
-    dampingRatio = 32.31f / (2f * kotlin.math.sqrt(322.2f)),
-    visibilityThreshold = 0.5f,
-)
-
-private suspend fun PagerState.springAnimateToPage(target: Int) {
+private suspend fun PagerState.springAnimateToPage(
+    target: Int,
+    animationSpec: FiniteAnimationSpec<Float>,
+) {
     if (target !in 0 until pageCount) return
     var shouldSnapToTarget = false
     scroll(MutatePriority.UserInput) {
@@ -95,7 +95,7 @@ private suspend fun PagerState.springAnimateToPage(target: Int) {
         var skipScroll = false
         Animatable(0f).animateTo(
             targetValue = scrollPixels,
-            animationSpec = PagerNavigationSpringSpec,
+            animationSpec = animationSpec,
         ) {
             if (skipScroll) return@animateTo
 

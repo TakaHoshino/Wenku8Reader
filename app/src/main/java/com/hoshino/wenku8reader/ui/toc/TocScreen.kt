@@ -34,14 +34,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,7 +51,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.Volume
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 
 /**
  * 目录页（独立二级页面）：分卷可折叠列表。
@@ -67,19 +71,14 @@ fun TocScreen(
     vm: TocViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val scrollBehavior = rememberExpressiveScrollBehavior()
 
     LaunchedEffect(Unit) { vm.load() }
 
     ExpressiveScaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        if (ui.title.isNotBlank()) ui.title else stringResource(R.string.toc_title),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
+            ExpressiveLargeTopAppBar(
+                title = if (ui.title.isNotBlank()) ui.title else stringResource(R.string.toc_title),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
@@ -94,27 +93,31 @@ fun TocScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                scrollBehavior = scrollBehavior,
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
     ) { inner ->
         when {
             ui.loading -> Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                ExpressiveLoadingIndicator()
             }
 
-            ui.volumes.isEmpty() -> Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
-                Text(
-                    stringResource(R.string.toc_empty),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            ui.volumes.isEmpty() -> ExpressiveEmptyState(
+                title = stringResource(R.string.toc_empty),
+                shape = MaterialShapes.Cookie9Sided,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner),
+            )
 
-            else -> LazyColumn(Modifier.fillMaxSize().padding(inner)) {
+            else -> LazyColumn(
+                Modifier
+                    .fillMaxSize()
+                    .padding(inner)
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+            ) {
                 itemsIndexed(ui.volumes, key = { index, volume -> "$index:${volume.name}" }) { _, volume ->
                     VolumeSection(
                         volume = volume,
@@ -166,8 +169,10 @@ private fun VolumeSection(
 
         AnimatedVisibility(
             visible = !collapsed,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
+            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
+            exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()),
         ) {
             Column(Modifier.fillMaxWidth()) {
                 volume.chapters.forEach { chapter ->

@@ -27,28 +27,24 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,10 +62,12 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.JobStatus
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
+import com.hoshino.wenku8reader.ui.components.ActiveProgressBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.StatusTag
 import com.hoshino.wenku8reader.ui.components.TonalCard
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 
 /**
  * 书籍详情页（子页）。参考 SukiSU-Ultra：折叠大顶栏 + 封面信息卡片 +
@@ -102,25 +100,17 @@ fun DetailScreen(
         }
     }
 
-    // 进入组合（含从阅读器返回后重新进入）时刷新本地状态：
-    // 「是否已在书架 / 是否有进度」由 ViewModel 在 IO 线程读存储后写进 state，
-    // 组合期只读 state，避免每次重组都做一次 SharedPreferences 读取。
-    LaunchedEffect(Unit) { vm.refreshLocalState() }
+    val scrollBehavior = rememberExpressiveScrollBehavior()
 
-    val scrollBehavior = androidx.compose.material3.TopAppBarDefaults
-        .exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+    // 大顶栏副标题：作者（无作者时不显示，避免出现空行）
+    val authorSubtitle: String? = info?.author?.takeIf { it.isNotBlank() }
 
     ExpressiveScaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Text(
-                        info?.title ?: stringResource(R.string.detail_title_default),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
+            ExpressiveLargeTopAppBar(
+                title = info?.title ?: stringResource(R.string.detail_title_default),
+                subtitle = authorSubtitle,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack,
@@ -132,14 +122,20 @@ fun DetailScreen(
                         onClick = { vm.toggleLocalFavorite() },
                         enabled = info != null,
                     ) {
+                        // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
+                        // 与「收藏」这个文案保持一致——此前用的是书签图标。
                         Icon(
-                            if (ui.inLocalLibrary) Icons.Filled.Bookmark
-                            else Icons.Filled.BookmarkBorder,
+                            if (ui.inLocalLibrary) Icons.Filled.Star
+                            else Icons.Filled.StarBorder,
                             contentDescription = stringResource(R.string.detail_favorite),
+                            tint = if (ui.inLocalLibrary) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                     }
                 },
-                colors = expressiveLargeTopAppBarColors(),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                 scrollBehavior = scrollBehavior,
             )
@@ -176,7 +172,8 @@ fun DetailScreen(
                 }
                 AnimatedVisibility(
                     visibleState = entered,
-                    enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { it / 16 },
+                    enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                        slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it / 16 },
                 ) {
                     Column(
                         Modifier
@@ -190,7 +187,7 @@ fun DetailScreen(
                         Spacer(Modifier.height(2.dp))
 
                         // 封面 + 基本信息
-                        TonalCard(shape = RoundedCornerShape(16.dp)) {
+                        TonalCard {
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -236,21 +233,26 @@ fun DetailScreen(
                             }
                         }
 
-                        // 阅读按钮
+                        // 阅读按钮：Expressive 高强调主操作（56dp 高度 + 大圆角）
                         Button(
                             onClick = { onRead(vm.bookId) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
                         ) {
                             Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text(stringResource(
-                                if (ui.hasProgress) R.string.detail_continue_reading
-                                else R.string.detail_start_reading
-                            ))
+                            Text(
+                                stringResource(
+                                    if (ui.hasProgress) R.string.detail_continue_reading
+                                    else R.string.detail_start_reading,
+                                ),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
                         }
 
-                        // 目录按钮（进入独立目录页）
-                        OutlinedButton(
+                        // 目录按钮（进入独立目录页）：次级操作 → tonal 按钮（中等强调）
+                        FilledTonalButton(
                             onClick = { onOpenToc(vm.bookId) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -260,7 +262,7 @@ fun DetailScreen(
                         }
 
                         // 离线下载
-                        TonalCard(shape = RoundedCornerShape(16.dp)) {
+                        TonalCard {
                             Column(Modifier.padding(14.dp)) {
                                 Text(
                                     stringResource(R.string.detail_offline_download),
@@ -271,12 +273,12 @@ fun DetailScreen(
                                     Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    OutlinedButton(
+                                    FilledTonalButton(
                                         onClick = { vm.download("txt") },
                                         enabled = !busy,
                                         modifier = Modifier.weight(1f),
                                     ) { Text(stringResource(R.string.detail_format_txt)) }
-                                    OutlinedButton(
+                                    FilledTonalButton(
                                         onClick = { vm.download("epub") },
                                         enabled = !busy,
                                         modifier = Modifier.weight(1f),
@@ -285,20 +287,26 @@ fun DetailScreen(
 
                                 AnimatedVisibility(
                                     visible = job != null,
-                                    enter = fadeIn(tween(250)) + expandVertically(),
-                                    exit = fadeOut(tween(200)) + shrinkVertically(),
+                                    enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                                        expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                                    exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                        shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()),
                                 ) {
                                     val j = job
                                     Spacer(Modifier.height(12.dp))
                                     when (j?.status) {
+                                        // 进入分支后 j 已被智能转换为非空，分支内不再写 `?.`
                                         JobStatus.RUNNING -> {
-                                            LinearProgressIndicator(
-                                                progress = { j?.progress ?: 0f },
+                                            ActiveProgressBar(
+                                                progress = { j.progress },
                                                 modifier = Modifier.fillMaxWidth(),
                                             )
                                             Spacer(Modifier.height(4.dp))
                                             Text(
-                                                stringResource(R.string.detail_downloading, ((j?.progress ?: 0f) * 100).toInt()),
+                                                stringResource(
+                                                    R.string.detail_downloading,
+                                                    (j.progress * 100).toInt(),
+                                                ),
                                                 style = MaterialTheme.typography.bodySmall,
                                             )
                                         }
@@ -306,9 +314,16 @@ fun DetailScreen(
                                             style = MaterialTheme.typography.bodySmall)
                                         JobStatus.DONE -> AssistChip(
                                             onClick = {},
-                                            label = { Text(stringResource(R.string.detail_saved, j?.filePath ?: "完成")) },
+                                            label = {
+                                                Text(
+                                                    stringResource(
+                                                        R.string.detail_saved,
+                                                        j.filePath ?: "完成",
+                                                    ),
+                                                )
+                                            },
                                         )
-                                        JobStatus.FAILED -> Text(stringResource(R.string.detail_failed, j?.error ?: "-"),
+                                        JobStatus.FAILED -> Text(stringResource(R.string.detail_failed, j.error ?: "-"),
                                             color = MaterialTheme.colorScheme.error,
                                             style = MaterialTheme.typography.bodySmall)
                                         JobStatus.CANCELLED -> Text(stringResource(R.string.detail_cancelled),
@@ -321,7 +336,7 @@ fun DetailScreen(
                         }
 
                         // 内容简介
-                        TonalCard(shape = RoundedCornerShape(16.dp)) {
+                        TonalCard {
                             Column(Modifier.padding(14.dp)) {
                                 Text(
                                     stringResource(R.string.detail_description),

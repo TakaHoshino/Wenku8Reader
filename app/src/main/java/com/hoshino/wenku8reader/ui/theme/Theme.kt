@@ -4,46 +4,255 @@ import android.graphics.Color as AndroidColor
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.ShapeDefaults
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+// 相对亮度统一用 androidx 的实现（线性空间），与 MainScaffold 里底栏的亮度判断同一口径；
+// 之前这里有一份自研的 sRGB 加权版本，两套算法在深浅临界值附近会给出不同结论。
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.ThemeController
 
 /**
- * 全局主题。参考 SukiSU-Ultra 的 Material 侧设计语言：
+ * 全局主题（Material 3 Expressive）：
  * - 动态取色（Android 12+）或手动种子色；
  * - 完整补齐 surfaceContainer* 系列角色（折叠大顶栏 / 底栏 / 卡片同色系）；
- * - AMOLED 纯黑模式（深色下 surface 系列压到真黑）。
+ * - AMOLED 纯黑模式（深色下 surface 系列压到真黑）；
+ * - 形状刻度取 Expressive 的 large=20dp（卡片 / 列表组），动效由其 motion scheme 驱动。
+ * - [uiStyle] = MIUIX 时切到 MIUIX（HyperOS）风格：`MiuixTheme` 提供配色与文字样式，
+ *   其内部再嵌一层由 MIUIX 色板映射出的 Material 主题，保证尚未迁移的 M3 组件
+ *  （Text/Slider/Dialog 等）颜色依然正确。
+ *
+ * 为什么用 [MaterialExpressiveTheme] 而不是 `MaterialTheme`：前者会把
+ * motion scheme、形状与排版一并设为 Expressive 默认值（后者需要逐个显式传入）。
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun Wenku8ReaderTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     seedColor: Color = Color(0xFF3F5BA9),
     amoled: Boolean = false,
+    expressiveMotion: Boolean = true,
+    uiStyle: UiStyle = UiStyle.MATERIAL3,
     content: @Composable () -> Unit,
 ) {
-    val baseScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context)
-            else dynamicLightColorScheme(context)
+    CompositionLocalProvider(LocalUiStyle provides uiStyle) {
+        if (uiStyle == UiStyle.MIUIX) {
+            MiuixRootTheme(
+                darkTheme = darkTheme,
+                content = content,
+            )
+            return@CompositionLocalProvider
         }
-        else -> manualScheme(seedColor, darkTheme, amoled)
+        val m3Content = @Composable {
+            val baseScheme = when {
+                dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                    val context = LocalContext.current
+                    if (darkTheme) dynamicDarkColorScheme(context)
+                    else dynamicLightColorScheme(context)
+                }
+                else -> manualScheme(seedColor, darkTheme, amoled)
+            }
+            // AMOLED 纯黑对动态色板同样生效：只压黑 surface 系列，保留动态取色的主色。
+            val colorScheme = if (amoled && darkTheme) baseScheme.amoledCopy() else baseScheme
+            MaterialExpressiveTheme(
+                colorScheme = colorScheme,
+                motionScheme = if (expressiveMotion) MotionScheme.expressive() else MotionScheme.standard(),
+                shapes = Wenku8Shapes,
+                typography = Wenku8Typography,
+                content = content,
+            )
+        }
+        m3Content()
     }
-    // AMOLED 纯黑对动态色板同样生效：只压黑 surface 系列，保留动态取色的主色。
-    val colorScheme = if (amoled && darkTheme) baseScheme.amoledCopy() else baseScheme
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Wenku8Typography,
-        content = content,
+}
+
+/**
+ * MIUIX 根主题。
+ *
+ * 配色来源：miuix 自己的色板（HyperOS 默认蓝），**刻意不使用动态取色、也不读取
+ * Material 侧的种子色**——MIUIX 模式与 MD3 的主题设置完全解耦，切换风格不会互相影响。
+ * 深色/浅色仍跟随应用设置（[ColorSchemeMode]）。
+ *
+ * 内层再套一个由 MIUIX 色板映射的 Material 主题：本项目还有大量 Material 组件
+ * （Slider、DropdownMenu、AlertDialog、阅读器的 ModalBottomSheet…），
+ * 若不提供 M3 的 LocalContentColor，它们会退回默认黑色而在深色下不可读。
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MiuixRootTheme(
+    darkTheme: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val mode = if (darkTheme) ColorSchemeMode.Dark else ColorSchemeMode.Light
+    val controller = remember(mode) {
+        ThemeController(
+            colorSchemeMode = mode,
+            isDark = darkTheme,
+        )
+    }
+    MiuixTheme(controller = controller) {
+        MaterialTheme(
+            colorScheme = MiuixTheme.colorScheme.toMaterialColorScheme(darkTheme),
+            // 文字体系也整体切到 MIUIX：这样**所有**已存在的 `MaterialTheme.typography.*`
+            // 调用点无需改动就渲染成 HyperOS 的字号/字重（见 miuixTypography 的槽位映射）。
+            typography = miuixTypography(),
+            shapes = Wenku8Shapes,
+            content = content,
+        )
+    }
+}
+
+/**
+ * MIUIX 文字样式 → Material 排版的槽位映射。
+ *
+ * 为什么需要它：页面里 `MaterialTheme.typography.xxx` 的调用点有上百处，
+ * 逐个换成 `MiuixTheme.textStyles.yyy` 既容易漏、又把两套风格耦进每个页面；
+ * 反过来把 MIUIX 的字号体系"适配"成 M3 的槽位，调用点一行都不用动，
+ * 切到 MIUIX 时全应用文字立刻是 HyperOS 的字号/字重/行高。
+ *
+ * 对应关系（MIUI 的层级由大到小）：
+ * display/headline ← headline1/headline2；title ← title1/title2/title3；
+ * body ← body1/body2/footnote1；label ← button/footnote1/footnote2。
+ * emphasized 变体沿用同一字号（MIUI 的字重已包含强调感，不再叠加）。
+ */
+@Composable
+private fun miuixTypography(): Typography {
+    val miuix = MiuixTheme.textStyles
+    return remember(miuix) {
+        Typography(
+            displayLarge = miuix.headline1,
+            displayMedium = miuix.headline1,
+            displaySmall = miuix.headline2,
+            headlineLarge = miuix.headline1,
+            headlineMedium = miuix.headline2,
+            headlineSmall = miuix.title1,
+            titleLarge = miuix.title1,
+            titleMedium = miuix.title2,
+            titleSmall = miuix.title3,
+            bodyLarge = miuix.body1,
+            bodyMedium = miuix.body2,
+            bodySmall = miuix.footnote1,
+            labelLarge = miuix.button,
+            labelMedium = miuix.footnote1,
+            labelSmall = miuix.footnote2,
+            displayLargeEmphasized = miuix.headline1,
+            displayMediumEmphasized = miuix.headline1,
+            displaySmallEmphasized = miuix.headline2,
+            headlineLargeEmphasized = miuix.headline1,
+            headlineMediumEmphasized = miuix.headline2,
+            headlineSmallEmphasized = miuix.title1,
+            titleLargeEmphasized = miuix.title1,
+            titleMediumEmphasized = miuix.title2,
+            titleSmallEmphasized = miuix.title3,
+            bodyLargeEmphasized = miuix.body1,
+            bodyMediumEmphasized = miuix.body2,
+            bodySmallEmphasized = miuix.footnote1,
+            labelLargeEmphasized = miuix.button,
+            labelMediumEmphasized = miuix.footnote1,
+            labelSmallEmphasized = miuix.footnote2,
+        )
+    }
+}
+
+/**
+ * MIUIX 色板 → Material 色板（只映射已存在的角色，其余保留 M3 默认值）。
+ * 目的不是"看起来像 M3"，而是让残留的 M3 组件与 MIUIX 表面共用同一套颜色。
+ */
+private fun top.yukonga.miuix.kmp.theme.Colors.toMaterialColorScheme(
+    dark: Boolean,
+): ColorScheme = if (dark) {
+    darkColorScheme(
+        primary = primary,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
+        secondary = secondary,
+        onSecondary = onSecondary,
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onSecondaryContainer,
+        tertiary = secondaryVariant,
+        onTertiary = onSecondaryVariant,
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onTertiaryContainer,
+        background = background,
+        onBackground = onBackground,
+        surface = surface,
+        onSurface = onSurface,
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = onSurfaceSecondary,
+        surfaceContainerLowest = surface,
+        surfaceContainerLow = surface,
+        surfaceContainer = surfaceContainer,
+        surfaceContainerHigh = surfaceContainerHigh,
+        surfaceContainerHighest = surfaceContainerHighest,
+        surfaceBright = surfaceContainerHighest,
+        surfaceDim = surfaceContainer,
+        outline = outline,
+        error = error,
+        onError = onError,
+        errorContainer = errorContainer,
+        onErrorContainer = onErrorContainer,
+    )
+} else {
+    lightColorScheme(
+        primary = primary,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
+        secondary = secondary,
+        onSecondary = onSecondary,
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onSecondaryContainer,
+        tertiary = secondaryVariant,
+        onTertiary = onSecondaryVariant,
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onTertiaryContainer,
+        background = background,
+        onBackground = onBackground,
+        surface = surface,
+        onSurface = onSurface,
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = onSurfaceSecondary,
+        surfaceContainerLowest = surface,
+        surfaceContainerLow = surface,
+        surfaceContainer = surfaceContainer,
+        surfaceContainerHigh = surfaceContainerHigh,
+        surfaceContainerHighest = surfaceContainerHighest,
+        surfaceBright = surfaceContainerHighest,
+        surfaceDim = surfaceContainer,
+        outline = outline,
+        error = error,
+        onError = onError,
+        errorContainer = errorContainer,
+        onErrorContainer = onErrorContainer,
     )
 }
+
+/**
+ * 形状刻度：仅把 large 抬到 Expressive 的 20dp（卡片 / 分组列表容器），
+ * 其余档位保持 M3 默认，避免菜单、对话框、FAB 等组件的圆角被一并改动。
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private val Wenku8Shapes = Shapes(
+    large = ShapeDefaults.LargeIncreased,
+)
 
 /**
  * 把 surface/background 系列压到真黑，用于 OLED 省电。
@@ -145,9 +354,6 @@ private fun manualScheme(seed: Color, dark: Boolean, amoled: Boolean): ColorSche
         )
     }
 }
-
-private fun Color.luminance(): Float =
-    red * 0.299f + green * 0.587f + blue * 0.114f
 
 private fun Color.blend(target: Color, ratio: Float): Color = Color(
     red = red + (target.red - red) * ratio,

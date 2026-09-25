@@ -8,7 +8,6 @@ import com.hoshino.wenku8reader.data.local.ReadingDayStat
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import java.time.DayOfWeek
 import java.time.LocalDate
-import kotlin.math.ceil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -149,12 +148,7 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
         val weekSeconds = records
             .filter { LocalDate.ofEpochDay(it.epochDay) in weekStart..today }
             .sumOf { it.seconds }
-        var streak = 0
-        var cursor = today
-        while (dailyMinutes.containsKey(cursor.toEpochDay())) {
-            streak++
-            cursor = cursor.minusDays(1)
-        }
+        val streak = streakDays(dailyMinutes.keys, today)
         // 活跃天数：只参与日均计算，UI 不读取，故不进 UiState（避免死字段）
         val activeDays = daySeconds.size
 
@@ -165,7 +159,7 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
             totalMinutes = ceilMinutes(totalSeconds),
             weekMinutes = ceilMinutes(weekSeconds),
             streakDays = streak,
-            avgDailyMinutes = if (activeDays > 0) ceilMinutes(totalSeconds / activeDays) else 0,
+            avgDailyMinutes = avgDailyMinutes(totalSeconds, activeDays),
             bookList = books,
             dailyBookMinutes = dailyBookMinutes,
             dayTotalMinutes = dailyMinutes,
@@ -234,7 +228,4 @@ class ReadingStatsViewModel(private val store: ReadingStatsStore) : ViewModel() 
         return labels
     }
 
-    /** 秒 → 分钟，向上取整（不足 1 分钟按 1 分钟）。 */
-    private fun ceilMinutes(seconds: Long): Int =
-        if (seconds <= 0) 0 else ceil(seconds / 60.0).toInt()
 }

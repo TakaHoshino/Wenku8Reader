@@ -2,7 +2,6 @@ package com.hoshino.wenku8reader.ui.explore
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -14,16 +13,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,13 +38,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
+import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
-import com.hoshino.wenku8reader.ui.components.expressiveLargeTopAppBarColors
+import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 
 /**
- * 标签书单页（子页）。参考 SukiSU-Ultra：折叠大顶栏（返回）+ surfaceBright 列表卡片。
+ * 标签书单页（子页）：Expressive Flexible 大顶栏（返回）+ 分组卡片列表 + 分页加载全部。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,24 +57,29 @@ fun TagBooksScreen(
     vm: TagBooksViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val scrollBehavior = rememberExpressiveScrollBehavior()
 
     ExpressiveScaffold(
         topBar = {
-            LargeTopAppBar(
-                title = {
-                    Text(vm.tag, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                },
+            ExpressiveLargeTopAppBar(
+                title = vm.tag,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.action_back))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back),
+                        )
                     }
                 },
-                colors = expressiveLargeTopAppBarColors(),
-                windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                windowInsets = WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                ),
+                scrollBehavior = scrollBehavior,
             )
         },
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+        ),
     ) { inner ->
         when {
             ui.loading -> Box(
@@ -81,40 +87,34 @@ fun TagBooksScreen(
                     .fillMaxSize()
                     .padding(inner),
                 contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+            ) { ExpressiveLoadingIndicator() }
 
-            ui.error != null && ui.books.isEmpty() -> Box(
-                Modifier
+            ui.error != null && ui.books.isEmpty() -> ExpressiveEmptyState(
+                title = ui.error?.asString(LocalContext.current) ?: "",
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                shape = MaterialShapes.SoftBurst,
+                error = true,
+                actionLabel = stringResource(R.string.action_retry),
+                onAction = { vm.load() },
+                modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        ui.error?.asString(LocalContext.current) ?: "",
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    Button(onClick = { vm.load() }) { Text(stringResource(R.string.action_retry)) }
-                }
-            }
+            )
 
-            ui.books.isEmpty() -> Box(
-                Modifier
+            ui.books.isEmpty() -> ExpressiveEmptyState(
+                title = stringResource(R.string.home_empty),
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                shape = MaterialShapes.SoftBurst,
+                modifier = Modifier
                     .fillMaxSize()
                     .padding(inner),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    stringResource(R.string.home_empty),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            )
 
             else -> LazyColumn(
                 Modifier
                     .fillMaxSize()
-                    .padding(inner),
+                    .padding(inner)
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
             ) {
                 item {
                     SegmentedColumn(
@@ -150,7 +150,7 @@ fun TagBooksScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             if (ui.loadingMore) {
-                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                                ExpressiveLoadingIndicator(size = 32.dp)
                             } else {
                                 Text(
                                     stringResource(R.string.tag_books_load_more, ui.books.size),

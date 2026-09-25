@@ -1,0 +1,90 @@
+# ---------------------------------------------------------------------------
+# 依赖版本目录（Version Catalog）
+#
+# 约定：这里的版本号是**实际解析到的版本**，不是"我们最初声明的版本"。
+# 传递依赖会把不少东西顶高（例如 core-ktx 由 miuix 顶到 1.18.0、lifecycle 顶到 2.9.4），
+# 若目录里写旧版本，读代码的人会以为用的是旧版；更糟的是将来那个"顶高它的依赖"被移除时，
+# 版本会**静默回退**，而没人会注意到。
+#
+# 核对方式（改动依赖后请重跑）：
+#   ./gradlew :app:dependencies --configuration releaseRuntimeClasspath
+# 看直接依赖那一层的 `x.y.z -> a.b.c` 右侧。
+# ---------------------------------------------------------------------------
+
+[versions]
+agp = "9.4.1"
+kotlin = "2.3.21"
+ksp = "2.3.12"
+
+# Compose：BOM 统一 ui/foundation 系列；material3 单列（BOM 内的 1.4.0 没有可用的
+# MaterialExpressiveTheme，本工程整体用 M3 Expressive 设计语言）
+composeBom = "2026.05.01"
+material3 = "1.5.0-alpha18"
+
+coreKtx = "1.18.0"
+activityCompose = "1.13.0"
+lifecycle = "2.9.4"
+navigation = "2.8.0"
+
+room = "2.7.2"
+datastore = "1.2.1"
+
+miuix = "0.9.1"
+
+coroutines = "1.9.0"
+okhttp = "4.12.0"
+coil = "2.7.0"
+opencc4j = "1.14.0"
+cronet = "119.6045.31"
+
+junit = "4.13.2"
+# android.jar 里的 org.json 在单元测试中只是抛 "Stub!" 的空壳，测试运行时用这个纯 Java 实现顶上
+json = "20240303"
+
+[libraries]
+# ---- Compose ----
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
+
+# ---- AndroidX ----
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+# 必须 ≥1.11：miuix 的弹层用 NavigationEvent 处理返回键，需要宿主提供
+# LocalNavigationEventDispatcherOwner（由该版本的 ComponentActivity 提供）
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-savedstate = { module = "androidx.lifecycle:lifecycle-viewmodel-savedstate", version.ref = "lifecycle" }
+androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
+androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+
+# ---- MIUIX（第三方 HyperOS/MIUI 设计语言实现，作者 yukonga）----
+# miuix-blur 提供悬浮组件的液态玻璃（背景模糊 + 高光描边），SukiSU-Ultra 同款；
+# 0.9.x 起设置行/下拉等"偏好项"组件拆到 miuix-preference
+miuix-ui = { module = "top.yukonga.miuix.kmp:miuix-ui", version.ref = "miuix" }
+miuix-blur = { module = "top.yukonga.miuix.kmp:miuix-blur", version.ref = "miuix" }
+miuix-preference = { module = "top.yukonga.miuix.kmp:miuix-preference", version.ref = "miuix" }
+
+# ---- 其它 ----
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
+opencc4j = { module = "com.github.houbb:opencc4j", version.ref = "opencc4j" }
+cronet-embedded = { module = "org.chromium.net:cronet-embedded", version.ref = "cronet" }
+
+# ---- 测试 ----
+junit = { module = "junit:junit", version.ref = "junit" }
+org-json = { module = "org.json:json", version.ref = "json" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

@@ -18,15 +18,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,10 +34,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SplitButtonDefaults
+import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,7 +57,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
+import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
+import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
+import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.TonalCard
 
 /**
@@ -78,10 +82,9 @@ fun BookcasePage(
     // 静态顶栏（64dp）：去掉折叠顶栏的逐帧布局级联，滚动更顺滑
     ExpressiveScaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.bookcase_title)) },
+            ExpressiveTopAppBar(
+                title = stringResource(R.string.bookcase_title),
                 actions = {
-                    SortMenu(ui, onSelect = { vm.setSortType(it) }, onToggleReverse = { vm.setSortReversed(!ui.sortReversed) })
                     IconButton(onClick = onOpenStats) {
                         Icon(Icons.Filled.CalendarMonth, contentDescription = stringResource(R.string.action_stats))
                     }
@@ -92,9 +95,6 @@ fun BookcasePage(
                         Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.action_downloads))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
             )
         },
@@ -103,34 +103,49 @@ fun BookcasePage(
         when {
             ui.isLoading && ui.entries.isEmpty() ->
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                    ExpressiveLoadingIndicator()
                 }
 
-            ui.error != null && ui.entries.isEmpty() ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            ui.error?.asString(LocalContext.current) ?: "",
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Button(onClick = { vm.load() }) { Text(stringResource(R.string.action_retry)) }
-                    }
-                }
+            ui.error != null && ui.entries.isEmpty() -> ExpressiveEmptyState(
+                title = ui.error?.asString(LocalContext.current) ?: "",
+                icon = Icons.Filled.Warning,
+                shape = MaterialShapes.Boom,
+                error = true,
+                actionLabel = stringResource(R.string.action_retry),
+                onAction = { vm.load() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner),
+            )
 
-            ui.entries.isEmpty() ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(R.string.bookcase_empty_local),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            ui.entries.isEmpty() -> ExpressiveEmptyState(
+                title = stringResource(R.string.bookcase_empty_local),
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                shape = MaterialShapes.Cookie9Sided,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner),
+            )
 
             else -> LazyColumn(
                 Modifier
                     .fillMaxSize()
                     .padding(inner),
             ) {
+                item(key = "sort_bar") {
+                    // 排序：M3 Expressive SplitButton —— 主按钮选排序方式，尾随按钮切换正/倒序
+                    BookcaseSortBar(
+                        ui = ui,
+                        onSelect = { vm.setSortType(it) },
+                        onToggleReverse = { vm.setSortReversed(!ui.sortReversed) },
+                        modifier = Modifier.padding(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 4.dp,
+                            bottom = 8.dp,
+                        ),
+                    )
+                }
                 items(ui.entries, key = { it.bookId }) { entry ->
                     BookcaseCard(
                         entry = entry,
@@ -145,16 +160,41 @@ fun BookcasePage(
 }
 
 @Composable
-private fun SortMenu(
+private fun BookcaseSortBar(
     ui: BookcaseUiState,
     onSelect: (BookcaseSortType) -> Unit,
     onToggleReverse: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.bookcase_sort))
-        }
+    Box(modifier) {
+        SplitButtonLayout(
+            leadingButton = {
+                SplitButtonDefaults.TonalLeadingButton(onClick = { expanded = true }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Sort,
+                        contentDescription = null,
+                        modifier = Modifier.size(SplitButtonDefaults.LeadingIconSize),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(ui.sortType.labelRes), maxLines = 1)
+                }
+            },
+            trailingButton = {
+                // 倒序开关：tonal 尾随按钮本身就是 toggle 形态（checked 态由排序状态决定）
+                SplitButtonDefaults.TonalTrailingButton(
+                    checked = ui.sortReversed && ui.sortType != BookcaseSortType.DEFAULT,
+                    enabled = ui.sortType != BookcaseSortType.DEFAULT,
+                    onCheckedChange = { onToggleReverse() },
+                ) {
+                    Icon(
+                        Icons.Filled.SwapVert,
+                        contentDescription = stringResource(R.string.bookcase_sort_reverse),
+                        modifier = Modifier.size(SplitButtonDefaults.TrailingIconSize),
+                    )
+                }
+            },
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             Text(
                 stringResource(R.string.bookcase_sort),
@@ -213,7 +253,6 @@ private fun BookcaseCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(16.dp),
         onClick = { onOpenBook(entry.bookId) },
     ) {
         Row(

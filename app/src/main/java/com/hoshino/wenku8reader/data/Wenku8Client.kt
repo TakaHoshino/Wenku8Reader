@@ -32,16 +32,16 @@ import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.util.Base64
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import com.hoshino.wenku8reader.data.local.HtmlDiskCache
 
@@ -99,8 +99,20 @@ class Wenku8Client(
      */
     private val pacer = RatePacer(PACE_BASE_INTERVAL_MS, SEARCH_MIN_INTERVAL_MS)
 
-    var username: String? = null
-        private set
+    /**
+     * 登录互斥锁：见 [ensureLoggedIn]。同一时刻只允许一个登录流程在跑，
+     * 排队者进入后先复查登录态，不重复发请求。
+     */
+    private val loginMutex = Mutex()
+
+    /**
+     * 隐藏 WebView 互斥锁：Cloudflare 兜底同一时刻只允许一个 WebView 在跑。
+     *
+     * 多个 WebView 同时解挑战会在主线程同时跑 JS，既拖慢首帧、抬高内存，
+     * 也更容易被风控判定为异常；串行化后第二个请求通常直接复用刚拿到的
+     * cf_clearance 走直连快路径，实际并不慢。
+     */
+    private val webViewMutex = Mutex()
 
     companion object {
         /** 默认主站镜像（单一来源：[Wenku8Hosts]）。 */
@@ -141,6 +153,15 @@ class Wenku8Client(
 
         /** Cronet 请求等待上限（秒）；超时后 cancel 并返回 null。 */
         private const val CRONET_TIMEOUT_SECONDS = 8L
+
+        /** 单个隐藏 WebView 解挑战的等待上限（毫秒）。 */
+        private const val WEBVIEW_TIMEOUT_MS = 15_000L
+
+        /**
+         * 等待 WebView 互斥锁的上限（毫秒）：比单个 WebView 的超时更长，
+         * 保证"排队 + 执行"整体有界，排队的请求不会无限期挂着。
+         */
+        private const val WEBVIEW_LOCK_TIMEOUT_MS = 25_000L
 
         // ---- 磁盘缓存 TTL（见 HtmlDiskCache）----
         const val TTL_HOME = 60L * 60 * 1000                 // 首页 1 小时
@@ -238,6 +259,13 @@ class Wenku8Client(
     private val infoCache = TimedCache(2 * 60 * 60 * 1000L, maxEntries = 128)
     private val tocCache = TimedCache(2 * 60 * 60 * 1000L, maxEntries = 32)
     private val chapterCache = TimedCache(30 * 60 * 1000L, maxEntries = 64)
+
+    /**
+     * 同键并发去重：缓存只挡"已完成"的重复访问，挡不住"同时发起"的重复请求
+     * （详情页 + 目录页 + 阅读器 + 下载器可能同时要同一本书的数据）。
+     * 见 [SingleFlight] 的说明；章节正文按 `bookId+cid` 分键，不同章节仍可并行。
+     */
+    private val singleFlight = SingleFlight()
 
     /**
      * 释放网络资源（应用退出或数据源被替换时调用）。
@@ -353,6 +381,19 @@ class Wenku8Client(
     /** 各类型磁盘缓存大小（字节）。 */
     fun cacheStats(): Map<String, Long> = htmlCache.sizeByCategory()
 
+    /** 网页离线缓存（`filesDir/html_cache`）总大小（字节）。 */
+    fun htmlCacheSize(): Long = htmlCache.totalSize()
+
+    /**
+     * 立即按当前设置应用缓存上限。
+     *
+     * 原先上限只在**写入时**读取（见 [getHtmlCached]），用户把上限从 500MB 调到 30MB 后，
+     * 超出的部分要等到下一次写入才会被裁掉——设置页看起来"没生效"。调整上限时显式调用本方法。
+     */
+    fun applyCacheLimit() {
+        htmlCache.setMaxBytes(cacheMaxMbProvider().toLong() * 1024 * 1024)
+    }
+
     /** 清理磁盘缓存（[category] = null 清全部）；清全部时同时清空内存缓存。 */
     fun clearCache(category: String? = null) {
         htmlCache.clear(category)
@@ -396,14 +437,29 @@ class Wenku8Client(
 
     suspend fun isLoggedIn(): Boolean = withContext(Dispatchers.IO) { hasSession() }
 
-    /** 确保已登录（供 tags/bookcase 等需登录接口调用）。 */
+    /**
+     * 确保已登录（供 tags/bookcase 等需登录接口调用）。
+     *
+     * 加锁的原因：启动时静默登录、探索页 `tags()`、书架页 `bookcase()` 可能**同时**
+     * 发现"未登录"并各自发起一次登录，产生重复请求、重复写 Cookie，还会让站点多算几次
+     * 风控样本。锁内必须**再次检查**登录态——先到的协程可能已经把登录做完了，
+     * 排队者直接复用结果即可。
+     */
     suspend fun ensureLoggedIn(): Boolean {
         if (isLoggedIn()) return true
-        val creds = defaultCredentials() ?: return false
-        return login(creds.first, creds.second)
+        return loginMutex.withLock {
+            if (isLoggedIn()) return@withLock true
+            val creds = defaultCredentials() ?: return@withLock false
+            loginInternal(creds.first, creds.second)
+        }
     }
 
-    suspend fun login(user: String, pass: String): Boolean = withContext(Dispatchers.IO) {
+    /** 显式登录（切换镜像后重登等）；与 [ensureLoggedIn] 共用同一把锁，避免并发重复登录。 */
+    suspend fun login(user: String, pass: String): Boolean =
+        loginMutex.withLock { loginInternal(user, pass) }
+
+    private suspend fun loginInternal(user: String, pass: String): Boolean =
+        withContext(Dispatchers.IO) {
         val resp = postForm(
             "$base/login.php?do=submit" +
                 "&jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}",
@@ -419,7 +475,6 @@ class Wenku8Client(
         // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
         val ok = hasSession()
         if (ok) {
-            username = user
             cookieStore.persist()
         }
         ok
@@ -473,47 +528,58 @@ class Wenku8Client(
     }
 
     suspend fun bookInfo(id: Int): BookInfo = withContext(Dispatchers.IO) {
-        infoCache.get("info_$id") ?: run {
-            // 网页优先（含磁盘缓存 + cf_clearance 快路径）；失败/空则走官方 App API（免 CF）
-            val web = runCatchingNotCancelling {
-                Parsers.parseBookInfo(getHtmlCached("$base/book/$id.htm", TTL_BOOK, "book"), id)
-            }.getOrNull()
-            val info = web?.takeIf { it.title.isNotBlank() }
-                ?: appApiBookInfo(id)
-                ?: throw IOException("书籍信息获取失败")
-            infoCache.put("info_$id", info)
-            info
+        // 同键并发只放行一个：排队者拿到锁时缓存已写好，不会再发一次请求
+        singleFlight.run("info_$id") {
+            infoCache.get("info_$id") ?: run {
+                // 网页优先（含磁盘缓存 + cf_clearance 快路径）；失败/空则走官方 App API（免 CF）
+                val web = runCatchingNotCancelling {
+                    Parsers.parseBookInfo(
+                        getHtmlCached("$base/book/$id.htm", TTL_BOOK, "book"),
+                        id,
+                    )
+                }.getOrNull()
+                val info = web?.takeIf { it.title.isNotBlank() }
+                    ?: appApiBookInfo(id)
+                    ?: throw IOException("书籍信息获取失败")
+                infoCache.put("info_$id", info)
+                info
+            }
         }
     }
 
     suspend fun chapters(bookId: Int, groupId: Int): List<Volume> = withContext(Dispatchers.IO) {
-        tocCache.get("toc_$bookId") ?: run {
-            val web = runCatchingNotCancelling {
-                Parsers.parseChapterIndex(
-                    getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK, "book")
-                )
-            }.getOrNull()
-            val volumes = web?.takeIf { it.isNotEmpty() }
-                ?: appApiVolumes(bookId)
-                ?: throw IOException("章节目录加载失败")
-            tocCache.put("toc_$bookId", volumes)
-            volumes
+        singleFlight.run("toc_$bookId") {
+            tocCache.get("toc_$bookId") ?: run {
+                val web = runCatchingNotCancelling {
+                    Parsers.parseChapterIndex(
+                        getHtmlCached("$base/novel/$groupId/$bookId/index.htm", TTL_BOOK, "book")
+                    )
+                }.getOrNull()
+                val volumes = web?.takeIf { it.isNotEmpty() }
+                    ?: appApiVolumes(bookId)
+                    ?: throw IOException("章节目录加载失败")
+                tocCache.put("toc_$bookId", volumes)
+                volumes
+            }
         }
     }
 
     suspend fun chapterContent(gid: Int, bookId: Int, cid: String): ChapterContent =
         withContext(Dispatchers.IO) {
-            chapterCache.get("chap_${bookId}_$cid") ?: run {
-                val web = runCatchingNotCancelling {
-                    Parsers.parseChapter(
-                        getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER, "chapter")
-                    )
-                }.getOrNull()
-                val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
-                    ?: appApiChapter(bookId, cid)
-                    ?: throw IOException("章节加载失败")
-                chapterCache.put("chap_${bookId}_$cid", chapter)
-                chapter
+            // 按 bookId+cid 分键：同一章的并发请求合并，不同章节照旧并行
+            singleFlight.run("chap_${bookId}_$cid") {
+                chapterCache.get("chap_${bookId}_$cid") ?: run {
+                    val web = runCatchingNotCancelling {
+                        Parsers.parseChapter(
+                            getHtmlCached("$base/novel/$gid/$bookId/$cid.htm", TTL_CHAPTER, "chapter")
+                        )
+                    }.getOrNull()
+                    val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
+                        ?: appApiChapter(bookId, cid)
+                        ?: throw IOException("章节加载失败")
+                    chapterCache.put("chap_${bookId}_$cid", chapter)
+                    chapter
+                }
             }
         }
 
@@ -563,7 +629,7 @@ class Wenku8Client(
 
     private suspend fun appApiBookInfo(id: Int): BookInfo? {
         val meta = appApiGet("action=book&do=meta&aid=$id&t=0") ?: return null
-        val info = Parsers.parseAppBookInfo(meta, id) ?: return null
+        val info = AppParsers.parseAppBookInfo(meta, id) ?: return null
         // 简介在 do=intro 接口：响应正文即简介纯文本
         val intro = appApiGet("action=book&do=intro&aid=$id&t=0")
         val description = intro?.let { html ->
@@ -575,12 +641,12 @@ class Wenku8Client(
 
     private suspend fun appApiVolumes(bookId: Int): List<Volume>? {
         val list = appApiGet("action=book&do=list&aid=$bookId&t=0") ?: return null
-        return Parsers.parseAppVolumes(list)
+        return AppParsers.parseAppVolumes(list)
     }
 
     private suspend fun appApiChapter(bookId: Int, cid: String): ChapterContent? {
         val text = appApiGet("action=book&do=text&aid=$bookId&cid=$cid&t=0") ?: return null
-        return Parsers.parseAppChapter(text)
+        return AppParsers.parseAppChapter(text)
     }
 
     suspend fun bookcase(): List<BookcaseItem> = withContext(Dispatchers.IO) {
@@ -710,18 +776,24 @@ class Wenku8Client(
         return null
     }
 
-    /** GET via Cronet, carrying the app's session cookies; returns null on failure/timeout. */
+    /**
+     * GET via Cronet, carrying the app's session cookies; returns null on failure/timeout.
+     *
+     * 用挂起等待替代 `CountDownLatch.await(8s)`：原先每个 Cronet 请求都要独占一个
+     * IO 线程空等最多 8 秒（并发几个请求就白白占住几个线程），而且协程被取消时
+     * 线程仍会等到超时才释放。改成 `suspendCancellableCoroutine` 后：
+     * 线程在等待期间被释放、取消能立刻传播到 `UrlRequest.cancel()`。
+     */
     private suspend fun cronetGet(engine: CronetEngine, url: String): String? =
-        withContext(Dispatchers.IO) {
-            val latch = CountDownLatch(1)
-            val result = AtomicReference<ByteArray?>(null)
+        withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
             val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
             val body = ByteArrayOutputStream()
             val httpUrl = url.toHttpUrl()
             val cookieHeader = cookieStore.loadForRequest(httpUrl)
                 .joinToString("; ") { "${it.name}=${it.value}" }
 
-            val callback = object : UrlRequest.Callback() {
+            suspendCancellableCoroutine { cont ->
+                val callback = object : UrlRequest.Callback() {
                 override fun onRedirectReceived(
                     request: UrlRequest,
                     info: UrlResponseInfo,
@@ -757,8 +829,7 @@ class Wenku8Client(
                 }
 
                 override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
-                    result.set(body.toByteArray())
-                    latch.countDown()
+                    if (cont.isActive) cont.resume(String(body.toByteArray(), GB18030))
                 }
 
                 override fun onFailed(
@@ -766,11 +837,11 @@ class Wenku8Client(
                     info: UrlResponseInfo?,
                     error: CronetException,
                 ) {
-                    latch.countDown()
+                    if (cont.isActive) cont.resume(null)
                 }
 
                 override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
-                    latch.countDown()
+                    if (cont.isActive) cont.resume(null)
                 }
             }
 
@@ -791,11 +862,10 @@ class Wenku8Client(
             refererFor(url)?.let { builder.addHeader("Referer", it) }
             if (cookieHeader.isNotEmpty()) builder.addHeader("Cookie", cookieHeader)
             val request = builder.build()
+            // 取消（页面离开 / 超时）时立刻取消底层请求，回调再触发 onCanceled 也不影响已取消的协程
+            cont.invokeOnCancellation { runCatching { request.cancel() } }
             request.start()
-            if (!latch.await(CRONET_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                request.cancel()
             }
-            result.get()?.let { String(it, GB18030) }
         }
 
     /**
@@ -807,80 +877,111 @@ class Wenku8Client(
      * 2. 把 WebView 写入的 Cookie（含 cf_clearance / __cf_bm）持久化到 CookieStore，
      *    之后 OkHttp/Cronet 直接带令牌请求，无需每次重跑 WebView。
      */
-    private suspend fun webViewGet(url: String): String? = withTimeoutOrNull(15000) {
-        withContext(Dispatchers.Main) {
-            suspendCancellableCoroutine { cont ->
-                val webView = runCatching { WebView(appContext) }.getOrNull()
-                if (webView == null) {
-                    if (cont.isActive) cont.resume(null)
-                    return@suspendCancellableCoroutine
-                }
-                val usedUa = randomAndroidUa()
-                val host = runCatching { url.toHttpUrl().host }.getOrNull()
-                runCatching {
-                    webView.settings.javaScriptEnabled = true
-                    webView.settings.domStorageEnabled = true
-                    webView.settings.userAgentString = usedUa
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-                    runCatching {
-                        val httpUrl = url.toHttpUrl()
-                        val cookieHeader = cookieStore.loadForRequest(httpUrl)
-                            .joinToString("; ") { "${it.name}=${it.value}" }
-                        if (cookieHeader.isNotEmpty()) {
-                            @Suppress("DEPRECATION")
-                            CookieManager.getInstance().setCookie(url, cookieHeader)
-                        }
-                    }
-                    var attempts = 0
-                    webView.webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            view?.evaluateJavascript(
-                                "document.documentElement.outerHTML",
-                                object : ValueCallback<String> {
-                                    override fun onReceiveValue(html: String?) {
-                                        val decoded = runCatching {
-                                            JSONTokener(html).nextValue() as String
-                                        }.getOrNull()
-                                        attempts++
-                                        // Skip challenge pages and wait for Cloudflare's auto-redirect.
-                                        if (decoded != null && (!isChallenge(decoded) || attempts >= 3)) {
-                                            // 挑战已通过：记录 UA 并持久化 cf_clearance 等 Cookie
-                                            if (host != null) challengeUa[host] = usedUa
-                                            val finishedUrl = url
-                                            if (finishedUrl != null) {
-                                                runCatching {
-                                                    val wvCookies = CookieManager.getInstance()
-                                                        .getCookie(finishedUrl)
-                                                    if (!wvCookies.isNullOrBlank()) {
-                                                        cookieStore.saveRaw(finishedUrl.toHttpUrl(), wvCookies)
+    private suspend fun webViewGet(url: String): String? =
+        // 串行化：同一时刻只有一个隐藏 WebView 在解挑战（见 webViewMutex 说明）。
+        // 外层超时覆盖"排队 + 执行"，避免排在后面的请求无限期等待。
+        withTimeoutOrNull(WEBVIEW_LOCK_TIMEOUT_MS) {
+            webViewMutex.withLock {
+                withTimeoutOrNull(WEBVIEW_TIMEOUT_MS) {
+                    withContext(Dispatchers.Main) {
+                        suspendCancellableCoroutine { cont ->
+                            val webView = runCatching { WebView(appContext) }.getOrNull()
+                            if (webView == null) {
+                                if (cont.isActive) cont.resume(null)
+                                return@suspendCancellableCoroutine
+                            }
+                            // 协程被取消（离开页面 / 超时 / ViewModel 销毁）时销毁 WebView：
+                            // 原先只有"成功/失败"两条路径会 destroy，取消路径会留下一个
+                            // 仍在跑 JS 的隐藏 WebView（内存 + 回调 + 风控样本全都留着）。
+                            cont.invokeOnCancellation {
+                                webView.post { destroyWebView(webView) }
+                            }
+                            var usedUa = randomAndroidUa()
+                            val host = runCatching { url.toHttpUrl().host }.getOrNull()
+                            runCatching {
+                                webView.settings.javaScriptEnabled = true
+                                webView.settings.domStorageEnabled = true
+                                webView.settings.userAgentString = usedUa
+                                CookieManager.getInstance().setAcceptCookie(true)
+                                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+                                runCatching {
+                                    val httpUrl = url.toHttpUrl()
+                                    val cookieHeader = cookieStore.loadForRequest(httpUrl)
+                                        .joinToString("; ") { "${it.name}=${it.value}" }
+                                    if (cookieHeader.isNotEmpty()) {
+                                        @Suppress("DEPRECATION")
+                                        CookieManager.getInstance().setCookie(url, cookieHeader)
+                                    }
+                                }
+                                var attempts = 0
+                                webView.webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        view?.evaluateJavascript(
+                                            "document.documentElement.outerHTML",
+                                            object : ValueCallback<String> {
+                                                override fun onReceiveValue(html: String?) {
+                                                    val decoded = runCatching {
+                                                        JSONTokener(html).nextValue() as String
+                                                    }.getOrNull()
+                                                    attempts++
+                                                    // Skip challenge pages and wait for Cloudflare's auto-redirect.
+                                                    if (decoded != null && (!isChallenge(decoded) || attempts >= 3)) {
+                                                        // 挑战已通过：记录 UA 并持久化 cf_clearance 等 Cookie
+                                                        if (host != null) challengeUa[host] = usedUa
+                                                        val finishedUrl = url
+                                                        if (finishedUrl != null) {
+                                                            runCatching {
+                                                                val wvCookies = CookieManager.getInstance()
+                                                                    .getCookie(finishedUrl)
+                                                                if (!wvCookies.isNullOrBlank()) {
+                                                                    cookieStore.saveRaw(finishedUrl.toHttpUrl(), wvCookies)
+                                                                }
+                                                            }
+                                                        }
+                                                        destroyWebView(webView)
+                                                        if (cont.isActive) cont.resume(decoded)
                                                     }
                                                 }
                                             }
-                                            runCatching { webView.destroy() }
-                                            if (cont.isActive) cont.resume(decoded)
-                                        }
+                                        )
+                                    }
+
+                                    override fun onReceivedError(
+                                        view: WebView?,
+                                        request: WebResourceRequest?,
+                                        error: WebResourceError?,
+                                    ) {
+                                        destroyWebView(webView)
+                                        if (cont.isActive) cont.resume(null)
                                     }
                                 }
-                            )
-                        }
-
-                        override fun onReceivedError(
-                            view: WebView?,
-                            request: WebResourceRequest?,
-                            error: WebResourceError?,
-                        ) {
-                            runCatching { webView.destroy() }
-                            if (cont.isActive) cont.resume(null)
+                                webView.loadUrl(url)
+                            }.onFailure {
+                                destroyWebView(webView)
+                                if (cont.isActive) cont.resume(null)
+                            }
                         }
                     }
-                    webView.loadUrl(url)
-                }.onFailure {
-                    runCatching { webView.destroy() }
-                    if (cont.isActive) cont.resume(null)
                 }
             }
         }
+
+    /**
+     * 隐藏 WebView 的统一销毁路径。
+     *
+     * 直接 `destroy()` 会留下未停止的加载与回调引用；按官方建议先停加载、清历史，
+     * 再摘掉 WebViewClient，最后销毁。每一步都 runCatching——任一步失败都不应
+     * 阻止后续清理（否则就成了"清理过程中崩溃"）。
+     */
+    private fun destroyWebView(webView: WebView) {
+        runCatching { webView.stopLoading() }
+        runCatching { webView.loadUrl("about:blank") }
+        runCatching { webView.clearHistory() }
+        runCatching { webView.removeAllViews() }
+        // 换成空实现而不是 null（SDK 里该属性是非空类型），目的是断开原匿名回调
+        // 对协程 continuation 的引用，避免销毁后仍被回调持有。
+        runCatching { webView.webViewClient = WebViewClient() }
+        runCatching { webView.destroy() }
     }
 
     /** type: "txt"(GBK) | "utf8" | "big5" */
@@ -888,90 +989,18 @@ class Wenku8Client(
         getBytes("$DL/down.php?type=$type&node=1&id=$id")
 
     /**
-     * 统一限流组件：本项目**全部**请求节流状态的唯一所有者。
+     * 抓取图片原始字节（阅读器插图的「保存图片」用）。
      *
-     * 三层语义各自独立、不可合并成一个延时：
-     * 1. [pace] 全局请求间隔（间隔 = 基数 × 自适应速率），保护站点也保护自己；
-     * 2. [adjust] 自适应速率（成功回落 / 失败放大，1.0~8.0），遇 429 自动降速；
-     * 3. [paceSearch] 搜索硬间隔（站点硬性要求两次搜索 ≥5s，短于该值直接返回错误页）。
-     * 此外 App API 另有 `Semaphore(1)` 串行约束（官方 App 行为），留在调用侧。
+     * 与 [getBytes] 的唯一差别是 Referer：图片走站点防盗链，必须带
+     * [Wenku8Hosts.IMAGE_REFERER]，用同域根地址会被拒绝。地址同样统一升级为 HTTPS
+     * （站点页面给的是 http，明文流量已被 networkSecurityConfig 禁止）。
      */
-    private class RatePacer(
-        private val baseIntervalMs: Long,
-        private val searchIntervalMs: Long,
-    ) {
-        private val lock = Any()
-        private var lastRequest = 0L
-        private var lastSearch = 0L
-        private var rate = 1.0
-
-        /** 请求结果反馈：成功逐步回落（×0.85），失败立即放大（×2），钳制在 1.0~8.0。 */
-        fun adjust(ok: Boolean) {
-            synchronized(lock) {
-                rate = if (ok) max(1.0, rate * 0.85) else min(8.0, rate * 2)
-            }
-        }
-
-        /** 全局请求间隔：必要时挂起补足等待。 */
-        suspend fun pace() {
-            val sleep = synchronized(lock) {
-                val now = System.currentTimeMillis()
-                val wait = lastRequest + (baseIntervalMs * rate).toLong() - now
-                lastRequest = now
-                wait
-            }
-            if (sleep > 0) delay(sleep)
-        }
-
-        /** 搜索硬间隔：站点要求两次搜索间隔 ≥ [searchIntervalMs]。 */
-        suspend fun paceSearch() {
-            val sleep = synchronized(lock) {
-                val now = System.currentTimeMillis()
-                val wait = lastSearch + searchIntervalMs - now
-                lastSearch = now
-                wait
-            }
-            if (sleep > 0) delay(sleep)
-        }
-    }
-}
-
-/**
- * 简单 TTL + LRU 内存缓存（参考 LightNovelReader 的 Cache）。
- * 只缓存成功结果；超时后下次访问自动重取。
- *
- * 容量上限说明：原实现只有 TTL、没有容量上限——用户长读一本书时
- * `chapterCache`（30 分钟 TTL）会把全部已读章节正文（每章数十 KB）
- * 一直累积在内存里。这里补上 LRU 上限（按访问顺序淘汰最久未用），
- * 把内存占用钳制在可预期范围内。
- */
-private class TimedCache(
-    private val ttlMs: Long,
-    private val maxEntries: Int,
-) {
-    /** accessOrder = true：读取即刷新 LRU 顺序，供 [removeEldestEntry] 淘汰最久未用项。 */
-    private val map = object : LinkedHashMap<String, Pair<Long, Any>>(16, 0.75f, true) {
-        override fun removeEldestEntry(
-            eldest: MutableMap.MutableEntry<String, Pair<Long, Any>>,
-        ): Boolean = size > maxEntries
+    suspend fun imageBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url(Wenku8Hosts.normalizeImageUrl(url))
+            .browserHeaders(Wenku8Hosts.IMAGE_REFERER, UA)
+            .build()
+        readBytes(execute(req))
     }
 
-    @Suppress("UNCHECKED_CAST")
-    @Synchronized
-    fun <T> get(key: String): T? {
-        val entry = map[key] ?: return null
-        if (System.currentTimeMillis() - entry.first > ttlMs) {
-            map.remove(key)
-            return null
-        }
-        return entry.second as T
-    }
-
-    @Synchronized
-    fun put(key: String, value: Any) {
-        map[key] = System.currentTimeMillis() to value
-    }
-
-    @Synchronized
-    fun clear() = map.clear()
 }

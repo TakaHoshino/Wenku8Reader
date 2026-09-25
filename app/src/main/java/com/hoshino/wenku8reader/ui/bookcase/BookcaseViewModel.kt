@@ -4,15 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.AppPreferences
-import com.hoshino.wenku8reader.data.local.LocalLibraryStore
+import com.hoshino.wenku8reader.data.local.LibraryBook
+import com.hoshino.wenku8reader.data.local.LibraryStore
+import com.hoshino.wenku8reader.data.local.ReadingProgress
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.ui.common.UiText
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.text.Collator
 import java.util.Locale
 
@@ -60,7 +62,8 @@ data class BookcaseUiState(
 )
 
 class BookcaseViewModel(
-    private val localLibrary: LocalLibraryStore,
+    private val libraryStore: LibraryStore,
+    private val progressStore: ReadingProgressStore,
     private val preferences: AppPreferences,
 ) : ViewModel() {
 
@@ -74,34 +77,50 @@ class BookcaseViewModel(
 
     private var natural: List<BookcaseEntry> = emptyList()
 
+    init {
+        // 数据源是数据库 Flow：详情页加/删收藏、阅读器写入进度之后，书架会自动刷新，
+        // 不再依赖"重新进入页面时手动 load()"（漏调用就会一直显示过期数据）。
+        viewModelScope.launch {
+            combine(
+                libraryStore.observeAll(),
+                progressStore.observeAll(),
+            ) { books, progress -> books.map { it.toEntry(progress[it.book.id]) } }
+                .collect { entries ->
+                    natural = entries
+                    _ui.update { it.copy(isLoading = false, error = null) }
+                    applySort()
+                }
+        }
+    }
+
+    /**
+     * 下拉刷新 / 错误重试：数据本来由 Flow 持续驱动，这里重读一次只是让刷新手势有即时反馈
+     * （并顺带等待一次性搬迁完成）。
+     */
     fun load() {
         viewModelScope.launch {
             _ui.update { it.copy(isLoading = true) }
-            // 书架读取含 SharedPreferences 的整份 JSON 解析，且每本书还要再解析一次
-            // 已读章节集合——必须放到 IO 线程。原实现未指定调度器（默认 Main），
-            // 百本规模下首帧会明显卡顿甚至 ANR。
-            natural = withContext(Dispatchers.IO) {
-                localLibrary.all()
-                    .sortedByDescending { it.addedAt }
-                    .map { lb ->
-                        BookcaseEntry(
-                            bookId = lb.book.id,
-                            title = lb.book.title,
-                            author = lb.book.author,
-                            coverUrl = lb.book.coverUrl,
-                            status = lb.book.status,
-                            lastUpdate = lb.book.lastUpdate,
-                            wordCount = parseWordCount(lb.book.wordCount),
-                            addedAt = lb.addedAt,
-                            progressTotal = preferences.progressTotal(lb.book.id),
-                            readCount = preferences.finishedChapters(lb.book.id).size,
-                        )
-                    }
-            }
+            val progress = progressStore.readAll()
+            natural = libraryStore.all()
+                .sortedByDescending { it.addedAt }
+                .map { it.toEntry(progress[it.book.id]) }
             _ui.update { it.copy(isLoading = false, error = null) }
             applySort()
         }
     }
+
+    private fun LibraryBook.toEntry(progress: ReadingProgress?): BookcaseEntry = BookcaseEntry(
+        bookId = book.id,
+        title = book.title,
+        author = book.author,
+        coverUrl = book.coverUrl,
+        status = book.status,
+        lastUpdate = book.lastUpdate,
+        wordCount = parseWordCount(book.wordCount),
+        addedAt = addedAt,
+        progressTotal = progress?.totalChapters ?: 0,
+        readCount = progress?.finishedCids?.size ?: 0,
+    )
 
     fun setSortType(type: BookcaseSortType) {
         preferences.bookcaseSortType = type.key
@@ -146,23 +165,4 @@ class BookcaseViewModel(
         return if (reversed) sorted.reversed() else sorted
     }
 
-    private fun parseWordCount(raw: String): Int {
-        val s = raw.trim().uppercase().replace(",", "").replace("，", "")
-        val m = WORD_COUNT.find(s) ?: return 0
-        val num = m.groupValues[1].toDoubleOrNull() ?: return 0
-        val mult = when (m.groupValues[2]) {
-            "K", "千" -> 1000
-            "M" -> 1_000_000
-            "万" -> 10_000
-            else -> 1
-        }
-        // 先按 Long 计算再钳制：异常数据（如 "99999M"）会让 Double→Int 截断甚至溢出，
-        // 得到负数参与排序时会把这类书错排到极前/极后。
-        return (num * mult).toLong().coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
-    }
-
-    private companion object {
-        /** 字数文本解析（如 "390K" / "1.2万" / "12M"）；提为常量避免每本书都新建正则。 */
-        val WORD_COUNT = Regex("([0-9.]+)\\s*([KM千]|万)?")
-    }
 }

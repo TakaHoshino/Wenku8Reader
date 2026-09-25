@@ -6,14 +6,20 @@ import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.UpdateChecker
 import com.hoshino.wenku8reader.data.Wenku8Client
 import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
-import com.hoshino.wenku8reader.data.local.LocalLibraryStore
+import com.hoshino.wenku8reader.data.local.LibraryStore
+import com.hoshino.wenku8reader.data.local.LocalDataMigration
+import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
+import com.hoshino.wenku8reader.data.local.db.AppDatabase
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Manual dependency container owned by the Application. Holds the app-scoped
@@ -29,10 +35,28 @@ class AppContainer(context: Context) {
      * 这里集中持有一个，注入给需要的组件；需要主线程的（更新弹窗状态与安装器）
      * 用 `Main.immediate`，与原实现行为一致。
      */
-    private val applicationScope: CoroutineScope =
+    val applicationScope: CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    val readerSettings: ReaderSettings = ReaderSettings(context)
+    /**
+     * 应用级**后台**任务作用域：与 [applicationScope] 共享同一个 Job，只是调度器换成 IO。
+     *
+     * 共享 Job 是关键——两个作用域同生共死，将来要统一取消后台任务时只需取消
+     * [applicationScope]；若各自 `SupervisorJob()`，取消一个不会影响另一个。
+     */
+    private val ioScope: CoroutineScope =
+        CoroutineScope(applicationScope.coroutineContext + Dispatchers.IO)
+
+    /**
+     * 启动应用级后台任务的唯一入口（静默登录、启动清理等）。
+     *
+     * 为什么不让调用方自己 `CoroutineScope(...).launch`：`Wenku8Application` 原先就是
+     * 这么写的，于是静默登录既不属于应用作用域、也没有任何地方能取消它。
+     */
+    fun launchIo(block: suspend CoroutineScope.() -> Unit): Job = ioScope.launch(block = block)
+
+    /** 设置存储需要应用级作用域来串行落盘（见 ReaderSettings 的说明）。 */
+    val readerSettings: ReaderSettings = ReaderSettings(context, applicationScope)
 
     /** 主镜像随设置可切换（见 ReaderSettings.primaryMirror）；注入内置账号供静默登录。 */
     val client: Wenku8Client = Wenku8Client(
@@ -46,7 +70,27 @@ class AppContainer(context: Context) {
 
     val preferences: AppPreferences = AppPreferences(context)
 
-    val localLibrary: LocalLibraryStore = LocalLibraryStore(context)
+    /**
+     * 存储占用统计与清理（缓存目录 + 网页离线缓存 + SharedPreferences）。
+     * 需要 [client] 拿网页离线缓存的真实大小与清理入口，故在其之后初始化。
+     */
+    val storage: AppStorageManager = AppStorageManager(context, client)
+
+    /** 本地数据库（书架 + 阅读进度）。 */
+    private val database: AppDatabase = AppDatabase.build(context)
+
+    /**
+     * 旧 SharedPreferences → Room 的一次性搬迁门。
+     *
+     * 两个 store 的每次读写都会先过它，因此**不存在"页面先读到空数据"的窗口**；
+     * [init] 里还会主动预热一次，把搬迁开销挪到启动阶段而不是第一次打开书架时。
+     */
+    private val localDataMigration: LocalDataMigration = LocalDataMigration(context, database.libraryDao())
+
+    val libraryStore: LibraryStore = LibraryStore(database.libraryDao(), localDataMigration)
+
+    val readingProgressStore: ReadingProgressStore =
+        ReadingProgressStore(database.libraryDao(), localDataMigration)
 
     /** 阅读时长聚合存储（按书+日期，热力图数据源）。 */
     val readingStats: ReadingStatsStore = ReadingStatsStore(context)
@@ -57,4 +101,23 @@ class AppContainer(context: Context) {
         UpdateCenter(context, updateChecker, preferences, readerSettings, applicationScope)
 
     val downloadEngine: DownloadEngine = DownloadEngine(context, repository, applicationScope)
+
+    init {
+        /**
+         * 预热一次性数据搬迁：让首次打开书架/阅读器时不必等待磁盘迁移，
+         * 同时把结果留在日志里（失败会带上"已导入多少条"，便于排查）。
+         */
+        launchIo {
+            runCatching { localDataMigration.ensure() }
+        }
+        /**
+         * 启动时回收陈旧缓存产物（更新安装包 / 残留临时文件）。
+         *
+         * 放在 AppContainer 里而不是 Application：写操作需要应用级作用域，
+         * 用这里的 [applicationScope] 才不会又冒出一个无人取消的裸作用域。
+         */
+        launchIo {
+            runCatching { storage.pruneStaleArtifacts() }
+        }
+    }
 }

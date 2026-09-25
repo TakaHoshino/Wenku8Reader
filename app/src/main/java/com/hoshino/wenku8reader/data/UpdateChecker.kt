@@ -54,6 +54,25 @@ class UpdateChecker {
 
         /** 从 Release 描述首行解析 `versionCode: <N>`。 */
         private val VERSION_CODE_IN_BODY = Regex("versionCode:\\s*(\\d+)")
+
+        /**
+         * 查询包签名用的 flags。**必须同时带上已废弃的 [PackageManager.GET_SIGNATURES]**。
+         *
+         * Android 9/10（API 28/29）的 `PackageManager.getPackageArchiveInfo()` 只在 flags 含
+         * `GET_SIGNATURES` 时才去收集证书：
+         * `if ((flags & GET_SIGNATURES) != 0) PackageParser.collectCertificates(pkg, false)`
+         * （AOSP android-9.0.0_r1 `PackageManager.java:4812`、android-10.0.0_r1 `:5588`）。
+         * 只传 `GET_SIGNING_CERTIFICATES` 时 `pkg.mSigningDetails` 仍是 `UNKNOWN`，
+         * `generatePackageInfo` 于是把 `pi.signingInfo` 置为 null——校验**恒定判失败**，
+         * 用户看到的是「签名校验失败」，可 APK 其实是好的，等于这两代系统上应用内更新彻底不可用。
+         * API 30 起平台自己就改成了 `GET_SIGNATURES || GET_SIGNING_CERTIFICATES`
+         * （android-11.0.0_r1 `PackageManager.java:6073`），所以两个一起传在所有版本上都正确。
+         *
+         * 读证书仍然优先走 `signingInfo`（见 [signaturesOf]），这里只是把"收集开关"打开。
+         */
+        @Suppress("DEPRECATION")
+        internal val SIGNATURE_QUERY_FLAGS: Int =
+            PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
     }
 
     /**
@@ -165,38 +184,31 @@ class UpdateChecker {
         if (!apk.exists() || apk.length() == 0L) return false
         val pm = context.packageManager
         val archiveSigs = runCatching {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNATURES)
-            }
-            info?.let { signaturesOf(it) }
+            pm.getPackageArchiveInfo(apk.absolutePath, SIGNATURE_QUERY_FLAGS)
+                ?.let { signaturesOf(it) }
         }.getOrNull()
         if (archiveSigs.isNullOrEmpty()) return false
 
         val selfSigs = runCatching {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
-            }
-            signaturesOf(info)
+            signaturesOf(pm.getPackageInfo(context.packageName, SIGNATURE_QUERY_FLAGS))
         }.getOrNull()
         if (selfSigs.isNullOrEmpty()) return false
 
         return archiveSigs == selfSigs
     }
 
-    /** 取包签名证书的 SHA-256 指纹集合（支持多签名）。 */
+    /**
+     * 取包签名证书的 SHA-256 指纹集合（支持多签名）。
+     *
+     * 优先用 `signingInfo`（API 28+ 的现代接口）；它为 null 时退回旧的 `signatures` 字段。
+     * 两者在同一个查询里由同一批证书填充（见 [SIGNATURE_QUERY_FLAGS]），内容一致；
+     * 保留这条退路是为了容忍平台/ROM 的实现差异——多一层总比"恒定判失败"强。
+     */
     private fun signaturesOf(info: PackageInfo): Set<String>? {
         val certs: List<ByteArray> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val si = info.signingInfo ?: return null
-            si.apkContentsSigners.map { it.toByteArray() }
+            info.signingInfo?.apkContentsSigners?.map { it.toByteArray() } ?: legacySignatures(info)
         } else {
-            @Suppress("DEPRECATION")
-            info.signatures?.map { it.toByteArray() } ?: return null
+            legacySignatures(info)
         }
         if (certs.isEmpty()) return null
         return certs.mapTo(mutableSetOf()) { bytes ->
@@ -205,6 +217,11 @@ class UpdateChecker {
                 .joinToString("") { "%02x".format(it) }
         }
     }
+
+    /** API 28 之前（以及 `signingInfo` 为空时的兜底）读取证书的旧入口。 */
+    @Suppress("DEPRECATION")
+    private fun legacySignatures(info: PackageInfo): List<ByteArray> =
+        info.signatures?.map { it.toByteArray() } ?: emptyList()
 
     /**
      * 校签后用 FileProvider 拉起系统安装器（覆盖安装/更新包）。

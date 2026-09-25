@@ -1,5 +1,5 @@
 #  轻小说文库（Wenku8Reader）
-![w8r.png](w8r.png)
+![w8r.png](.github/assets/w8r.png)
 
 > 一款面向轻小说爱好者的 Android 阅读客户端，数据来自 wenku8.net 轻小说文库。
 
@@ -18,7 +18,7 @@
 
 **轻小说文库**是一款原生 Android 阅读器：浏览 wenku8 全站栏目、搜索与分类找书、一键加入书架，并内置了沉浸式在线阅读器——支持侧滑翻页、自动翻页、音量键翻页、简繁转换，还可将整本书离线下载为 TXT / EPUB 随时阅读。
 
-应用采用 **Material Design 3** 设计语言：卡片化界面、动态取色（跟随系统壁纸生成主题色）、深色/纯黑（OLED 省电）模式，并适配 120Hz 高刷新率屏幕，滑动与翻页顺滑跟手。
+应用采用 **Material 3 Expressive** 设计语言：卡片化界面、动态取色（跟随系统壁纸生成主题色）、弹性形变与柔性顶栏、波浪进度与形变加载指示器、装饰形状空态、深色/纯黑（OLED 省电）模式，并适配 120Hz 高刷新率屏幕，滑动与翻页顺滑跟手。
 
 
 ## 功能特性
@@ -56,7 +56,10 @@
 
 - **安装包**：GitHub Releases 发布（自动化：推送 `main` 后依据 Conventional Commits 自动升级版本、构建并发布，见 [VERSIONING.md](VERSIONING.md)）
 - **本地构建**：`./gradlew :app:assembleDebug`（产物 `app/build/outputs/apk/debug/app-debug.apk`），或用 Android Studio 打开后 **Run ▶**
-- 需要 JDK 17+ 与 Android SDK 34
+- 需要 **JDK 21**（CI 用 21；工具链为 AGP 9.4.1 / Gradle 9.7.1 / Kotlin 2.3.21）与 **Android SDK 37**
+  （`compileSdk = 37`：material3 1.5 要求 ≥35、miuix 0.9.x 的 AAR metadata 要求 37；`targetSdk` 仍为 34，
+  升到 35+ 会强制开启 edge-to-edge 与新的前台行为，属单独一轮改动）
+- 单元测试：`./gradlew :app:testDebugUnitTest`（纯 JVM，无需模拟器；CI 在打包前会先跑一遍）
 
 ## 支持与交流
 
@@ -70,8 +73,18 @@
 
 ## 技术栈
 
-原生 **Kotlin + Jetpack Compose + Material Design 3** 构建，无 WebView 外壳；网络层基于 OkHttp + Cronet，图片加载使用 Coil，简繁转换使用 opencc4j。
+原生 **Kotlin + Jetpack Compose + Material 3 Expressive** 构建，无 WebView 外壳；网络层基于 OkHttp + Cronet，图片加载使用 Coil，简繁转换使用 opencc4j。
 
 ## 声明
 
 - 本应用仅用于**个人学习与交流**，请遵守 wenku8.net 站点使用条款，支持正版。
+
+## 许可证
+
+本项目以 **GNU General Public License v3.0** 发布，全文见 [LICENSE](LICENSE)。
+
+项目的部分界面实现改编自其他开源项目（液态玻璃底栏来自
+[SukiSU-Ultra](https://github.com/ShirkNeko/SukiSU-Ultra)，其上游为
+[Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 与
+compose-miuix-ui 示例），运行时依赖包含 AndroidX、miuix-kmp、OkHttp、Coil、OpenCC4J、Cronet 等。
+逐项来源与许可见 [NOTICE](NOTICE)。
