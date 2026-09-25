@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -23,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -34,8 +32,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -46,7 +42,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Slider
@@ -82,22 +77,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.compose.material3.SegmentedListItem as M3SegmentedListItem
-import top.yukonga.miuix.kmp.basic.Button as MiuixButton
-import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.Card as MiuixCard
-import top.yukonga.miuix.kmp.basic.CardDefaults as MiuixCardDefaults
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator as MiuixCircularProgress
-import top.yukonga.miuix.kmp.basic.LinearProgressIndicator as MiuixLinearProgress
-import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
-import top.yukonga.miuix.kmp.basic.Slider as MiuixSlider
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar as MiuixSmallTopAppBar
-import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
-import top.yukonga.miuix.kmp.basic.TabRow as MiuixTabRow
-import top.yukonga.miuix.kmp.basic.TopAppBar as MiuixTopAppBar
-import top.yukonga.miuix.kmp.preference.WindowDropdownPreference as MiuixDropdownPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference as MiuixSuperSwitch
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 
 /**
  * 本项目的 Material 3 Expressive 组件层（material3 1.5 的 Expressive API）。
@@ -129,20 +108,6 @@ fun ExpressiveScaffold(
     contentWindowInsets: WindowInsets = ScaffoldDefaults.contentWindowInsets,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    if (isMiuixStyle()) {
-        // MIUIX 的 Scaffold 自带弹层宿主（popupHost），容器色取 MIUIX 的 surface
-        MiuixScaffold(
-            modifier = modifier,
-            topBar = topBar,
-            bottomBar = bottomBar,
-            floatingActionButton = floatingActionButton,
-            snackbarHost = snackbarHost,
-            containerColor = MiuixTheme.colorScheme.surface,
-            contentWindowInsets = contentWindowInsets,
-            content = content,
-        )
-        return
-    }
     Scaffold(
         modifier = modifier,
         topBar = topBar,
@@ -182,15 +147,6 @@ fun ExpressiveTopAppBar(
     windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
     colors: TopAppBarColors = expressiveTopAppBarColors(),
 ) {
-    if (isMiuixStyle()) {
-        MiuixSmallTopAppBar(
-            title = title,
-            modifier = modifier,
-            navigationIcon = navigationIcon,
-            actions = actions,
-        )
-        return
-    }
     TopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         modifier = modifier,
@@ -202,33 +158,16 @@ fun ExpressiveTopAppBar(
 }
 
 /**
- * 子页顶部滚动行为：滚动时折叠到 64dp。
+* 子页顶部滚动行为：滚动时折叠到 64dp。
  * 需要配合内容区的 `Modifier.nestedScroll(behavior.nestedScrollConnection)` 使用。
  *
- * ⚠️ MIUIX 模式下返回一个**不消费滚动**的空实现：miuix 顶栏不吃 M3 的滚动状态，
- * 若这里仍返回真正的折叠行为，它挂在 `nestedScroll` 上会把滚动事件吞掉，
- * 表现为"页面滚不动"（阅读设置页在 MIUIX 下就是这样）。
+ * 注意：这里只服务 Material 侧页面。MIUIX 页面不再经过这个门面（它们各自用 miuix 顶栏，
+ * 自带折叠），因此本文件不再需要"MIUIX 下返回不消费滚动的空实现"那套分派。
  */
 @Composable
 fun rememberExpressiveScrollBehavior(): TopAppBarScrollBehavior {
-    val miuix = isMiuixStyle()
     val state = rememberTopAppBarState()
-    if (miuix) {
-        // MIUIX 顶栏自己处理折叠；这里只提供一个不消费滚动的空行为
-        return remember(state) { MiuixNoopScrollBehavior(state) }
-    }
     return TopAppBarDefaults.exitUntilCollapsedScrollBehavior(state = state)
-}
-
-/** 不消费任何滚动的 [TopAppBarScrollBehavior]（MIUIX 模式下由 miuix 顶栏自己处理）。 */
-private class MiuixNoopScrollBehavior(
-    override val state: androidx.compose.material3.TopAppBarState,
-) : TopAppBarScrollBehavior {
-    override val isPinned: Boolean = true
-    override val snapAnimationSpec: androidx.compose.animation.core.AnimationSpec<Float>? = null
-    override val flingAnimationSpec: androidx.compose.animation.core.DecayAnimationSpec<Float>? = null
-    override val nestedScrollConnection: androidx.compose.ui.input.nestedscroll.NestedScrollConnection =
-        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {}
 }
 
 /**
@@ -246,20 +185,6 @@ fun ExpressiveLargeTopAppBar(
     windowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
     scrollBehavior: TopAppBarScrollBehavior? = null,
 ) {
-    if (isMiuixStyle()) {
-        // MIUIX 原生大标题栏（HyperOS 的"大标题 + 副标题"）：与 M3 的折叠顶栏是两套设计，
-        // 这里直接用 miuix 组件，不再模仿 M3 的观感。
-        MiuixTopAppBar(
-            title = title,
-            largeTitle = title,
-            // miuix 的 subtitle 是非空 String（空串表示不显示）
-            subtitle = subtitle.orEmpty(),
-            modifier = modifier,
-            navigationIcon = navigationIcon,
-            actions = actions,
-        )
-        return
-    }
     LargeFlexibleTopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         modifier = modifier,
@@ -296,23 +221,6 @@ fun TonalCard(
     onLongClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    if (isMiuixStyle()) {
-        MiuixCard(
-            modifier = modifier.then(
-                if (onClick != null) {
-                    Modifier.clickable(enabled = enabled, onClick = onClick)
-                } else {
-                    Modifier
-                },
-            ),
-            cornerRadius = 16.dp,
-            colors = MiuixCardDefaults.defaultColors(
-                color = MiuixTheme.colorScheme.surfaceContainer,
-                contentColor = MiuixTheme.colorScheme.onSurfaceContainer,
-            ),
-        ) { content() }
-        return
-    }
     val colors = CardDefaults.cardColors(
         containerColor = containerColor,
         contentColor = contentColor,
@@ -390,19 +298,6 @@ fun ExpressiveEmptyState(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
-    if (isMiuixStyle()) {
-        MiuixEmptyState(
-            title = title,
-            modifier = modifier,
-            description = description,
-            icon = icon,
-            shape = shape,
-            error = error,
-            actionLabel = actionLabel,
-            onAction = onAction,
-        )
-        return
-    }
     Column(
         modifier = modifier.padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -457,10 +352,6 @@ fun ExpressiveLoadingIndicator(
     size: Dp = 48.dp,
     color: Color = MaterialTheme.colorScheme.primary,
 ) {
-    if (isMiuixStyle()) {
-        MiuixCircularProgress(modifier = modifier, size = size, progress = null)
-        return
-    }
     LoadingIndicator(
         modifier = modifier.size(size),
         color = color,
@@ -480,10 +371,6 @@ fun ActiveProgressBar(
     color: Color = MaterialTheme.colorScheme.primary,
     trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
 ) {
-    if (isMiuixStyle()) {
-        MiuixLinearProgress(modifier = modifier, progress = progress())
-        return
-    }
     LinearWavyProgressIndicator(
         progress = progress,
         modifier = modifier,
@@ -508,15 +395,6 @@ fun ExpressiveToggleGroup(
     modifier: Modifier = Modifier,
     icons: List<ImageVector>? = null,
 ) {
-    if (isMiuixStyle()) {
-        MiuixTabRow(
-            tabs = labels,
-            selectedTabIndex = selectedIndex,
-            onTabSelected = onSelect,
-            modifier = modifier,
-        )
-        return
-    }
     ButtonGroup(
         // 项过多时自动折叠进"更多"菜单（官方指示器：带 tooltip 的填充图标按钮）
         overflowIndicator = { menuState ->
@@ -552,16 +430,6 @@ fun ExpressiveSwitch(
     interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
     showThumbIcon: Boolean = true,
 ) {
-    if (isMiuixStyle()) {
-        // MIUIX 的开关自带按压反馈与形态动画，不接受外部颜色/交互源
-        MiuixSwitch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = modifier,
-            enabled = enabled,
-        )
-        return
-    }
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
@@ -604,10 +472,7 @@ fun expressiveSwitchColors(
     disabledUncheckedIconColor = disabledUncheckedIconColor,
 )
 
-/**
- * 滑块：M3 用 Expressive `Slider`，MIUIX 用 miuix 原生 `Slider`（带 HyperOS 的刻度与按压反馈）。
- * 两套风格的滑块外观本就不同，这里不做统一——MIUIX 模式以 HyperOS 观感为准。
- */
+/** 滑块：M3 Expressive 版本。MIUIX 侧用的是 miuix 原生 `Slider`（见 ui/miuix 下的各页）。 */
 @Composable
 fun ExpressiveSlider(
     value: Float,
@@ -618,18 +483,6 @@ fun ExpressiveSlider(
     steps: Int = 0,
     onValueChangeFinished: (() -> Unit)? = null,
 ) {
-    if (isMiuixStyle()) {
-        MiuixSlider(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = modifier,
-            enabled = enabled,
-            valueRange = valueRange,
-            steps = steps,
-            onValueChangeFinished = onValueChangeFinished,
-        )
-        return
-    }
     Slider(
         value = value,
         onValueChange = onValueChange,
@@ -665,131 +518,6 @@ fun StatusTag(
     }
 }
 
-/**
- * MIUIX 风格的空状态：装饰形状 + MIUIX 字号/配色 + MIUIX 按钮。
- * （不直接用 miuix 的组件是因为它没有等价的"空状态"容器。）
- */
-@Composable
-private fun MiuixEmptyState(
-    title: String,
-    modifier: Modifier = Modifier,
-    description: String? = null,
-    icon: ImageVector? = null,
-    shape: RoundedPolygon = MaterialShapes.Cookie9Sided,
-    error: Boolean = false,
-    actionLabel: String? = null,
-    onAction: (() -> Unit)? = null,
-) {
-    val colors = MiuixTheme.colorScheme
-    Column(
-        modifier = modifier.padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        DecorativeShapeBox(
-            modifier = Modifier.size(88.dp),
-            shape = shape,
-            color = if (error) colors.errorContainer else colors.primaryContainer,
-            contentColor = if (error) colors.onErrorContainer else colors.onPrimaryContainer,
-        ) {
-            if (icon != null) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(40.dp))
-            }
-        }
-        Spacer(Modifier.height(20.dp))
-        Text(
-            text = title,
-            style = MiuixTheme.textStyles.title2,
-            color = if (error) colors.error else colors.onBackground,
-            textAlign = TextAlign.Center,
-        )
-        if (description != null) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = description,
-                style = MiuixTheme.textStyles.footnote1,
-                color = colors.onSurfaceSecondary,
-                textAlign = TextAlign.Center,
-            )
-        }
-        if (actionLabel != null && onAction != null) {
-            Spacer(Modifier.height(20.dp))
-            MiuixButton(onClick = onAction) { Text(actionLabel) }
-        }
-    }
-}
-
-/** MIUIX 分组卡片里的分隔线（HyperOS 设置页的细线，左右留白与内容对齐）。 */
-@Composable
-private fun MiuixSeparator() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp)
-            .height(1.dp)
-            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)),
-    )
-}
-
-/**
- * MIUIX 风格列表行（[SegmentedListItem] 在 MIUIX 模式下的渲染）。
- *
- * 为什么不用 miuix 的 `BasicComponent`：它的 `title`/`summary` 是 `String`，
- * 而本项目的行内容大量是任意 composable（封面、色点、Slider 等）。
- * 这里按 MIUIX 的排版取值（16dp 内边距、title/footnote 字号、onSurface 系列配色）自绘，
- * 与 `BasicComponent` 的观感一致。
- */
-@Composable
-private fun MiuixListRow(
-    onClick: (() -> Unit)?,
-    enabled: Boolean,
-    headlineContent: @Composable () -> Unit,
-    supportingContent: @Composable (() -> Unit)?,
-    overlineContent: @Composable (() -> Unit)?,
-    leadingContent: @Composable (() -> Unit)?,
-    trailingContent: @Composable (() -> Unit)?,
-) {
-    val colors = MiuixTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(enabled = enabled, onClick = onClick)
-                } else {
-                    Modifier
-                },
-            )
-            .alpha(if (enabled) 1f else 0.38f)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (leadingContent != null) {
-            Box(Modifier.padding(end = 16.dp), contentAlignment = Alignment.Center) {
-                leadingContent()
-            }
-        }
-        Column(Modifier.weight(1f)) {
-            if (overlineContent != null) {
-                ProvideTextStyle(
-                    MiuixTheme.textStyles.footnote2.copy(color = colors.onSurfaceSecondary),
-                ) { overlineContent() }
-            }
-            ProvideTextStyle(MiuixTheme.textStyles.body1) { headlineContent() }
-            if (supportingContent != null) {
-                Spacer(Modifier.height(2.dp))
-                ProvideTextStyle(
-                    MiuixTheme.textStyles.footnote1.copy(color = colors.onSurfaceSecondary),
-                ) { supportingContent() }
-            }
-        }
-        if (trailingContent != null) {
-            Box(Modifier.padding(start = 16.dp), contentAlignment = Alignment.Center) {
-                trailingContent()
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // 分组列表（M3 Expressive SegmentedListItem）
@@ -814,38 +542,6 @@ fun SegmentedColumn(
 ) {
     if (items.isEmpty()) return
 
-    if (isMiuixStyle()) {
-        Column(modifier = modifier) {
-            if (title.isNotEmpty()) {
-                Text(
-                    text = title,
-                    style = MiuixTheme.textStyles.title4,
-                    color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
-                )
-            }
-            // MIUIX：整组放在一张圆角卡片里，项之间用细分隔线（HyperOS 设置页的经典形态）
-            MiuixCard(
-                cornerRadius = 16.dp,
-                colors = MiuixCardDefaults.defaultColors(
-                    color = MiuixTheme.colorScheme.surfaceContainer,
-                    contentColor = MiuixTheme.colorScheme.onSurfaceContainer,
-                ),
-            ) {
-                Column {
-                    items.forEachIndexed { index, itemContent ->
-                        if (index > 0) MiuixSeparator()
-                        CompositionLocalProvider(
-                            LocalSegmentedSlot provides SegmentedSlot(index, items.size),
-                        ) {
-                            itemContent()
-                        }
-                    }
-                }
-            }
-        }
-        return
-    }
 
     Column(modifier = modifier) {
         if (title.isNotEmpty()) {
@@ -887,18 +583,6 @@ fun SegmentedListItem(
 ) {
     val slot = LocalSegmentedSlot.current ?: SegmentedSlot(0, 1)
 
-    if (isMiuixStyle()) {
-        MiuixListRow(
-            onClick = onClick,
-            enabled = enabled,
-            headlineContent = headlineContent,
-            supportingContent = supportingContent,
-            overlineContent = overlineContent,
-            leadingContent = leadingContent,
-            trailingContent = trailingContent,
-        )
-        return
-    }
     val shapes = ListItemDefaults.segmentedShapes(index = slot.index, count = slot.count)
 
     if (onClick != null) {
@@ -944,17 +628,6 @@ fun SegmentedSwitchItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
-    if (isMiuixStyle()) {
-        MiuixSuperSwitch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            title = title,
-            summary = summary,
-            enabled = enabled,
-            startAction = icon?.let { vector -> { Icon(vector, contentDescription = null) } },
-        )
-        return
-    }
 
     SegmentedListItem(
         onClick = { onCheckedChange(!checked) },
@@ -986,19 +659,6 @@ fun SegmentedDropdownItem(
     var expanded by remember { mutableStateOf(false) }
     val safeIndex = if (items.isNotEmpty()) selectedIndex.coerceIn(0, items.lastIndex) else -1
 
-    if (isMiuixStyle()) {
-        // MIUIX 原生下拉偏好项：点开是 HyperOS 的圆角弹层（与 M3 的 DropdownMenu 是两套观感）
-        MiuixDropdownPreference(
-            items = items,
-            selectedIndex = if (safeIndex >= 0) safeIndex else 0,
-            title = title,
-            summary = summary,
-            enabled = enabled,
-            startAction = icon?.let { vector -> { Icon(vector, contentDescription = null) } },
-            onSelectedIndexChange = onItemSelected,
-        )
-        return
-    }
 
     Box {
         SegmentedListItem(

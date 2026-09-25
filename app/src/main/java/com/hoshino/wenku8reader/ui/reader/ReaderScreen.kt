@@ -65,8 +65,6 @@ import com.hoshino.wenku8reader.data.ChapterContent
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.isDarkTheme
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
-import com.hoshino.wenku8reader.ui.components.ExpressiveSwitch
-import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
 import com.hoshino.wenku8reader.ui.miuix.MiuixChapterSheet
 import com.hoshino.wenku8reader.ui.miuix.MiuixReaderSettingsSheet
