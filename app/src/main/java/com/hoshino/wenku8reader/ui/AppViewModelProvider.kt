@@ -38,6 +38,8 @@ object AppViewModelProvider {
             BookcaseViewModel(
                 application().container.libraryStore,
                 application().container.readingProgressStore,
+                application().container.shelfStore,
+                application().container.readerSettings,
                 application().container.preferences,
             )
         }

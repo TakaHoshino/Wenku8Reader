@@ -13,6 +13,7 @@ import com.hoshino.wenku8reader.data.local.LocalDataMigration
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
+import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.db.AppDatabase
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import kotlinx.coroutines.CoroutineScope
@@ -91,6 +92,14 @@ class AppContainer(context: Context) {
 
     val readingProgressStore: ReadingProgressStore =
         ReadingProgressStore(database.libraryDao(), localDataMigration)
+
+    /**
+     * 多书架：书架清单（只含用户自建的书架）的持久化。
+     *
+     * 与书籍归属分处两地是有意的——归属是 `BookEntity.shelf` 列（跟着书一起迁移），
+     * 清单是独立的小集合，放 DataStore 可以完全避开 Room 升版与迁移。
+     */
+    val shelfStore: ShelfStore = ShelfStore(context)
 
     /** 阅读时长聚合存储（按书+日期，热力图数据源）。 */
     val readingStats: ReadingStatsStore = ReadingStatsStore(context)
