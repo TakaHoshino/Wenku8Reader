@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** GitHub Release 信息（更新检查结果）。 */
@@ -98,16 +99,7 @@ class UpdateChecker {
                 val json = if (stable) {
                     JSONObject(text)
                 } else {
-                    val arr = org.json.JSONArray(text)
-                    var best: JSONObject? = null
-                    for (i in 0 until arr.length()) {
-                        val o = arr.getJSONObject(i)
-                        if (apkUrlOf(o) != null) {
-                            best = o
-                            break
-                        }
-                    }
-                    best ?: return@runCatching null
+                    pickLatestReleaseWithApk(text) ?: return@runCatching null
                 }
                 val tag = json.optString("tag_name", "")
                 val apkUrl = apkUrlOf(json)
@@ -124,16 +116,6 @@ class UpdateChecker {
                 )
             }
         }
-    }
-
-    /** 取 release JSON 中第一个 APK 资产的下载地址（无则 null）。 */
-    private fun apkUrlOf(json: JSONObject): String? {
-        val assets = json.optJSONArray("assets") ?: return null
-        for (i in 0 until assets.length()) {
-            val a = assets.getJSONObject(i)
-            if (a.optString("name").endsWith(".apk")) return a.optString("browser_download_url")
-        }
-        return null
     }
 
     /** 按更新源拼 APK 下载地址（github 直连 / gh-proxy 镜像前缀）。 */
@@ -273,3 +255,34 @@ class UpdateChecker {
         return allowEqual
     }
 }
+
+/** 取 release JSON 中第一个 APK 资产的下载地址（无则 null）。 */
+internal fun apkUrlOf(json: JSONObject): String? {
+    val assets = json.optJSONArray("assets") ?: return null
+    for (i in 0 until assets.length()) {
+        val a = assets.getJSONObject(i)
+        if (a.optString("name").endsWith(".apk")) return a.optString("browser_download_url")
+    }
+    return null
+}
+
+/**
+ * 从 `releases` 列表 JSON 里挑出**最新的一条带 APK 的发布**（测试版通道用）。
+ *
+ * 必须显式按 `published_at` 排序，**不能相信接口返回的顺序**：2026-09-25 实测 GitHub 的
+ * releases 列表会把最新的一条排到中间——`v0.8.0-dev.100` 的 `id` 与 `created_at` 都是最新，
+ * 却排在 `dev.94` 之后（新建的探针 release 同样没排到首位，且带随机参数绕过缓存后顺序不变，
+ * 说明是 GitHub 侧的顺序本身不可靠）。原来"取第一条带 APK 的"因此会把旧包当成最新，
+ * 测试版通道会一直提示已经过期好几个版本的 dev 包。
+ *
+ * `published_at` 是 ISO-8601（`2026-09-25T11:10:05Z`），同一格式下字典序即时间序；
+ * 缺失该字段的条目排在最后。空列表或坏 JSON 返回 null（调用方按"没有更新"处理）。
+ */
+internal fun pickLatestReleaseWithApk(json: String): JSONObject? = runCatching {
+    val arr = JSONArray(json)
+    (0 until arr.length())
+        .mapNotNull { i -> arr.optJSONObject(i) }
+        .filter { apkUrlOf(it) != null }
+        .sortedByDescending { it.optString("published_at") }
+        .firstOrNull()
+}.getOrNull()
