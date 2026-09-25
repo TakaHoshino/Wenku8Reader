@@ -31,10 +31,3 @@ data class ReadingProgressEntity(
     /** 已标记「已读」的章节 cid 集合。 */
     val finishedCids: List<String>,
 )
-
-/** 该行是否只是空壳（三个数据字段都没有内容），迁移时可跳过以免写垃圾行。 */
-internal val ReadingProgressEntity.isEmpty: Boolean
-    get() = resumeCid == null &&
-        lastReadAt == null &&
-        totalChapters == 0 &&
-        finishedCids.isEmpty()

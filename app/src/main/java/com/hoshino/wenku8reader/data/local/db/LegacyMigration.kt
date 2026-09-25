@@ -9,7 +9,8 @@ import android.content.Context
  *
  * 旧数据是用户唯一的书架与阅读记录，一旦清理而导入不完整就**不可恢复**。因此顺序固定为：
  * 解析 → upsert 导入 → **逐条读回比对** → 全部一致才清旧数据。任何一步抛异常或比对不一致，
- * 旧数据原样保留（下次启动会再迁一次），宁可重复迁移也不能丢。
+ * 旧数据原样保留（下次启动会再迁一次），宁可重复迁移也不能丢。旧存储里若有**读不出来的条目**，
+ * 同样只导入能读的部分、保留全部旧数据并上报失败，绝不当成"读出来就是全部"。
  *
  * ### 幂等
  *
@@ -25,8 +26,17 @@ internal sealed interface MigrationResult {
     /** 导入并通过校验，旧数据已清理。 */
     data class Imported(val books: Int, val progressRows: Int) : MigrationResult
 
-    /** 导入或校验失败：**旧数据未清理**。 */
-    data class Failed(val error: Throwable) : MigrationResult
+    /**
+     * 迁移未完整完成：**至少有一部分旧数据被保留**，下次启动会重试。
+     *
+     * [importedBooks]/[importedProgressRows] 是本次已成功写入的行数——失败≠什么都没做，
+     * 调用方据此判断要不要提示用户。
+     */
+    data class Failed(
+        val error: Throwable,
+        val importedBooks: Int = 0,
+        val importedProgressRows: Int = 0,
+    ) : MigrationResult
 }
 
 /**
@@ -91,10 +101,27 @@ internal suspend fun migrateLegacyStores(
     dao: LibraryDao,
     legacy: LegacySource,
 ): MigrationResult {
-    val books = parseLegacyLibrary(legacy.libraryJson())
-    val progress = parseLegacyReading(legacy.readingSnapshot())
-    if (books.isEmpty() && progress.isEmpty()) return MigrationResult.NothingToDo
+    val library = parseLegacyLibrary(legacy.libraryJson())
+    val reading = parseLegacyReading(legacy.readingSnapshot())
+    val problems = buildList {
+        if (!library.readable) add("旧书架 JSON 无法解析")
+        if (library.droppedEntries > 0) add("旧书架有 ${library.droppedEntries} 条无法解析")
+        if (reading.droppedEntries > 0) add("旧阅读记录有 ${reading.droppedEntries} 条无法解析")
+    }
+    val books = library.books
+    val progress = reading.rows
 
+    if (books.isEmpty() && progress.isEmpty()) {
+        return if (problems.isEmpty()) {
+            MigrationResult.NothingToDo
+        } else {
+            MigrationResult.Failed(IllegalStateException(problems.joinToString("；")))
+        }
+    }
+
+    // 已写入且**已通过校验**的行数；清理阶段出错时据此上报"至少搬过来多少"。
+    var importedBooks = 0
+    var importedProgressRows = 0
     return try {
         if (books.isNotEmpty()) dao.upsertBooks(books)
         if (progress.isNotEmpty()) dao.upsertProgressAll(progress)
@@ -102,12 +129,28 @@ internal suspend fun migrateLegacyStores(
         // 逐条读回比对：只有能完整读出来、且字段一字不差，才认为导入成功。
         // 这一层是"删旧数据"的唯一放行条件，宁可保守。
         verifyImported(dao, books, progress)
+        importedBooks = books.size
+        importedProgressRows = progress.size
 
-        legacy.clearLibrary()
-        legacy.clearReading(progress.mapTo(mutableSetOf()) { it.bookId })
-        MigrationResult.Imported(books = books.size, progressRows = progress.size)
+        // 仍有读不出来的条目 → 保留旧数据（下次启动重试），本次只上报。
+        if (library.canClear) legacy.clearLibrary()
+        if (reading.canClear) legacy.clearReading(progress.mapTo(mutableSetOf()) { it.bookId })
+
+        if (problems.isEmpty()) {
+            MigrationResult.Imported(books = books.size, progressRows = progress.size)
+        } else {
+            MigrationResult.Failed(
+                error = IllegalStateException(problems.joinToString("；")),
+                importedBooks = importedBooks,
+                importedProgressRows = importedProgressRows,
+            )
+        }
     } catch (t: Throwable) {
-        MigrationResult.Failed(t)
+        MigrationResult.Failed(
+            error = t,
+            importedBooks = importedBooks,
+            importedProgressRows = importedProgressRows,
+        )
     }
 }
 
