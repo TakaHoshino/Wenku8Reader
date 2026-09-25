@@ -207,21 +207,21 @@
 
     <!-- 多书架（实验性） -->
     <string name="settings_multi_shelf">多书架</string>
-    <string name="settings_multi_shelf_summary">书架页可新建/切换书架，收藏时可选择放进哪个书架；关闭后仅隐藏入口，数据保留</string>
+    <string name="settings_multi_shelf_summary">启用后可在书架页新建与切换书架，并在收藏时指定目标书架；关闭仅隐藏相关入口，已保存的数据不受影响</string>
     <string name="shelf_manage_title">管理书架</string>
     <string name="shelf_new">新建书架</string>
     <string name="shelf_rename">重命名</string>
     <string name="shelf_delete">删除</string>
     <string name="shelf_name_label">书架名称</string>
-    <string name="shelf_book_count">%1$d 本</string>
-    <string name="shelf_name_error_empty">书架名不能为空</string>
-    <string name="shelf_name_error_too_long">书架名最多 %1$d 个字</string>
+    <string name="shelf_book_count">共 %1$d 本</string>
+    <string name="shelf_name_error_empty">书架名称不能为空</string>
+    <string name="shelf_name_error_too_long">书架名称不能超过 %1$d 个字符</string>
     <string name="shelf_name_error_duplicate">已存在同名书架</string>
     <string name="shelf_delete_confirm_title">删除书架</string>
-    <string name="shelf_delete_confirm_message">「%1$s」中的书籍不会被删除，将移回默认书架。</string>
-    <string name="shelf_picker_add_title">加入哪个书架</string>
+    <string name="shelf_delete_confirm_message">「%1$s」内的书籍将移入默认书架，不会被删除。</string>
+    <string name="shelf_picker_add_title">选择要加入的书架</string>
     <string name="shelf_picker_move_title">移动到书架</string>
-    <string name="bookcase_shelf_empty">这个书架还没有书</string>
+    <string name="bookcase_shelf_empty">该书架暂无书籍</string>
     <string name="bookcase_manage_shelves">管理书架</string>
     <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>
     <string name="settings_storage">存储设置</string>
