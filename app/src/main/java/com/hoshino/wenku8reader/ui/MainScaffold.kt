@@ -86,6 +86,7 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixNetworkPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixUpdatePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixExperimentalPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixCustomizationPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixUpdateDialog
 import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
@@ -151,13 +152,24 @@ fun MainScaffold() {
             container.updateCenter.check(manual = false)
         }
     }
-    UpdateDialogHost(
-        state = updateState,
-        currentVersionName = container.updateCenter.currentVersionName,
-        onUpdate = container.updateCenter::download,
-        onLater = container.updateCenter::later,
-        onSkip = container.updateCenter::skip,
-    )
+    // 更新弹窗也按风格二选一：MIUIX 用 miuix WindowDialog，Material 用 M3 AlertDialog
+    if (isMiuixStyle()) {
+        MiuixUpdateDialog(
+            state = updateState,
+            currentVersionName = container.updateCenter.currentVersionName,
+            onUpdate = container.updateCenter::download,
+            onLater = container.updateCenter::later,
+            onSkip = container.updateCenter::skip,
+        )
+    } else {
+        UpdateDialogHost(
+            state = updateState,
+            currentVersionName = container.updateCenter.currentVersionName,
+            onUpdate = container.updateCenter::download,
+            onLater = container.updateCenter::later,
+            onSkip = container.updateCenter::skip,
+        )
+    }
 
     BackHandler(enabled = isMain && pagerState.currentPage != 0) {
         mainPagerState.animateToPage(0)

@@ -115,6 +115,9 @@ import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.components.ExpressiveSwitch
 import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
+import com.hoshino.wenku8reader.ui.miuix.MiuixChapterSheet
+import com.hoshino.wenku8reader.ui.miuix.MiuixReaderSettingsSheet
+import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import java.io.File
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
@@ -671,11 +674,20 @@ fun ReaderScreen(
             }
     }
 
+    // 面板按 UI 风格二选一：MIUIX 用 miuix WindowBottomSheet，Material 用 M3 ModalBottomSheet
     if (showSettings) {
-        SettingsSheet(rs, vm) { showSettings = false }
+        if (isMiuixStyle()) {
+            MiuixReaderSettingsSheet(rs, vm) { showSettings = false }
+        } else {
+            SettingsSheet(rs, vm) { showSettings = false }
+        }
     }
     if (showToc) {
-        ChapterSelectionSheet(ui, vm) { showToc = false }
+        if (isMiuixStyle()) {
+            MiuixChapterSheet(ui, vm) { showToc = false }
+        } else {
+            ChapterSelectionSheet(ui, vm) { showToc = false }
+        }
     }
 }
 

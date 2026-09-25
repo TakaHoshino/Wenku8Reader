@@ -1,6 +1,5 @@
 package com.hoshino.wenku8reader.ui.miuix
 
-import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,25 +17,13 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
-import com.hoshino.wenku8reader.Wenku8Application
-import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
-import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
 
 /**
  * MIUIX 设置主页——**只放分类入口**（PiliPlus 模式，参考其 `pages/setting/view.dart`：
@@ -57,10 +44,6 @@ fun MiuixSettingsPage(
     onOpenAbout: () -> Unit,
     vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
-    val context = LocalContext.current
-    val updateCenter = remember(context) { context.appContainer.updateCenter }
-    val updateState by updateCenter.state.collectAsStateWithLifecycle()
-
     MiuixPage(
         title = stringResource(R.string.tab_settings),
         actions = {
@@ -140,14 +123,6 @@ fun MiuixSettingsPage(
         }
     }
 
-    UpdateDialogHost(
-        state = updateState,
-        currentVersionName = updateCenter.currentVersionName,
-        onUpdate = updateCenter::download,
-        onLater = updateCenter::later,
-        onSkip = updateCenter::skip,
-    )
+    // 更新弹窗由 `MainScaffold` 全局统一承载（MIUIX 下走 miuix WindowDialog），
+    // 这里不再重复挂一个宿主——否则同一次更新会叠出两个弹窗。
 }
-
-private val Context.appContainer: AppContainer
-    get() = (applicationContext as Wenku8Application).container
