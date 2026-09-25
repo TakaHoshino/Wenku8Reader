@@ -211,18 +211,22 @@ fun MiuixDetailPage(
             ),
             shelves = ui.shelves,
             // 收藏默认预勾选默认书架（不挑就直接进默认，沿用旧习惯）
-            initial = if (pickingForRemoval) ui.currentShelf else DEFAULT_SHELF,
-            confirmLabel = stringResource(
-                if (pickingForRemoval) R.string.shelf_picker_remove_title
-                else R.string.action_confirm,
-            ),
+            initial = if (pickingForRemoval) ui.currentShelves else setOf(DEFAULT_SHELF),
+            confirmLabel = stringResource(R.string.action_confirm),
+            // 取消收藏：全部取消勾选 = 完全取消收藏，此时确认按钮改叫"取消收藏"
+            emptyConfirmLabel = if (pickingForRemoval) {
+                stringResource(R.string.shelf_picker_remove_title)
+            } else {
+                null
+            },
             message = if (pickingForRemoval) stringResource(R.string.shelf_picker_remove_message) else null,
-            // 取消收藏是"确认"而不是"选择"：勾选框只指出当前位置
-            interactive = !pickingForRemoval,
             onDismiss = { showShelfPicker = false },
-            onConfirm = { shelf ->
+            onConfirm = { selected ->
                 showShelfPicker = false
-                if (pickingForRemoval || shelf == null) vm.toggleLocalFavorite() else vm.addToShelf(shelf)
+                when {
+                    selected.isEmpty() -> vm.toggleLocalFavorite()
+                    selected != ui.currentShelves -> vm.setShelves(selected)
+                }
             },
         )
     }

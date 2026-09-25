@@ -206,14 +206,15 @@ fun MiuixBookcasePage(
 
     movingEntry?.let { entry ->
         MiuixShelfPicker(
-            title = stringResource(R.string.shelf_picker_move_title),
+            title = stringResource(R.string.shelf_picker_membership_title),
             shelves = ui.shelves,
-            initial = entry.shelf,
+            initial = entry.shelves,
             confirmLabel = stringResource(R.string.action_confirm),
             onDismiss = { movingEntry = null },
-            onConfirm = { shelf ->
+            onConfirm = { selected ->
                 movingEntry = null
-                shelf?.let { vm.moveToShelf(entry.bookId, it) }
+                // 勾选没变就不写库
+                if (selected != entry.shelves) vm.setShelves(entry.bookId, selected)
             },
         )
     }

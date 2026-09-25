@@ -13,7 +13,7 @@ import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.shelfNames
-import com.hoshino.wenku8reader.data.local.shelfOf
+import com.hoshino.wenku8reader.data.local.normalizeMembership
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.UiText
 import com.hoshino.wenku8reader.ui.common.toUiText
@@ -46,10 +46,10 @@ data class DetailUiState(
     val multiShelfEnabled: Boolean = false,
     val shelves: List<String> = listOf(DEFAULT_SHELF),
     /**
-     * 该书当前所在的书架（不在书架里时为 null）。
-     * 取消收藏的确认弹窗用它预勾选，让用户看清"从哪个书架取消"。
+     * 该书当前所在的书架集合（不在书架里时为空）。
+     * 取消收藏的确认弹窗用它预勾选，让用户看清"从哪些书架取消"。
      */
-    val currentShelf: String? = null,
+    val currentShelves: Set<String> = emptySet(),
 )
 
 class DetailViewModel(
@@ -116,7 +116,8 @@ class DetailViewModel(
                     hasProgress = progress.isStarted,
                     multiShelfEnabled = multiShelf,
                     shelves = shelfNames(customShelves),
-                    currentShelf = book?.let { shelfOf(it.shelf, customShelves) },
+                    currentShelves = book?.let { normalizeMembership(it.shelves, customShelves) }
+                        ?: emptySet(),
                 )
             }
                 .collect { local ->
@@ -126,7 +127,7 @@ class DetailViewModel(
                             hasProgress = local.hasProgress,
                             multiShelfEnabled = local.multiShelfEnabled,
                             shelves = local.shelves,
-                            currentShelf = local.currentShelf,
+                            currentShelves = local.currentShelves,
                         )
                     }
                 }
@@ -138,7 +139,7 @@ class DetailViewModel(
         val hasProgress: Boolean,
         val multiShelfEnabled: Boolean,
         val shelves: List<String>,
-        val currentShelf: String?,
+        val currentShelves: Set<String>,
     )
 
     fun download(format: String, encoding: String = "utf8") {
@@ -166,20 +167,24 @@ class DetailViewModel(
     }
 
     /**
-     * 收藏到指定书架（多书架开启时由弹层选择）。
+     * 覆盖归属：勾选了哪些书架就属于哪些（多书架开启时由弹层选择，可多选）。
      *
-     * 与 [toggleLocalFavorite] 的分工：那个负责"移出/默认收藏"，这个只负责"收藏到某个书架"。
-     * 已经收藏过的书不会被这里重复加入（UI 也不会给它弹层），避免"改归属"与"移出"两种语义混淆。
+     * 与 [toggleLocalFavorite] 的分工：那个负责"移出/默认收藏"，这个负责"设置所属书架"。
+     * 阅读进度不在这里动——它按 bookId 存在 `reading_progress`，同一本书在多个书架共用同一份。
      */
-    fun addToShelf(shelf: String) {
+    fun setShelves(shelves: Collection<String>) {
         val book = _ui.value.book ?: return
         viewModelScope.launch {
-            libraryStore.add(book, shelf)
+            libraryStore.add(book, shelves)
             _favoriteMessages.tryEmit(
-                if (shelf == DEFAULT_SHELF) {
+                // 只勾了默认书架时沿用旧文案，避免"已收藏至「默认」"这种啰嗦说法
+                if (shelves.toSet() == setOf(DEFAULT_SHELF)) {
                     UiText.StringResource(R.string.detail_fav_local_done)
                 } else {
-                    UiText.StringResource(R.string.detail_fav_local_done_shelf, shelf)
+                    UiText.StringResource(
+                        R.string.detail_fav_local_done_shelf,
+                        shelves.joinToString("、"),
+                    )
                 },
             )
         }

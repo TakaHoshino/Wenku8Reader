@@ -45,7 +45,7 @@ class ShelfStore internal constructor(context: Context) {
      * 只是自建书架的名字暂时看不到，下次写入即恢复。
      */
     fun observe(): Flow<List<String>> = dataStore.data
-        .map { decodeShelves(it[KEY]) }
+        .map { decodeShelfList(it[KEY]) }
         .catch { emit(emptyList()) }
 
     /** 一次性读取（详情页弹层、管理页刷新等不需要持续观察的位置）。 */
@@ -58,7 +58,7 @@ class ShelfStore internal constructor(context: Context) {
      * 去重），保证任何调用路径都不会把坏数据落盘。
      */
     suspend fun replace(shelves: List<String>) {
-        dataStore.edit { prefs -> prefs[KEY] = encodeShelves(shelves) }
+        dataStore.edit { prefs -> prefs[KEY] = encodeShelfList(shelves) }
     }
 
     private companion object {
@@ -74,7 +74,7 @@ class ShelfStore internal constructor(context: Context) {
  * 一旦写错，表现是"用户新建的书架重启后不见了"，而不会抛任何异常。
  * 丢弃的三类历史脏数据都是 UI 无法正常操作的：空名、与默认同名的、超长的。
  */
-internal fun decodeShelves(raw: String?): List<String> {
+internal fun decodeShelfList(raw: String?): List<String> {
     if (raw.isNullOrEmpty()) return emptyList()
     return runCatching {
         val arr = JSONArray(raw)
@@ -86,7 +86,7 @@ internal fun decodeShelves(raw: String?): List<String> {
 }
 
 /** 清单 → JSON（保序，写盘前再兜一层过滤）。 */
-internal fun encodeShelves(shelves: List<String>): String {
+internal fun encodeShelfList(shelves: List<String>): String {
     val arr = JSONArray()
     shelves
         .map { normalizeShelfName(it) }

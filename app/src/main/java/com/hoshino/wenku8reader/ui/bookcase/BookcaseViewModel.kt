@@ -12,7 +12,7 @@ import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.shelfNames
-import com.hoshino.wenku8reader.data.local.shelfOf
+import com.hoshino.wenku8reader.data.local.normalizeMembership
 import com.hoshino.wenku8reader.ui.common.UiText
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,8 +49,8 @@ data class BookcaseEntry(
     val progressTotal: Int = 0,
     /** 已读章节数：目录页标记"已读"的章节（finishedChapters）数量。 */
     val readCount: Int = 0,
-    /** 所属书架；多书架关闭时不用它筛选，但"移动到书架"要知道当前归属。 */
-    val shelf: String = DEFAULT_SHELF,
+    /** 所属书架集合（一本书可同时在多个书架）；多书架关闭时不用它筛选。 */
+    val shelves: Set<String> = setOf(DEFAULT_SHELF),
 ) {
     /** 已读进度 = 已读章节数 / 总章节数（基于目录"已读"标记，非阅读位置）。 */
     val progress: Float
@@ -139,7 +139,7 @@ class BookcaseViewModel(
                 readerSettings.flow.map { it.multiShelfEnabled },
             ) { books, progress, customShelves, selected, multiShelf ->
                 shelfView(customShelves, selected, multiShelf) to
-                    books.map { it.toEntry(it.shelf, customShelves, progress) }
+                    books.map { it.toEntry(customShelves, progress) }
             }
                 .collect { (view, entries) ->
                     natural = entries
@@ -169,7 +169,7 @@ class BookcaseViewModel(
             val view = shelfView(customShelves, _ui.value.selectedShelf, _ui.value.multiShelfEnabled)
             natural = libraryStore.all()
                 .sortedByDescending { it.addedAt }
-                .map { it.toEntry(it.shelf, customShelves, progress) }
+                .map { it.toEntry(customShelves, progress) }
             // 注意不在这里写 multiShelfEnabled：开关的唯一来源是 ReaderSettings 那路 Flow，
             // 抢着写会让开关短暂闪回 false（下拉刷新时表现为切换条忽隐忽现）。
             _ui.update {
@@ -190,13 +190,16 @@ class BookcaseViewModel(
         selectedShelfFlow.value = name
     }
 
-    /** 把一本书移到另一个书架；Flow 会自动把卡片从当前书架移走（无需手工刷新）。 */
-    fun moveToShelf(bookId: Int, shelf: String) {
-        viewModelScope.launch { libraryStore.moveToShelf(bookId, shelf) }
+    /**
+     * 覆盖一本书的归属（长按卡片 → 勾选所属书架）。
+     *
+     * 勾选变化后 Flow 会自动重画：从当前书架取消勾选，卡片就从这一栏消失（无需手工刷新）。
+     */
+    fun setShelves(bookId: Int, shelves: Collection<String>) {
+        viewModelScope.launch { libraryStore.setShelves(bookId, shelves) }
     }
 
     private fun LibraryBook.toEntry(
-        rawShelf: String,
         customShelves: List<String>,
         progress: Map<Int, ReadingProgress>,
     ): BookcaseEntry {
@@ -212,9 +215,9 @@ class BookcaseViewModel(
             addedAt = addedAt,
             progressTotal = p?.totalChapters ?: 0,
             readCount = p?.finishedCids?.size ?: 0,
-            // 归属读出来就地归一化：改名残留/历史脏数据一律落到默认书架，
+            // 归属读出来就地归一化：已不存在的书架名一律丢弃、摘空则落回默认书架，
             // 否则那些书会在所有书架里都看不到（"书消失了"）。
-            shelf = shelfOf(rawShelf, customShelves),
+            shelves = normalizeMembership(shelves, customShelves),
         )
     }
 
@@ -235,7 +238,8 @@ class BookcaseViewModel(
         // 关闭多书架时**不筛选**（整库视图，与改动前逐像素一致）；
         // 开启时按当前书架筛。筛选只此一处，避免 UI 层再过滤一次导致三态错乱。
         val visible = if (state.multiShelfEnabled) {
-            natural.filter { it.shelf == state.selectedShelf }
+            // 多选归属：只要这本书属于当前书架就显示它
+            natural.filter { state.selectedShelf in it.shelves }
         } else {
             natural
         }

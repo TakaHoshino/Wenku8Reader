@@ -220,9 +220,9 @@
     <string name="shelf_delete_confirm_title">刪除書架</string>
     <string name="shelf_delete_confirm_message">「%1$s」內的書籍將移入預設書架，不會被刪除。</string>
     <string name="shelf_picker_add_title">選擇要加入的書架</string>
-    <string name="shelf_picker_move_title">移動到書架</string>
+    <string name="shelf_picker_membership_title">所屬書架</string>
     <string name="shelf_picker_remove_title">取消收藏</string>
-    <string name="shelf_picker_remove_message">該書位於以下書架，確認後將從書架中移除。</string>
+    <string name="shelf_picker_remove_message">該書位於以下書架；取消勾選即從對應書架移除，全部取消勾選則完全取消收藏。</string>
     <string name="bookcase_shelf_empty">該書架暫無書籍</string>
     <string name="bookcase_manage_shelves">管理書架</string>
     <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>

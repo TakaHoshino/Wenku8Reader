@@ -28,28 +28,32 @@ import androidx.compose.ui.unit.dp
 import com.hoshino.wenku8reader.R
 
 /**
- * 书架弹窗（Material 版）——**收藏 / 移动到书架 / 取消收藏三处共用同一个样式**。
+ * 书架弹窗（Material 版）——**收藏 / 编辑所属书架 / 取消收藏三处共用同一个样式**。
  *
- * 用复选框而不是"右侧一个对勾图标"来表达选中态：既让列表读起来像"选择"，
- * 也让取消收藏时能一眼看清"这本书当前在哪个书架"。
+ * **复选框是多选的**：一本书可以同时属于多个书架，勾上几个就属于几个
+ * （所以早先那套"移动到书架"的单选语义已被「所属书架」取代）。
+ *
+ * 只在多书架开关打开时才会被调用；开关关闭时收藏/取消收藏走原来的单书架路径，
+ * 连这个弹窗都不会出现。
  *
  * @param initial 预勾选的书架；收藏时传默认书架（保持"不挑就直接进默认"的旧习惯），
- *   移动/取消收藏时传当前所在书架。
- * @param interactive 是否可勾选。取消收藏时为 false——勾选框只用来**指出位置**，
- *   真正的动作由确认按钮承担（避免"取消收藏"和"改归属"两件事混在一个手势里）。
- * @param confirmLabel 确认按钮文案（收藏是"确定"，取消收藏是"取消收藏"）。
- * @param onConfirm 参数为选中的书架；未选中时为 null（此时确认按钮不可点）。
+ *   编辑/取消收藏时传当前所在的那些书架。
+ * @param confirmLabel 确认按钮文案（通常是"确定"）。
+ * @param emptyConfirmLabel 一个都没勾时改用的确认文案（取消收藏传"取消收藏"：
+ *   全部取消勾选即完全取消收藏）。为 null 时"一个都没勾"视为非法输入、确认按钮置灰——
+ *   书架里的书必须至少属于一个书架。
+ * @param onConfirm 参数为最终勾选的书架集合。
  */
 @Composable
 fun ShelfPickerDialog(
     title: String,
     shelves: List<String>,
-    initial: String?,
+    initial: Set<String>,
     confirmLabel: String,
     onDismiss: () -> Unit,
-    onConfirm: (String?) -> Unit,
+    onConfirm: (Set<String>) -> Unit,
     message: String? = null,
-    interactive: Boolean = true,
+    emptyConfirmLabel: String? = null,
 ) {
     var selected by remember(initial) { mutableStateOf(initial) }
 
@@ -72,27 +76,20 @@ fun ShelfPickerDialog(
                 }
                 // 书架多时列表要能滚动，否则底部条目点不到
                 shelves.forEach { name ->
+                    val checked = name in selected
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(
-                                if (interactive) {
-                                    Modifier.clickable { selected = name }
-                                } else {
-                                    Modifier
-                                },
-                            )
+                            .clickable {
+                                selected = if (checked) selected - name else selected + name
+                            }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Checkbox(
-                            checked = name == selected,
-                            // interactive=false 时传 null：勾选框仍然清晰可见，但不再响应点击
-                            // （若用 enabled=false 会把它灰掉，看起来像"功能不可用"而不是"这是当前值"）
-                            onCheckedChange = if (interactive) {
-                                { selected = name }
-                            } else {
-                                null
+                            checked = checked,
+                            onCheckedChange = { on ->
+                                selected = if (on) selected + name else selected - name
                             },
                         )
                         Spacer(Modifier.width(8.dp))
@@ -104,8 +101,13 @@ fun ShelfPickerDialog(
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(selected) },
-                enabled = !interactive || selected != null,
-            ) { Text(confirmLabel) }
+                enabled = selected.isNotEmpty() || emptyConfirmLabel != null,
+            ) {
+                Text(
+                    if (selected.isEmpty() && emptyConfirmLabel != null) emptyConfirmLabel
+                    else confirmLabel,
+                )
+            }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }

@@ -29,19 +29,20 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * 书架弹窗（MIUIX 版）——与 Material 版（`ui/shelf/ShelfPicker.kt`）功能相同、代码完全独立。
  *
- * 三处共用：收藏、移动到书架、取消收藏（后者 [interactive] 传 false，勾选框只用来指出
- * 当前所在书架，动作交给确认按钮）。选中态一律用 miuix 的 `Checkbox` 表达。
+ * 三处共用：收藏、编辑所属书架、取消收藏。**复选框是多选的**：一本书可以同时属于多个书架；
+ * 取消收藏时取消勾选即从对应书架移除，全部取消勾选则完全取消收藏（确认文案随之变化）。
+ * 只在多书架开关打开时才会被调用。
  */
 @Composable
 fun MiuixShelfPicker(
     title: String,
     shelves: List<String>,
-    initial: String?,
+    initial: Set<String>,
     confirmLabel: String,
     onDismiss: () -> Unit,
-    onConfirm: (String?) -> Unit,
+    onConfirm: (Set<String>) -> Unit,
     message: String? = null,
-    interactive: Boolean = true,
+    emptyConfirmLabel: String? = null,
 ) {
     var selected by remember(initial) { mutableStateOf(initial) }
 
@@ -59,26 +60,20 @@ fun MiuixShelfPicker(
                     .verticalScroll(rememberScrollState()),
             ) {
                 shelves.forEach { name ->
+                    val checked = name in selected
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(
-                                if (interactive) {
-                                    Modifier.clickable { selected = name }
-                                } else {
-                                    Modifier
-                                },
-                            )
+                            .clickable {
+                                selected = if (checked) selected - name else selected + name
+                            }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Checkbox(
-                            state = if (name == selected) ToggleableState.On else ToggleableState.Off,
-                            // interactive=false 时传 null：勾选框保持可见但不再响应点击
-                            onClick = if (interactive) {
-                                { selected = name }
-                            } else {
-                                null
+                            state = if (checked) ToggleableState.On else ToggleableState.Off,
+                            onClick = {
+                                selected = if (checked) selected - name else selected + name
                             },
                         )
                         Spacer(Modifier.width(10.dp))
@@ -87,9 +82,14 @@ fun MiuixShelfPicker(
                 }
             }
             MiuixDialogButtons(
-                confirmText = confirmLabel,
+                confirmText = if (selected.isEmpty() && emptyConfirmLabel != null) {
+                    emptyConfirmLabel
+                } else {
+                    confirmLabel
+                },
                 dismissText = stringResource(R.string.action_cancel),
-                onConfirm = { if (!interactive || selected != null) onConfirm(selected) },
+                confirmEnabled = selected.isNotEmpty() || emptyConfirmLabel != null,
+                onConfirm = { onConfirm(selected) },
                 onDismiss = onDismiss,
             )
         }

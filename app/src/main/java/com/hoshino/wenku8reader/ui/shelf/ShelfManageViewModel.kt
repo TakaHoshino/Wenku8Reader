@@ -11,7 +11,7 @@ import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.isShelfDeletable
 import com.hoshino.wenku8reader.data.local.normalizeShelfName
 import com.hoshino.wenku8reader.data.local.shelfNames
-import com.hoshino.wenku8reader.data.local.shelfOf
+import com.hoshino.wenku8reader.data.local.normalizeMembership
 import com.hoshino.wenku8reader.data.local.validateShelfName
 import com.hoshino.wenku8reader.data.local.withShelfCreated
 import com.hoshino.wenku8reader.data.local.withShelfDeleted
@@ -80,13 +80,13 @@ class ShelfManageViewModel(
     init {
         viewModelScope.launch {
             combine(libraryStore.observeAll(), shelfStore.observe()) { books, customShelves ->
-                // 书籍数按**归一化后**的归属统计：改名残留/脏数据的书算在默认书架上，
-                // 与书架页看到的分布保持一致（否则两个页面的数字会对不上）。
-                val counts = books.groupingBy { shelfOf(it.shelf, customShelves) }.eachCount()
+                // 书籍数按**归一化后**的归属统计：一本多归属的书会在它所在的每个书架里各计一次，
+                // 与书架页看到的分布一致（否则两个页面的数字会对不上）。
+                val memberships = books.map { normalizeMembership(it.shelves, customShelves) }
                 shelfNames(customShelves).map { name ->
                     ShelfRow(
                         name = name,
-                        bookCount = counts[name] ?: 0,
+                        bookCount = memberships.count { name in it },
                         deletable = isShelfDeletable(name),
                     )
                 }
@@ -113,7 +113,7 @@ class ShelfManageViewModel(
             // 顺序：先把书搬到新名字，再改清单。中途失败最坏是"清单还是旧名"（书已改名 →
             // 展示层兜底到默认书架），也不会丢书。
             val target = normalizeShelfName(raw)
-            if (target != from) libraryStore.renameShelf(from, target)
+            if (target != from) libraryStore.renameShelfInAll(from, target)
             shelfStore.replace(withShelfRenamed(custom, from, raw))
         }
     }
@@ -123,7 +123,8 @@ class ShelfManageViewModel(
         viewModelScope.launch {
             val custom = shelfStore.read()
             if (!isShelfDeletable(name) || name !in custom) return@launch
-            libraryStore.moveShelf(name, DEFAULT_SHELF)
+            // 只摘掉这个书架：书同时还属于别的书架时保持不动，摘空的才回退到默认书架
+            libraryStore.removeShelfFromAll(name)
             shelfStore.replace(withShelfDeleted(custom, name))
         }
     }

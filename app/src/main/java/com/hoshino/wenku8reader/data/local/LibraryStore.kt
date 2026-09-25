@@ -13,11 +13,12 @@ import kotlinx.coroutines.flow.map
 /**
  * 书架条目：书目快照 + 入架信息。
  *
- * 与旧 `LocalLibraryStore.LibraryBook` 同形，调用方（书架页 / 详情页）无需改动。
+ * [shelves] 是**归属集合**（一本书可以同时在多个书架）；它直接来自持久化解析，可能含
+ * 已经不存在的书架名，展示/统计前请先用 `ShelfOps.normalizeMembership` 过滤。
  */
 data class LibraryBook(
     val book: BookInfo,
-    val shelf: String = "默认",
+    val shelves: Set<String> = setOf(DEFAULT_SHELF),
     val addedAt: Long = 0L,
 )
 
@@ -69,14 +70,17 @@ class LibraryStore internal constructor(
     }
 
     /**
-     * 加入书架。已存在时**保留原来的入架时间**（否则书架排序会把它当成新书跳到最前），
-     * 书目快照则用新数据覆盖——与旧 `LocalLibraryStore.add` 的语义一致。
+     * 加入书架（可一次加入多个）。已存在时**保留原来的入架时间**（否则书架排序会把它当成
+     * 新书跳到最前），书目快照与归属则用新数据覆盖——与旧 `LocalLibraryStore.add` 的语义一致。
      */
-    suspend fun add(book: BookInfo, shelf: String = "默认") {
+    suspend fun add(book: BookInfo, shelves: Collection<String> = listOf(DEFAULT_SHELF)) {
         migration.ensure()
         val previous = dao.book(book.id)
         dao.upsertBook(
-            book.toEntity(shelf = shelf, addedAt = previous?.addedAt ?: System.currentTimeMillis()),
+            book.toEntity(
+                shelfValue = encodeMembership(shelves),
+                addedAt = previous?.addedAt ?: System.currentTimeMillis(),
+            ),
         )
     }
 
@@ -87,38 +91,42 @@ class LibraryStore internal constructor(
     }
 
     /**
-     * 把一本书移动到另一个书架（多书架功能）。
+     * 覆盖一本书的归属（多书架功能：勾选哪些书架就属于哪些）。
      *
      * 与 [add] 的区别：这里**只改归属**，既不动书目快照也不动入架时间。
+     * 阅读进度不受影响——它按 bookId 存在 `reading_progress` 里，多书架共用同一份。
      */
-    suspend fun moveToShelf(bookId: Int, shelf: String) {
+    suspend fun setShelves(bookId: Int, shelves: Collection<String>) {
         migration.ensure()
-        dao.updateShelf(bookId, shelf)
+        dao.updateShelves(bookId, encodeMembership(shelves))
     }
 
     /**
-     * 把整个书架的书一次性移回 [to]。
+     * 删除书架后清理归属：把所有还挂着 [name] 的书摘掉它（摘空则回退默认书架）。
      *
-     * 删除书架时必须**先**调用它、再改书架清单：反过来的话，中途失败会让那批书
-     * 指向一个已不存在的书架（虽然展示层有兜底，但用户会看到一个空书架）。
+     * 必须**先**调用它、再改书架清单：反过来的话中途失败会让那批书指向一个已不存在的书架
+     * （展示层虽有兜底，但用户会看到书架凭空清空）。集合语义下这是一次"读回来逐条改写"，
+     * 不再是单条 `UPDATE ... WHERE shelf = ?`。
      */
-    suspend fun moveShelf(from: String, to: String) {
+    suspend fun removeShelfFromAll(name: String) {
         migration.ensure()
-        dao.moveShelf(from, to)
+        val changed = dao.books()
+            .filter { name in parseMembership(it.shelf) }
+            .map { it.copy(shelf = encodeMembership(withShelfRemoved(parseMembership(it.shelf), name))) }
+        if (changed.isNotEmpty()) dao.upsertBooks(changed)
     }
 
-    /**
-     * 书架重命名。
-     *
-     * 与 [moveShelf] 是同一条 SQL（批量改 `shelf` 列），单独留个名字只是为了让调用点
-     * 读起来是它本来的意思：**重命名必须同时改书的归属**，否则那批书会指向一个
-     * 已不存在的书架（展示层虽有兜底，但用户会看到书架凭空清空）。
-     */
-    suspend fun renameShelf(from: String, to: String) {
+    /** 书架改名后同步所有书的归属（同上：先改书，再改书架清单）。 */
+    suspend fun renameShelfInAll(from: String, to: String) {
         migration.ensure()
-        dao.moveShelf(from, to)
+        val changed = dao.books()
+            .filter { from in parseMembership(it.shelf) }
+            .map {
+                it.copy(shelf = encodeMembership(withShelfRenamedIn(parseMembership(it.shelf), from, to)))
+            }
+        if (changed.isNotEmpty()) dao.upsertBooks(changed)
     }
 }
 
 private fun BookEntity.toLibraryBook(): LibraryBook =
-    LibraryBook(book = toBookInfo(), shelf = shelf, addedAt = addedAt)
+    LibraryBook(book = toBookInfo(), shelves = parseMembership(shelf).toSet(), addedAt = addedAt)

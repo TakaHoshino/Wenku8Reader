@@ -282,10 +282,13 @@ internal fun MiuixDialogButtons(
     dismissText: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    /** 确认按钮是否可用（书架弹窗在"一个书架都没勾"时要置灰）。 */
+    confirmEnabled: Boolean = true,
 ) {
     Column(Modifier.padding(top = 12.dp)) {
         Button(
             onClick = onConfirm,
+            enabled = confirmEnabled,
             // 必须是 fillMaxWidth：写成 fillMaxSize 时按钮会去撑满弹窗的整个可用空间，
             // 结果是弹窗被拉到满屏、次要按钮被挤出可见区域（用户看到的巨型弹窗就是这个原因）。
             modifier = Modifier.fillMaxWidth(),

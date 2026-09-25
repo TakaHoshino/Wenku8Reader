@@ -54,24 +54,18 @@ interface LibraryDao {
     // ---------------------------------------------------------------- //
 
     /**
-     * 把一本书移到另一个书架。
+     * 写入一本书的归属。
      *
-     * 只改归属，不碰入架时间与阅读进度（移动书架不该让书在"最近加入"里跳位，
-     * 也不该影响继续阅读位置）。`shelf` 列**没有索引**是刻意的：书架页本来就是
-     * 全量读回来在内存里按书架过滤（百本规模），加索引要动 schema 版本，
-     * 代价远大于收益。
-     */
-    @Query("UPDATE books SET shelf = :shelf WHERE id = :bookId")
-    suspend fun updateShelf(bookId: Int, shelf: String)
-
-    /**
-     * 整架搬迁：把 [from] 书架上的书一次性移到 [to]（删除书架时退回默认书架）。
+     * [value] 是**编码后的书架集合**（JSON 数组，见 `ShelfOps.encodeMembership`）——一本书可以
+     * 同时属于多个书架。只改归属，不碰入架时间与阅读进度（换书架不该让书在"最近加入"里跳位，
+     * 也不该影响继续阅读位置；进度本来就按 bookId 存在 `reading_progress` 里，多书架共享同一份）。
      *
-     * 单条 UPDATE 天然是一个事务，要么全搬要么全不搬——不会出现"搬了一半"导致
-     * 部分书找不到归属的中间态。
+     * `shelf` 列**没有索引**是刻意的：书架页本来就是全量读回来在内存里按书架过滤（百本规模），
+     * 加索引要动 schema 版本，代价远大于收益；也正因如此，书架改名/删除是"读回来逐条改写"，
+     * 而不是一条 `UPDATE ... WHERE shelf = ?`（集合语义下后者根本表达不出来）。
      */
-    @Query("UPDATE books SET shelf = :to WHERE shelf = :from")
-    suspend fun moveShelf(from: String, to: String)
+    @Query("UPDATE books SET shelf = :value WHERE id = :bookId")
+    suspend fun updateShelves(bookId: Int, value: String)
 
     // ---------------------------------------------------------------- //
     // 阅读进度
