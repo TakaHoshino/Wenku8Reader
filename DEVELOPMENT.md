@@ -199,7 +199,7 @@ Wenku8Reader/
 - **书架已读统计**：`BookcaseEntry.readCount = finishedChapters(bookId).size`（与目录页"已读"同源），进度条 = 已读/总数（原为阅读位置 `(pos+1)/total`，已改为基于目录已读标记）。
 
 ### 4.9 应用内更新（`UpdateChecker` / `UpdateCenter` / `ui/update/`）
-- **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表首个带 APK 的发布。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准 `yyyymmddHH`），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。启动自动检查有 24h 节流。
+- **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表首个带 APK 的发布。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准「`2_030_000_000` + 分钟偏移」，见 VERSIONING.md §2），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。启动自动检查有 24h 节流。
 - **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；`OkHttpClient` **显式设置连接/读写/整体超时**（默认无超时会长期挂起且无取消点）。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
 - **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。
@@ -434,13 +434,13 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - **详情页增强**（§4.8）：作者高亮跳转、Tag 跳转、独立目录页（分卷折叠 + 已读标记 + 重读重置）、书架已读统计。
 - **标签分页**：`tagBooks(tag, page)`，「查看全部」逐页加载该标签全部书籍（去重 + 空页停止）。
 - **全局点击振动**（§5.4 `HapticIndication`）：设置页「外观」新增「触觉反馈」开关 + 振动强度滑动条（0-100 → Vibrator 幅度 1-255）。
-- **CI**：dev 分支独立构建工作流（仅构建、不发布）；语义版本解析**必须用内联 run 步骤**（composite action 输出在本环境失效，曾导致 tag 变 `v`——见 VERSIONING.md §8 教训）；versionCode 时间基准 `yyyymmddHH`（跨工作流单调递增）。
+- **CI**：dev 分支独立构建工作流（仅构建、不发布）；语义版本解析**必须用内联 run 步骤**（composite action 输出在本环境失效，曾导致 tag 变 `v`——见 VERSIONING.md §8 教训）；versionCode 为「`2_030_000_000` + 自 2026-01-01 起的分钟数」（跨工作流单调递增、分钟粒度）。
 
 ---
 
 ## 8. 参考文档与版本管理
 
-- 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 时间基准 `yyyymmddHH`、发布三件套、dev 分支只构建不发布）。
+- 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 时间基准（分钟粒度）、发布三件套、dev 分支只构建不发布）。
 - **CI 经验**：`release.yml`（push main/master 触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（push dev 触发：仅构建上传 Artifact）。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
 
 `技术性文档(只读勿动)/`：

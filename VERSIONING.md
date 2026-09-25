@@ -17,7 +17,7 @@
 
 ### versionCode（系统版本号，单调递增整数）
 
-**CI 自动化构建（release/dev 工作流）**：`yyyymmddHH`（如 2026082914），时间基准、跨工作流单调递增，必然大于任何历史已装版本。
+**CI 自动化构建（release/dev 工作流）**：`2_030_000_000 + 自 2026-01-01 UTC 起的分钟数`（如 `2030385350`），时间基准、跨工作流单调递增，必然大于任何历史已装版本，且**分钟粒度**避免同一小时内多次构建撞号。
 
 **本地手动构建**：`主版本 × 10000 + 次版本 × 100 + 修订号`，只增不减。
 
@@ -30,7 +30,9 @@
 
 - 本地规则在 `主<200、次<100、修订<100` 时无冲突（`int` 上限 20 亿内）。
 - **铁律**：versionCode 一旦发布**绝不回退**——Android 系统以此判断是否允许覆盖安装（降版本会被拒绝）。
-- 为什么 CI 不用 `主×10000+…`：自动化按提交递增语义版本，难以与「本地手动维护」的规则保持一致；时间基准 `yyyymmddHH` 天然满足「单调递增 + 跨工作流（dev/release）互不冲突 + 必然大于历史版本」，也无需跨工作流协调计数器。同一小时内两次构建 code 相同属可接受的边界情况（重新触发同一构建即可）。
+- 为什么 CI 不用 `主×10000+…`：自动化按提交递增语义版本，难以与「本地手动维护」的规则保持一致；时间基准天然满足「单调递增 + 跨工作流（dev/release）互不冲突 + 必然大于历史版本」，也无需跨工作流协调计数器。
+- 为什么不是直接拼 `yyyyMMddHHmm`：**Android 的 versionCode 是 32 位 int，上限 2 147 483 647**，`yyyyMMddHHmm` 在 2026 年就已经是 2.0e11，连 aapt 都无法编码。因此采用「基准值 + 分钟偏移」：基准 `2_030_000_000` 取在历史已发布值（最高 `2_026_092_508`）之上以保证任何存量用户都能覆盖安装，余量约 1.17 亿分钟 ≈ 223 年。
+- 历史沿革：2026-09-25 之前用的是小时粒度 `yyyymmddHH`，并因此发生过一次真实事故——`v0.7.0` 与 `v0.7.0-dev.92` 在同一小时内构建、versionCode 完全相同，导致测试版用户既看不到正式版更新、也无法覆盖安装。分钟粒度把这类碰撞的概率降到约 1/60。
 
 ## 2. 升级决策速查
 
@@ -45,7 +47,7 @@
 
 1. **语义解析**：读取最近 `vX.Y.Z` 标签之后的提交，按 Conventional Commits 决定升级——
    `feat:` → 次版本 +1；`fix:` / `perf:` → 修订号 +1；`BREAKING CHANGE` / `!` → 主版本 +1；无相关提交则跳过发布。
-2. **versionCode = `yyyymmddHH`**（时间基准）：每次构建必然大于历史所有已装版本（含本地调试包与 dev 包），保证覆盖安装不降级。
+2. **versionCode = `2_030_000_000 + 自 2026-01-01 UTC 起的分钟数`**（时间基准）：每次构建必然大于历史所有已装版本（含本地调试包与 dev 包），保证覆盖安装不降级；分钟粒度也保证同一小时内的多次构建互不撞号（见 §2 的说明）。
 3. **构建注入**：`build.gradle.kts` 优先读环境变量 `APP_VERSION_NAME` / `APP_VERSION_CODE`；本地构建回退 `gradle.properties` 的 `VERSION_NAME` / `VERSION_CODE`。
 4. **产出**：打 `vX.Y.Z` 标签 → 生成更新日志（自上次标签的 feat/fix 提交）→ GitHub Release 附 APK。
 5. **签名**：必须配置正式签名 Secrets（`KEYSTORE_*`）；**未配置则构建直接失败，不再回退 debug 签名**（原因见 §6 的安全说明）。
@@ -168,7 +170,7 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 |---|---|
 | 触发 | push `dev` 分支 / 手动 `workflow_dispatch` |
 | versionName | **与 master 同一套语义系统**：解析最近 tag 之后的 Conventional Commits（feat→minor / fix→patch / BREAKING→major），两边规则与结果一致 |
-| versionCode | **递增**：时间基准 `yyyymmddHH`（如 `2026082914`），必然大于任何历史已装版本，覆盖安装不降级 |
+| versionCode | **递增**：`2_030_000_000 + 自 2026-01-01 UTC 起的分钟数`（如 `2030385350`），必然大于任何历史已装版本、覆盖安装不降级，且同一小时内多次构建也能区分先后 |
 | 发布 | 同时产出 **Actions Artifact** 与 **GitHub Pre-release**（`v<版本>-dev.<N>`，标记为 prerelease；测试版通道靠 Release 资产才能匿名下载） |
 | 签名 | 与正式发布**同一套正式签名**（未配置签名密钥时直接失败，不产出 debug 签名包）；密钥取自 environment `dev` |
 | 旧测试版保留 | **只保留最近 10 个** `v<版本>-dev.<N>`（release 与 tag 一起清）；判据是 tag 名正则 + `isPrerelease`，正式版 release 与其 tag 一律不动 |
@@ -180,7 +182,7 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 
 **注意事项**：
 - dev 包与 release 包均使用同一套正式签名，因此**可互相覆盖安装**（若曾装过 debug 签名包，则需先卸载）。
-- 同一小时内构建的多个包 versionCode 相同（`yyyymmddHH` 为小时粒度），覆盖安装会被拒绝——重新触发一次构建（下一小时）即可。工作流已加 `concurrency` 串行化，避免并发发布互相覆盖。
+- versionCode 已改为**分钟粒度**（见 §2），同一小时内多次构建不再撞号；`concurrency` 串行化仍然保留，避免并发发布互相覆盖。
 - dev 构建会创建 `v<版本>-dev.<N>` 形式的 **prerelease tag**（用于测试版更新通道）；正式版基准解析用 `git tag --list 'v*' | grep -v -- '-'` 排除带 `-` 的测试版标签，因此这些 tag 不会推高正式版本号。
 - 旧测试版由 `dev.yml` 发布步骤之后的「清理旧测试版预发布」自动收敛到最近 10 个（2026-09-25 首次清理：48 → 10，另有 2 个无 release 的孤儿 tag 一并删除）。
 
