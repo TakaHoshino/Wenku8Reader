@@ -30,7 +30,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -63,6 +62,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.DEFAULT_SHELF
+import com.hoshino.wenku8reader.data.local.WENKU8_SHELF
 import com.hoshino.wenku8reader.data.JobStatus
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
@@ -128,25 +128,12 @@ fun DetailScreen(
                     }
                 },
                 actions = {
-                    // 站方书架（实验性，仅用户账户登录时出现）：与"本地收藏"是两套独立状态
-                    if (ui.siteShelfAvailable) {
-                        IconButton(onClick = { vm.toggleSiteShelf() }, enabled = info != null) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.LibraryBooks,
-                                contentDescription = stringResource(R.string.detail_site_shelf),
-                                tint = if (ui.inSiteShelf) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                    }
                     IconButton(
-                        // 多书架开启且尚未收藏 → 先选书架；其余情况（含关闭开关）走原来的收藏/移出
+                        // 多书架开启 → 弹窗里勾选书架（站方书架可用时它就是其中一个复选框）；
+                        // 关闭开关时走原来的"点一下即刻收藏/移出"，与本功能上线前一致
                         onClick = {
                             if (ui.multiShelfEnabled) {
-                                pickingForRemoval = ui.inLocalLibrary
+                                pickingForRemoval = ui.favoriteActive
                                 showShelfPicker = true
                             } else {
                                 vm.toggleLocalFavorite()
@@ -154,13 +141,12 @@ fun DetailScreen(
                         },
                         enabled = info != null,
                     ) {
-                        // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
-                        // 与「收藏」这个文案保持一致——此前用的是书签图标。
+                        // 收藏：五角星（已收藏——本地或网站书架——为实心 + 主题色，未收藏为空心星）
                         Icon(
-                            if (ui.inLocalLibrary) Icons.Filled.Star
+                            if (ui.favoriteActive) Icons.Filled.Star
                             else Icons.Filled.StarBorder,
                             contentDescription = stringResource(R.string.detail_favorite),
-                            tint = if (ui.inLocalLibrary) {
+                            tint = if (ui.favoriteActive) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -396,8 +382,13 @@ fun DetailScreen(
                 else R.string.shelf_picker_add_title,
             ),
             shelves = ui.shelves,
-            // 收藏默认预勾选默认书架（不挑就直接进默认，沿用旧习惯）
-            initial = if (pickingForRemoval) ui.currentShelves else setOf(DEFAULT_SHELF),
+            // 收藏默认预勾选默认书架（不挑就直接进默认，沿用旧习惯）；
+            // 但"只在网站书架里"的书不能预勾默认，否则点确定会顺手多出一个本地收藏
+            initial = when {
+                ui.inLocalLibrary -> ui.currentShelves
+                ui.inSiteShelf -> emptySet()
+                else -> setOf(DEFAULT_SHELF)
+            },
             confirmLabel = stringResource(R.string.action_confirm),
             // 取消收藏：全部取消勾选 = 完全取消收藏，此时确认按钮改叫"取消收藏"
             emptyConfirmLabel = if (pickingForRemoval) {
@@ -406,15 +397,13 @@ fun DetailScreen(
                 null
             },
             message = if (pickingForRemoval) stringResource(R.string.shelf_picker_remove_message) else null,
+            // 站方书架就是这个弹窗里的一个复选框：没有第二个收藏按钮，但勾选/取消会发真实的网络请求
+            siteShelfName = if (ui.siteShelfAvailable) WENKU8_SHELF else null,
+            siteShelfInitial = ui.inSiteShelf,
             onDismiss = { showShelfPicker = false },
-            onConfirm = { selected ->
+            onConfirm = { result ->
                 showShelfPicker = false
-                when {
-                    // 一个都不勾 → 完全取消收藏（从书架移出）
-                    selected.isEmpty() -> vm.toggleLocalFavorite()
-                    // 勾选有变化才写库；收藏场景下 currentShelves 为空，必然写
-                    selected != ui.currentShelves -> vm.setShelves(selected)
-                }
+                vm.applyFavorite(result.shelves, result.siteShelf)
             },
         )
     }

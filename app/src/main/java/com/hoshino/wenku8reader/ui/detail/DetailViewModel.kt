@@ -52,11 +52,28 @@ data class DetailUiState(
      * 取消收藏的确认弹窗用它预勾选，让用户看清"从哪些书架取消"。
      */
     val currentShelves: Set<String> = emptySet(),
-    /** 是否显示"网站书架"入口：账户开 + 多书架开 + 用户账户已登录。 */
+    /**
+     * 「Wenku8书架」是否可用：账户开 + 多书架开 + 用户账户已登录。
+     * 决定收藏弹窗里要不要多出那个复选框（站方书架**没有**自己的按钮）。
+     */
     val siteShelfAvailable: Boolean = false,
-    /** 这本书当前是否已在站方书架（登录用户的书架）。 */
+    /**
+     * 这本书当前是否已在「Wenku8书架」里。
+     *
+     * **只在 [siteShelfAvailable] 为真时才有意义**：退出登录 / 关掉开关后站点镜像可能还没刷新，
+     * 这里一律按"不在"处理，避免把上一个账户的书架状态显示给现在的用户。
+     */
     val inSiteShelf: Boolean = false,
-)
+) {
+    /**
+     * 星标是否点亮：本地收藏**或**在站方书架里。
+     *
+     * 站方书架现在是收藏弹窗里的一个复选框，如果星标只看本地，那本"只加进了网站书架"的书
+     * 会显示成未收藏，用户点开弹窗却看到一个已勾选的项——所以两种归属都要点亮星标。
+     * 站方不可用时（未登录 / 开关关闭）它退化成原来的 `inLocalLibrary`。
+     */
+    val favoriteActive: Boolean get() = inLocalLibrary || inSiteShelf
+}
 
 class DetailViewModel(
     savedStateHandle: SavedStateHandle,
@@ -103,32 +120,8 @@ class DetailViewModel(
                 (settings.accountLoginEnabled && settings.multiShelfEnabled &&
                     account.activeUsername != null) to site.contains(bookId)
             }.collect { (available, inSite) ->
-                _ui.update { it.copy(siteShelfAvailable = available, inSiteShelf = inSite) }
-            }
-        }
-    }
-
-    /** 加入 / 移出站方书架（同一枚按钮的两种含义，由 [DetailUiState.inSiteShelf] 决定）。 */
-    fun toggleSiteShelf() {
-        viewModelScope.launch {
-            if (_ui.value.inSiteShelf) {
-                // 移出要的是**书架记录 id**（不是书 id）——在这里换算，UI 不接触站点细节
-                val bid = wenku8Shelf.state.value.itemOf(bookId)?.bid ?: return@launch
-                val ok = wenku8Shelf.remove(bid)
-                _favoriteMessages.tryEmit(
-                    UiText.StringResource(
-                        if (ok) R.string.detail_site_shelf_removed
-                        else R.string.detail_site_shelf_failed,
-                    ),
-                )
-            } else {
-                val ok = wenku8Shelf.add(bookId)
-                _favoriteMessages.tryEmit(
-                    UiText.StringResource(
-                        if (ok) R.string.detail_site_shelf_added
-                        else R.string.detail_site_shelf_failed,
-                    ),
-                )
+                // 不可用时一律记 false：站点镜像里可能还留着上一个账户的书，别显示出来
+                _ui.update { it.copy(siteShelfAvailable = available, inSiteShelf = available && inSite) }
             }
         }
     }
@@ -203,8 +196,10 @@ class DetailViewModel(
     }
 
     // ------------------------------------------------------------------ //
-    // favorite (local only)
+    // favorite（本地归属 + 站方书架：同一个入口、同一个弹窗）
     // ------------------------------------------------------------------ //
+
+    /** 多书架**关闭**时的收藏：点一下即刻收藏/移出（与多书架上线前逐像素一致）。 */
     fun toggleLocalFavorite() {
         val book = _ui.value.book ?: return
         val removing = _ui.value.inLocalLibrary
@@ -222,26 +217,63 @@ class DetailViewModel(
     }
 
     /**
-     * 覆盖归属：勾选了哪些书架就属于哪些（多书架开启时由弹层选择，可多选）。
+     * 收藏弹窗的落点：**本地归属与站方书架一次提交**。
      *
-     * 与 [toggleLocalFavorite] 的分工：那个负责"移出/默认收藏"，这个负责"设置所属书架"。
+     * 两者在数据层仍是独立状态（站方书架不进 `LibraryStore`），只是共用一个入口——
+     * 详情页只有星标一枚按钮，弹窗里「Wenku8书架」和本地书架一样是个复选框。
+     *
+     * - 本地：勾选了哪些书架就属于哪些；**一个都没勾 = 取消本地收藏**（沿用原来的语义）。
+     * - 站方：勾上 → `addbookcase.php`（加入），取消勾选 → `bookcase.php?delid=`（移出），
+     *   两者都是**真实的网络请求**，随后刷新站方书架，让勾选状态回到事实而不是本地猜测。
+     *
+     * 只有确实变化的项才会写库 / 发请求：打开弹窗直接点确定不会产生无意义的写库与网络请求。
      * 阅读进度不在这里动——它按 bookId 存在 `reading_progress`，同一本书在多个书架共用同一份。
      */
-    fun setShelves(shelves: Collection<String>) {
+    fun applyFavorite(shelves: Collection<String>, inSiteShelf: Boolean) {
         val book = _ui.value.book ?: return
         viewModelScope.launch {
-            libraryStore.add(book, shelves)
+            val state = _ui.value
+            val target = shelves.toSet()
+            val localChanged = target != state.currentShelves
+            if (localChanged) {
+                if (target.isEmpty()) libraryStore.remove(book.id) else libraryStore.add(book, target)
+            }
+
+            val siteChanged = state.siteShelfAvailable && inSiteShelf != state.inSiteShelf
+            val siteOk = if (siteChanged) setSiteShelf(inSiteShelf) else null
+
+            // 一次只提示一条：站方失败优先报出来，否则本地那条成功提示会掩盖"网站书架其实没动"
             _favoriteMessages.tryEmit(
-                // 只勾了默认书架时沿用旧文案，避免"已收藏至「默认」"这种啰嗦说法
-                if (shelves.toSet() == setOf(DEFAULT_SHELF)) {
-                    UiText.StringResource(R.string.detail_fav_local_done)
-                } else {
-                    UiText.StringResource(
-                        R.string.detail_fav_local_done_shelf,
-                        shelves.joinToString("、"),
+                when {
+                    siteOk == false -> UiText.StringResource(R.string.detail_site_shelf_failed)
+                    localChanged -> localFavoriteMessage(target)
+                    siteOk == true -> UiText.StringResource(
+                        if (inSiteShelf) R.string.detail_site_shelf_added
+                        else R.string.detail_site_shelf_removed,
                     )
+                    else -> return@launch
                 },
             )
         }
+    }
+
+    /**
+     * 站方书架的加入 / 移出（**发网络请求**）。
+     *
+     * @return 是否成功；调用方只在"勾选状态确实变了"时才会调它。
+     */
+    private suspend fun setSiteShelf(inSiteShelf: Boolean): Boolean = if (inSiteShelf) {
+        wenku8Shelf.add(bookId)
+    } else {
+        // 移出要的是**书架记录 id**（不是书 id）——在这里换算，UI 不接触站点细节
+        val bid = wenku8Shelf.state.value.itemOf(bookId)?.bid ?: return false
+        wenku8Shelf.remove(bid)
+    }
+
+    /** 本地归属变化的提示文案（只勾了默认书架时沿用旧文案，避免"已收藏至「默认」"这种啰嗦说法）。 */
+    private fun localFavoriteMessage(target: Set<String>): UiText = when {
+        target.isEmpty() -> UiText.StringResource(R.string.detail_fav_local_removed)
+        target == setOf(DEFAULT_SHELF) -> UiText.StringResource(R.string.detail_fav_local_done)
+        else -> UiText.StringResource(R.string.detail_fav_local_done_shelf, target.joinToString("、"))
     }
 }

@@ -82,14 +82,22 @@ data class BookcaseUiState(
     /**
      * 仅**本地**书架（默认 + 自建），不含站方的「Wenku8书架」。
      *
-     * 归属勾选弹窗用它而不是 [shelves]：站方书架不是本地归属，列进去只会得到一个
-     * 勾了也不生效的复选框（勾选会写进 `books.shelf`，读回来又被归一化丢掉）。
+     * 弹窗用它做**本地**那一半的复选框；站方书架由 [siteShelfAvailable] + [siteBookIds]
+     * 单独交代（勾它会走站点的加入/移出请求，写进 `books.shelf` 只会被归一化丢掉）。
      */
     val localShelves: List<String> = listOf(DEFAULT_SHELF),
     /** 当前选中的书架；开关关闭时恒为默认。 */
     val selectedShelf: String = DEFAULT_SHELF,
     /** 当前选中的是「Wenku8书架」（内容来自站点，不是本地书架）。 */
     val siteShelf: Boolean = false,
+    /**
+     * 「Wenku8书架」当前是否可用（= 它出现在 [shelves] 里）。
+     *
+     * 归属勾选弹窗据此决定要不要多出站方那一项；那一项的勾选变化会走真实的网络请求。
+     */
+    val siteShelfAvailable: Boolean = false,
+    /** 站方书架里的书 id（弹窗据此预勾选站方那一项）；仅 [siteShelfAvailable] 为真时有意义。 */
+    val siteBookIds: Set<Int> = emptySet(),
 )
 
 class BookcaseViewModel(
@@ -126,6 +134,8 @@ class BookcaseViewModel(
         val local: List<String>,
         val selected: String,
         val enabled: Boolean,
+        /** 站方书架当前是否可用（弹窗要不要列出站方那一项）。 */
+        val siteEnabled: Boolean,
     )
 
     private fun shelfView(
@@ -150,6 +160,7 @@ class BookcaseViewModel(
             // 它就在 shelves 里，能选中就说明它还该显示。
             selected = if (env.multiShelfEnabled && env.selected in shelves) env.selected else DEFAULT_SHELF,
             enabled = env.multiShelfEnabled,
+            siteEnabled = siteShelf,
         )
     }
 
@@ -220,6 +231,8 @@ class BookcaseViewModel(
                             localShelves = view.local,
                             selectedShelf = view.selected,
                             siteShelf = siteSelected,
+                            siteShelfAvailable = view.siteEnabled,
+                            siteBookIds = site.items.mapTo(mutableSetOf()) { it.aid },
                         )
                     }
                     applySort()
@@ -254,6 +267,8 @@ class BookcaseViewModel(
                     shelves = view.shelves,
                     localShelves = view.local,
                     selectedShelf = view.selected,
+                    siteShelfAvailable = view.siteEnabled,
+                    siteBookIds = wenku8Shelf.state.value.items.mapTo(mutableSetOf()) { it.aid },
                 )
             }
             applySort()
@@ -296,6 +311,25 @@ class BookcaseViewModel(
         viewModelScope.launch {
             val bid = wenku8Shelf.state.value.itemOf(bookId)?.bid ?: return@launch
             wenku8Shelf.remove(bid)
+        }
+    }
+
+    /**
+     * 归属弹窗里站方那一项的落点：勾上 = 加入网站书架，取消勾选 = 移出。
+     *
+     * **真实的网络请求**（`addbookcase.php` / `bookcase.php?delid=`），随后刷新站方书架，
+     * 让勾选状态回到事实。与本地归属互不影响——本地那一半由 [setShelves] 写库，
+     * UI 只在勾选状态确实变化时才调这里。
+     */
+    fun setSiteShelf(bookId: Int, inSiteShelf: Boolean) {
+        viewModelScope.launch {
+            if (inSiteShelf) {
+                wenku8Shelf.add(bookId)
+            } else {
+                // 移出要的是**书架记录 id**（不是书 id）
+                val bid = wenku8Shelf.state.value.itemOf(bookId)?.bid ?: return@launch
+                wenku8Shelf.remove(bid)
+            }
         }
     }
 

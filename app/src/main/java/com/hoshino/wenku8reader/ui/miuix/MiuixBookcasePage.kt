@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.local.WENKU8_SHELF
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseEntry
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseSortType
@@ -215,17 +216,24 @@ fun MiuixBookcasePage(
     }
 
     movingEntry?.let { entry ->
+        val inSiteShelf = entry.bookId in ui.siteBookIds
         MiuixShelfPicker(
             title = stringResource(R.string.shelf_picker_membership_title),
-            // 只列**本地**书架：站方书架不是本地归属，列进去等于给一个勾了也不生效的复选框
+            // 本地书架写归属；站方书架作为额外一项，勾它会走站点的加入/移出请求
             shelves = ui.localShelves,
             initial = entry.shelves,
             confirmLabel = stringResource(R.string.action_confirm),
+            siteShelfName = if (ui.siteShelfAvailable) WENKU8_SHELF else null,
+            siteShelfInitial = inSiteShelf,
             onDismiss = { movingEntry = null },
-            onConfirm = { selected ->
+            onConfirm = { result ->
                 movingEntry = null
                 // 勾选没变就不写库
-                if (selected != entry.shelves) vm.setShelves(entry.bookId, selected)
+                if (result.shelves != entry.shelves) vm.setShelves(entry.bookId, result.shelves)
+                // 站方那一项真的变了才发请求：勾选没变时点确定不该产生任何网络请求
+                if (ui.siteShelfAvailable && result.siteShelf != inSiteShelf) {
+                    vm.setSiteShelf(entry.bookId, result.siteShelf)
+                }
             },
         )
     }
