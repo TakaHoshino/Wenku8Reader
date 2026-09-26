@@ -223,7 +223,8 @@ fun BookcasePage(
     movingEntry?.let { entry ->
         ShelfPickerDialog(
             title = stringResource(R.string.shelf_picker_membership_title),
-            shelves = ui.shelves,
+            // 只列**本地**书架：站方书架不是本地归属，列进去等于给一个勾了也不生效的复选框
+            shelves = ui.localShelves,
             initial = entry.shelves,
             confirmLabel = stringResource(R.string.action_confirm),
             onDismiss = { movingEntry = null },

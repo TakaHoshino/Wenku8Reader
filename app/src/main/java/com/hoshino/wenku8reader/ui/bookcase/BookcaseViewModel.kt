@@ -79,9 +79,16 @@ data class BookcaseUiState(
     val multiShelfEnabled: Boolean = false,
     /** 完整书架清单（含隐式默认，默认恒在首位）。 */
     val shelves: List<String> = listOf(DEFAULT_SHELF),
+    /**
+     * 仅**本地**书架（默认 + 自建），不含站方的「Wenku8书架」。
+     *
+     * 归属勾选弹窗用它而不是 [shelves]：站方书架不是本地归属，列进去只会得到一个
+     * 勾了也不生效的复选框（勾选会写进 `books.shelf`，读回来又被归一化丢掉）。
+     */
+    val localShelves: List<String> = listOf(DEFAULT_SHELF),
     /** 当前选中的书架；开关关闭时恒为默认。 */
     val selectedShelf: String = DEFAULT_SHELF,
-    /** 当前选中的是站方虚拟书架（内容来自站点，不是本地书架）。 */
+    /** 当前选中的是「Wenku8书架」（内容来自站点，不是本地书架）。 */
     val siteShelf: Boolean = false,
 )
 
@@ -115,6 +122,8 @@ class BookcaseViewModel(
     /** 多书架视图状态（由 [shelfView] 统一算出，Flow 与一次性读取共用）。 */
     private data class ShelfView(
         val shelves: List<String>,
+        /** 仅本地书架（切换条里去掉站方那一栏），归属勾选弹窗用。 */
+        val local: List<String>,
         val selected: String,
         val enabled: Boolean,
     )
@@ -123,23 +132,23 @@ class BookcaseViewModel(
         customShelves: List<String>,
         env: Env,
     ): ShelfView {
-        // Wenku8 书架是**虚拟书架**（不在 ShelfStore 清单里、不进 LibraryStore），
-        // 只有"账户开关 + 多书架开关 + 用户账户已登录"三者齐备时才出现在切换条末尾。
+        // 「Wenku8书架」与本地书架**同等地位**：一样出现在切换条、一样参与排序、卡片用同一套。
+        // 它只有两点不同——① 内容只读（来自站点，不进 ShelfStore/LibraryStore）；
+        // ② 存在条件 = "账户开关 + 多书架开关 + 用户账户已登录"三者齐备。
         val siteShelf = wenku8ShelfVisible(
             accountLoginEnabled = env.accountLoginEnabled,
             multiShelfEnabled = env.multiShelfEnabled,
             userAccountLoggedIn = env.activeUsername != null,
         )
-        val shelves = shelfNames(customShelves) + if (siteShelf) listOf(WENKU8_SHELF) else emptyList()
+        val local = shelfNames(customShelves)
+        val shelves = local + if (siteShelf) listOf(WENKU8_SHELF) else emptyList()
         return ShelfView(
             shelves = shelves,
+            local = local,
             // 选中的书架可能已被删除 / 开关刚被关掉 / 退出登录了 → 回落默认，
-            // 否则会停在一个永远空的"幽灵书架"上
-            selected = when {
-                env.selected == WENKU8_SHELF && siteShelf -> WENKU8_SHELF
-                env.multiShelfEnabled && env.selected in shelves -> env.selected
-                else -> DEFAULT_SHELF
-            },
+            // 否则会停在一个永远空的"幽灵书架"上。站方书架与本地书架在这里不区分：
+            // 它就在 shelves 里，能选中就说明它还该显示。
+            selected = if (env.multiShelfEnabled && env.selected in shelves) env.selected else DEFAULT_SHELF,
             enabled = env.multiShelfEnabled,
         )
     }
@@ -180,11 +189,17 @@ class BookcaseViewModel(
                 envFlow,
             ) { books, progress, customShelves, env ->
                 val view = shelfView(customShelves, env)
+                // 本地条目按书 id 建索引：站方条目只有 aid，用它去取本地的显示字段与进度
+                val localById = books.associateBy { it.book.id }
                 Triple(
                     view,
-                    // 选中虚拟书架时，内容是**站方**书架的条目（站点只给书名/最新章，
-                    // 没有封面作者，也绝不为此逐本并发拉 bookInfo）
-                    if (view.selected == WENKU8_SHELF) env.site.items.map { it.toSiteEntry() }
+                    // 选中站方书架时，内容是**站方**书架的条目；封面由书 id 推出、进度套用本地，
+                    // 全程零额外请求（见 SiteShelfEntry.toSiteEntry）
+                    if (view.selected == WENKU8_SHELF) {
+                        env.site.items.map { item ->
+                            item.toSiteEntry(localById[item.aid], progress[item.aid])
+                        }
+                    }
                     else books.map { it.toEntry(customShelves, progress) },
                     env.site,
                 )
@@ -202,6 +217,7 @@ class BookcaseViewModel(
                             },
                             multiShelfEnabled = view.enabled,
                             shelves = view.shelves,
+                            localShelves = view.local,
                             selectedShelf = view.selected,
                             siteShelf = siteSelected,
                         )
@@ -236,6 +252,7 @@ class BookcaseViewModel(
                     isLoading = false,
                     error = null,
                     shelves = view.shelves,
+                    localShelves = view.local,
                     selectedShelf = view.selected,
                 )
             }
@@ -326,12 +343,9 @@ class BookcaseViewModel(
         } else {
             natural
         }
-        // 虚拟书架保持站点返回的顺序（站点按最近更新排），不套用本地排序——站方条目没有
-        // 本地排序依赖的字段（更新时间/字数），硬排只会得到毫无意义的顺序。
-        if (state.siteShelf) {
-            _ui.update { it.copy(entries = visible) }
-            return
-        }
+        // 站方书架与本地书架走同一条排序路径（"同等地位"）：默认排序下 `sortEntries` 原样
+        // 返回，站方条目就保持站点给出的顺序；站方条目本就缺的时间/字数由本地已有同一本书
+        // 时补全（见 SiteShelfEntry.toSiteEntry），补不到的那些排在最后，不会乱跳。
         val sorted = sortEntries(visible, state.sortType, state.sortReversed)
         _ui.update { it.copy(entries = sorted) }
     }

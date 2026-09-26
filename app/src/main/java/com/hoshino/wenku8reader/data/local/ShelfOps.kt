@@ -62,8 +62,11 @@ internal fun validateShelfName(
     val name = normalizeShelfName(raw)
     if (name.isEmpty()) return ShelfNameError.EMPTY
     if (name.length > SHELF_NAME_MAX_LENGTH) return ShelfNameError.TOO_LONG
-    // 默认书架永远算占用；改名时把自己排除，否则"改成原名"会被判成重名
-    val taken = listOf(DEFAULT_SHELF) + existing.filter { it != renaming }
+    // 默认书架与 Wenku8 书架的名字永远算占用。后者是站方书架的固定名，而书架的选中态
+    // 是按名字记的——自建书架若也叫「Wenku8书架」，切换条里会有两个同名项，选中时命中
+    // 站方那一栏，本地那一栏就再也点不到了，所以在名称层面直接禁止。
+    // 改名时把自己排除，否则"改成原名"会被判成重名。
+    val taken = listOf(DEFAULT_SHELF, WENKU8_SHELF) + existing.filter { it != renaming }
     return if (taken.any { it == name }) ShelfNameError.DUPLICATE else null
 }
 
@@ -96,8 +99,14 @@ internal fun withShelfRenamed(existing: List<String>, from: String, raw: String)
 internal fun withShelfDeleted(existing: List<String>, name: String): List<String> =
     if (name == DEFAULT_SHELF) existing else existing.filterNot { it == name }
 
-/** 该书架是否允许删除（默认书架恒不可删）。 */
-internal fun isShelfDeletable(name: String): Boolean = name != DEFAULT_SHELF
+/**
+ * 该书架是否允许删除。
+ *
+ * 两个名字恒不可删：默认书架（结构上必须存在），以及 [WENKU8_SHELF]——它是站点书架的
+ * 镜像，删本地这栏不会动站方数据，只会让用户以为"书架没了"。
+ */
+internal fun isShelfDeletable(name: String): Boolean =
+    name != DEFAULT_SHELF && name != WENKU8_SHELF
 
 /** 完整的展示清单：默认书架恒在首位。 */
 internal fun shelfNames(existing: List<String>): List<String> =

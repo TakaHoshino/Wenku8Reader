@@ -59,6 +59,17 @@ class ShelfOpsTest {
         )
     }
 
+    @Test
+    fun `Wenku8书架的名字被保留_自建书架不能占用`() {
+        // 选中态按名字记：同名书架会让本地那一栏永远点不到（见 validateShelfName 的说明）
+        assertEquals(ShelfNameError.DUPLICATE, validateShelfName(WENKU8_SHELF, emptyList()))
+        assertEquals(ShelfNameError.DUPLICATE, validateShelfName(" $WENKU8_SHELF ", listOf("轻小说")))
+        assertEquals(
+            ShelfNameError.DUPLICATE,
+            validateShelfName(WENKU8_SHELF, listOf("轻小说"), renaming = "轻小说"),
+        )
+    }
+
     // ------------------------------------------------------------------ //
     // 清单增删改
     // ------------------------------------------------------------------ //
@@ -104,6 +115,8 @@ class ShelfOpsTest {
         assertEquals(existing, withShelfDeleted(existing, DEFAULT_SHELF))
         assertEquals(existing, withShelfDeleted(existing, "不存在"))
         assertFalse(isShelfDeletable(DEFAULT_SHELF))
+        // 站方书架同样不可删：删本地这一栏不会动站方数据，只会让人以为书架没了
+        assertFalse(isShelfDeletable(WENKU8_SHELF))
         assertTrue(isShelfDeletable("轻小说"))
     }
 

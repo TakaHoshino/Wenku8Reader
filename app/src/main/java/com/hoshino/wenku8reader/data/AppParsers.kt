@@ -42,7 +42,7 @@ object AppParsers {
             lastUpdate = appValue(html, "LastUpdate") ?: "",
             wordCount = appValue(html, "BookLength") ?: "",
             description = "",
-            coverUrl = "https://img.wenku8.com/image/${id / 1000}/$id/${id}s.jpg",
+            coverUrl = wenku8CoverUrl(id),
             groupId = id / 1000,
             tags = (appValue(html, "Tags") ?: "")
                 .split(" ")

@@ -58,6 +58,9 @@ object AppViewModelProvider {
             ShelfManageViewModel(
                 application().container.libraryStore,
                 application().container.shelfStore,
+                application().container.readerSettings,
+                application().container.accountStore,
+                application().container.wenku8Shelf,
             )
         }
         initializer {

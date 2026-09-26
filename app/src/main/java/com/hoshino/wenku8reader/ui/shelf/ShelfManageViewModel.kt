@@ -3,16 +3,21 @@ package com.hoshino.wenku8reader.ui.shelf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.Wenku8Shelf
+import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.DEFAULT_SHELF
 import com.hoshino.wenku8reader.data.local.LibraryStore
+import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.SHELF_NAME_MAX_LENGTH
 import com.hoshino.wenku8reader.data.local.ShelfNameError
 import com.hoshino.wenku8reader.data.local.ShelfStore
+import com.hoshino.wenku8reader.data.local.WENKU8_SHELF
 import com.hoshino.wenku8reader.data.local.isShelfDeletable
 import com.hoshino.wenku8reader.data.local.normalizeShelfName
 import com.hoshino.wenku8reader.data.local.shelfNames
 import com.hoshino.wenku8reader.data.local.normalizeMembership
 import com.hoshino.wenku8reader.data.local.validateShelfName
+import com.hoshino.wenku8reader.data.local.wenku8ShelfVisible
 import com.hoshino.wenku8reader.data.local.withShelfCreated
 import com.hoshino.wenku8reader.data.local.withShelfDeleted
 import com.hoshino.wenku8reader.data.local.withShelfRenamed
@@ -31,7 +36,10 @@ import kotlinx.coroutines.launch
 data class ShelfRow(
     val name: String,
     val bookCount: Int,
-    /** 默认书架恒为 false（它不可删、不可改名）。 */
+    /**
+     * 是否给出改名 / 删除入口。默认书架与「Wenku8书架」恒为 false——
+     * 前者是结构上必须存在的隐式书架，后者是**站方**书架的镜像（本地删它不会动站方数据）。
+     */
     val deletable: Boolean,
 )
 
@@ -68,6 +76,9 @@ data class ShelfManageUiState(
 class ShelfManageViewModel(
     private val libraryStore: LibraryStore,
     private val shelfStore: ShelfStore,
+    private val readerSettings: ReaderSettings,
+    private val accountStore: AccountStore,
+    private val wenku8Shelf: Wenku8Shelf,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(ShelfManageUiState())
@@ -79,16 +90,38 @@ class ShelfManageViewModel(
 
     init {
         viewModelScope.launch {
-            combine(libraryStore.observeAll(), shelfStore.observe()) { books, customShelves ->
+            combine(
+                libraryStore.observeAll(),
+                shelfStore.observe(),
+                readerSettings.flow,
+                accountStore.observe(),
+                wenku8Shelf.state,
+            ) { books, customShelves, settings, account, site ->
                 // 书籍数按**归一化后**的归属统计：一本多归属的书会在它所在的每个书架里各计一次，
                 // 与书架页看到的分布一致（否则两个页面的数字会对不上）。
                 val memberships = books.map { normalizeMembership(it.shelves, customShelves) }
-                shelfNames(customShelves).map { name ->
+                val rows = shelfNames(customShelves).map { name ->
                     ShelfRow(
                         name = name,
                         bookCount = memberships.count { name in it },
                         deletable = isShelfDeletable(name),
                     )
+                }
+                // 「Wenku8书架」与本地书架同等地位：这里也列出来，只是不给改名/删除入口；
+                // 未登录（或开关没开）时它压根不存在，所以也不显示。
+                val siteVisible = wenku8ShelfVisible(
+                    accountLoginEnabled = settings.accountLoginEnabled,
+                    multiShelfEnabled = settings.multiShelfEnabled,
+                    userAccountLoggedIn = account.activeUsername != null,
+                )
+                if (siteVisible) {
+                    rows + ShelfRow(
+                        name = WENKU8_SHELF,
+                        bookCount = site.items.size,
+                        deletable = isShelfDeletable(WENKU8_SHELF),
+                    )
+                } else {
+                    rows
                 }
             }.collect { rows -> _ui.update { ShelfManageUiState(rows = rows) } }
         }
