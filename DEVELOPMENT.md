@@ -278,12 +278,31 @@ Wenku8Reader/
   不会顶掉用户会话（优先级：已有会话 > 用户账户 > 内置账号）。
 - **切镜像 `setPrimaryMirror`**：当前是用户账户时先弹确认框（说明"会退出该账户"），
   确认后清激活标记 → 切域 → 用内置账号重新登录；内置账号路径行为与原来一致，不加任何确认步骤。
-- **网站书架（虚拟书架）**：`data/Wenku8Shelf.kt`（容器级单例，**不落库**——它本来就是远端镜像，
-  持久化只会带来"本地副本与站点不一致"）。展示条件 = 账户开关 + 多书架开关 + 用户账户已登录，
-  作为书架切换条末尾的「Wenku8书架」出现，**不可重命名/删除**（复用 `isShelfDeletable` 一类的保护）。
-  站点书架不返回封面/作者/字数，也没有本地进度：卡片标题 = 书名、副标题 = 最新章，其余字段留空由卡片省略；
-  **绝不为每本书并发拉 `bookInfo`**（请求风暴）；**排序沿用站点顺序，不套本地排序**。
+- **网站书架（「Wenku8书架」）**：`data/Wenku8Shelf.kt`（容器级单例，**不落库**——它本来就是远端镜像，
+  持久化只会带来"本地副本与站点不一致"）。展示条件 = 账户开关 + 多书架开关 + 用户账户已登录。
   刷新是容器级互斥的（`refreshMutex`），手动刷新与"增删后的确认刷新"不会互相覆盖，也不会产生突发请求。
+- **它与本地书架同等地位**（不要给它加"另一种卡片/另一条排序"这类特判）：同一条书架切换条
+  （Material 侧同一个 `FilterChip`、MIUIX 侧同一枚胶囊）、同一套卡片、「管理书架」页里也有它的一行
+  （只是不给改名 / 删除入口）、排序走同一条 `applySort()` 路径。真正特殊的只有两条：
+  ① **内容只读**——来自站点，绝不写 `ShelfStore` / `LibraryStore`；
+  ② **名称与存在性**——`isShelfDeletable` 覆盖了它（删本地这一栏不会动站方数据，
+  只会让用户以为书架没了）、`validateShelfName` 把「Wenku8书架」列为保留名
+  （书架选中态按名字记，同名会让本地那一栏永远点不到）、退出登录即消失。
+  这两条都是纯函数，由 `ShelfOpsTest` / `AccountOpsTest` 钉住。
+- **字段怎么来（全程零额外请求）**：
+
+  | 字段 | 来源 |
+  |---|---|
+  | 书名 / 最新章 | 站方 `bookcase.php` |
+  | 封面 | 由书 id 推导（`data/CoverUrls.kt` 的 `wenku8CoverUrl`，与官方 App 的规则一致，实测 `book/1191.htm` 的封面就是 `/image/1/1191/1191s.jpg`） |
+  | 阅读进度 | **套用本地** `reading_progress`（按 `bookId` 存；站方没有进度概念，同一本书在哪个书架都是同一份进度） |
+  | 作者 / 字数 / 更新时间 / 状态 | 本地书架恰好也有这本书时顺带补全（**只读**，不会把站方书架写进本地归属），让"按字数 / 按更新排序"在有重叠的书上也有意义 |
+
+  ⚠️ **绝不为每本书并发拉 `bookInfo`**（几十本的书架就是一次请求风暴）。封面走 id 规则是这里的关键：
+  既不用请求，也不会因为站点改版丢封面——地址规则在 `AppParsers`（官方 App 的 metadata 路径）里
+  本来就是这么用的，现在收敛成同一份实现。
+- **归属勾选弹窗只列本地书架**（`BookcaseUiState.localShelves`）：站方书架不是本地归属，
+  列进去只会得到一个"勾了也不生效"的复选框（勾选写进 `books.shelf` 后又被 `normalizeMembership` 丢掉）。
 - **站方增删接口（Phase 0 实测确认）**：仓库原先只有读取端，增删端点靠抓 `bookcase.php` 页面确认。
 
   | 操作 | 端点 | 备注 |
@@ -300,8 +319,9 @@ Wenku8Reader/
   交互上也分开表达（详情页五角星 = 本地收藏，书架图标 = 网站书架）。不要为"看起来一致"去写 `LibraryStore`。
 - **纯逻辑与单测**：`AccountOps`（开关状态机 / 依赖联动 / 网站书架展示条件）、
   `Wenku8Shelf.State`（按书 id 判归属，`Wenku8ShelfStateTest`）、
-  `BookcaseItem → BookcaseEntry` 字段映射（`SiteShelfEntryTest`）、
-  `parseBookcase` 的 aid/bid/最新章解析（`ParsersTest`）都有单测。
+  `BookcaseItem → BookcaseEntry` 字段映射（封面推导、本地进度、本地字段补全，`SiteShelfEntryTest`）、
+  `parseBookcase` 的 aid/bid/最新章解析（`ParsersTest`）、
+  书架名的保留与不可删（`ShelfOpsTest`）都有单测。
 
 ---
 
