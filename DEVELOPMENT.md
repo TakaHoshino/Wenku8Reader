@@ -1,15 +1,24 @@
 # Wenku8Reader — 技术细节与开发进度汇总
 
 > 本文档用于**二次开发 / 其他 Agent 接手**时的快速导航。包含项目结构、技术栈、核心模块实现细节、已知问题与开发约定。
-> 最后更新：2026-08-29。源码基于以下真实代码梳理，改动代码后请同步更新本文档。
+> 最后更新：2026-10-01。源码基于以下真实代码梳理，改动代码后请同步更新本文档。
 
 ---
 
 ## 1. 项目概述
 
-轻小说文库（wenku8.net，jieqi CMS）的 Android 客户端，纯 **Kotlin + Jetpack Compose + Material Design 3（MD3）** 实现。
+轻小说文库（wenku8.net，jieqi CMS）的 Android 客户端，**Kotlin + Jetpack Compose** 实现，界面有
+**Material 3 Expressive**（默认）与 **MIUIX / HyperOS**（实验性）两套**完全独立**的实现（见 §5.6）。
 
-功能现状：MD3 界面（动态取色）、内置账号登录、首页栏目/搜索/标签浏览、书籍详情、书架、**沉浸式在线阅读器**（滚动/侧滑双模式、自动边距、章节进度、状态指示器、自动翻页、音量键翻页、图片章节）、TXT/EPUB 离线下载（保存至 `Downloads/Wenku8/`）。
+功能现状：探索（首页栏目 / 搜索 / 标签分页）、书籍详情（作者与 Tag 跳转、独立目录页）、书架（已读进度）、
+**沉浸式在线阅读器**（滚动/侧滑双模式、自动边距、章节进度、状态指示器、自动翻页、音量键翻页、
+插图章节、简繁转换）、阅读统计热力图、TXT/EPUB 离线下载（保存至 `Downloads/Wenku8/`）、
+应用内更新（正式 / 测试双通道 + 安装前签名校验）、存储占用统计与清理。
+站点侧仍使用**内置账号**静默登录（用户无需操作）。
+
+> **实验性功能**（设置 → 实验性，**默认关闭**；关闭时用户可见行为与正式版完全一致）：
+> MIUIX 界面风格、悬浮底栏与液态玻璃、**多书架分组**（§4.6.1）、**账户登录与网站书架**（§4.11）。
+> 其中**单书架是正式行为**；"实验性 ≠ 不能进 master"，判定标准见 §4.6.1 开头的三条。
 
 ---
 
@@ -24,6 +33,8 @@
 | 依赖注入 | 手写 `AppContainer`（`di/AppContainer.kt`） |
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
+| 持久化 | **Room 2.7.2**（书架 `books` / 阅读进度 `reading_progress`，KSP 生成）+ **DataStore 1.2.1**（设置 `settings` / 书架清单 `shelves` / 激活账户 `account`）+ SharedPreferences（书架排序、更新节流、阅读统计） |
+| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；24 个测试类 / 180+ 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
@@ -48,7 +59,9 @@
 
 AndroidManifest：声明 `INTERNET` / `VIBRATE` 权限。安全加固：
 - 明文流量改为 `networkSecurityConfig` **白名单**（仅 `app.wenku8.com` 保留 http —— 官方 App API 无 HTTPS 端点；封面/插图/站点页面本就都是 HTTPS），不再全局 `usesCleartextTraffic="true"`；
-- `allowBackup` 保留但通过 `fullBackupContent`（API ≤30）与 `dataExtractionRules`（API 31+）**排除 `account`/`cookies`/`library`**，避免凭据、会话 Cookie 与书架数据进入云备份或 `adb backup`；
+- `allowBackup` 保留但通过 `fullBackupContent`（API ≤30）与 `dataExtractionRules`（API 31+）**排除 `account`/`cookies`/`library` 三个 SharedPreferences 与 DataStore 的 `datastore/shelves.preferences_pb`**，避免凭据、会话 Cookie 与书架数据进入云备份或 `adb backup`（只带走"书架名"而带不走"书"，恢复后会看到一堆空书架）。注意新增存储文件时要同步这两份规则；
+  > ⚠️ 待定项：DataStore 的 `datastore/account.preferences_pb`（只有激活 / 上次**用户名**，不含密码）目前**不在排除名单**里——
+  > 是否要与 Cookie 同口径排除，尚未拍板；若要排除，改这两份规则即可。
 - 有 FileProvider（更新安装用 `cacheDir/updates/`）；无存储权限（下载走 MediaStore）。
 
 ---
@@ -57,55 +70,49 @@ AndroidManifest：声明 `INTERNET` / `VIBRATE` 权限。安全加固：
 
 ```
 Wenku8Reader/
-├── build.gradle.kts / settings.gradle.kts / gradle.properties
-├── local.properties          # sdk.dir=F:\Android\Sdk
+├── build.gradle.kts / settings.gradle.kts / gradle.properties / gradle/libs.versions.toml
+├── README.md（对外功能）/ DEVELOPMENT.md（本文）/ CHANGELOG.md / VERSIONING.md / CONTRIBUTING.md / NOTICE
+├── local.properties          # sdk.dir=...
 ├── 技术性文档(只读勿动)/     # 参考文档，勿修改（wenku8-api.md 等，见 §8）
-└── app/src/main/
-    ├── AndroidManifest.xml
-    ├── res/strings.xml        # 全部 UI 文案（中文字符串资源）
-    └── java/com/hoshino/wenku8reader/
-        ├── MainActivity.kt            # 入口；音量键转发；全局主题装配
-        ├── Wenku8Application.kt       # 持有 AppContainer
-        ├── di/AppContainer.kt         # 手写 DI：client/repository/preferences/readerSettings/localLibrary/downloadEngine
-        ├── data/
-        │   ├── Models.kt              # SearchResult/BookInfo/Chapter/Volume/ChapterContent/BookcaseItem/FlatChapter/HomeBook/HomeSection
-        │   ├── Wenku8Client.kt        # 全部 wenku8 网络接口（限速/重试/多镜像/WebView+Cronet+OkHttp）
-        │   ├── Parsers.kt             # 正则 HTML 解析；splitFullTxt 全本切章
-        │   ├── CookieStore.kt         # Cookie 持久化（OkHttp CookieJar）
-        │   ├── DownloadEngine.kt      # 下载任务状态机（StateFlow）
-        │   ├── FileSaver.kt           # MediaStore 保存到 Downloads/Wenku8/
-        │   ├── EpubBuilder.kt         # 最小 EPUB3 打包器
-        │   └── local/
-        │       ├── AppPreferences.kt  # 书架排序 + 更新检查节流（SharedPreferences）
-        │       ├── ReaderSettings.kt  # 全局设置源（DataStore + 同步可读 StateFlow）
-        │       ├── LibraryStore.kt    # 书架读写（Room: books）
-        │       ├── ReadingProgressStore.kt # 进度/已读标记（Room: reading_progress）
-        │       ├── LocalDataMigration.kt   # 旧 SharedPreferences → Room 的一次性搬迁门
-        │       ├── db/               # Room 实体/DAO/AppDatabase + 搬迁解析与校验
-        │       └── DefaultAccount.kt  # 内置账号（首启静默登录用）
-        ├── data/repository/Wenku8Repository.kt  # 统一仓库层（Result 包装）
-        └── ui/
-            ├── AppViewModelProvider.kt    # 手写 ViewModel.Factory
-            ├── MainScaffold.kt           # 分页式主 Tab（HorizontalPager + 弹簧动画）+ NavHost 子页栈
-            ├── navigation/Routes.kt      # 类型安全路由常量（MAIN 为三 Tab 宿主路由）
-            ├── common/                   # UiText.kt / ReaderAppearance.kt(fontFamilyFor) / CoilRequests.kt(封面请求，带 Referer + 目标尺寸解码)
-            ├── theme/Theme.kt            # MD3 主题（动态取色 + 种子色 + AMOLED 纯黑）
-            ├── theme/Type.kt             # 全局 Typography（M3 Expressive 强调字重 + 中文排版修正）
-            ├── theme/Colors.kt           # 种子色预设
-            ├── components/Anim.kt        # 通用动画（pressClickable 按压缩放）
-            ├── components/Expressive.kt  # M3 Expressive 组件层（Scaffold/顶栏/TonalCard/装饰形状/空状态/加载进度/Segmented 系列/ExpressiveSwitch）
-            ├── components/PagerNavigation.kt # 主 Tab 弹簧动画（MainPagerState + springAnimateToPage）
-            ├── explore/                  # 首页栏目 + 搜索 + 标签书单（ExplorePage / TagBooksScreen）
-            ├── about/                    # 关于页（图标/版本/GitHub/爱发电链接）
-            ├── detail/                   # 书籍详情（卡片化）
-            ├── bookcase/                 # 书架（BookcasePage，卡片化）
-            ├── downloads/                # 下载管理（卡片化，自带返回）
-            ├── settings/                 # 设置（SettingsPage 分组卡片 + 外观）+ 阅读器自定义
-            └── reader/                   # 阅读器（核心，未改动）
-                ├── ReaderScreen.kt       # 阅读器整屏（约 1077 行）
-                ├── ReaderViewModel.kt    # 目录/章节加载 + 进度持久化 + 简繁转换
-                ├── Pagination.kt         # 分页算法（纯函数）
-                └── VolumeKeyTurn.kt      # 音量键翻页桥
+└── app/src/
+    ├── main/
+    │   ├── AndroidManifest.xml
+    │   ├── res/
+    │   │   ├── values/strings.xml          # 简体（默认）文案
+    │   │   ├── values-zh-rTW/strings.xml   # 繁体文案（**与简体同位置逐行对齐**，见 §10）
+    │   │   └── xml/                        # backup_rules / data_extraction_rules / network_security_config / file_paths
+    │   └── java/com/hoshino/wenku8reader/
+    │       ├── MainActivity.kt            # 入口；音量键转发；主题装配；HapticScope
+    │       ├── Wenku8Application.kt       # 持有 AppContainer；启动静默登录 / 清理
+    │       ├── di/AppContainer.kt         # 手写 DI（client / repository / 各 store / engine / scope）
+    │       ├── data/
+    │       │   ├── Models.kt              # SearchResult/BookInfo/Chapter/Volume/ChapterContent/BookcaseItem/FlatChapter/HomeBook/HomeSection
+    │       │   ├── Wenku8Client.kt        # 全部 wenku8 网络接口（限速/重试/多镜像/WebView+Cronet+OkHttp/站点书架增删）
+    │       │   ├── Wenku8Hosts.kt         # 镜像与图片域名（https 升级、Referer 常量）
+    │       │   ├── Parsers.kt / AppParsers.kt   # 网页正则解析 / 官方 App API 协议解析
+    │       │   ├── CoverUrls.kt           # 由书 id 推导封面地址（零请求）
+    │       │   ├── Wenku8Shelf.kt         # 「Wenku8书架」镜像状态（不落库，见 §4.11）
+    │       │   ├── CookieStore.kt / RatePacer.kt / SingleFlight.kt / TimedCache.kt
+    │       │   ├── DownloadEngine.kt / FileSaver.kt / EpubBuilder.kt
+    │       │   ├── UpdateChecker.kt / UpdateCenter.kt
+    │       │   ├── repository/            # Wenku8Repository.kt（统一 Result 包装）/ BookGroupId.kt
+    │       │   └── local/
+    │       │       ├── ReaderSettings.kt        # 全局设置源（DataStore + 同步可读 StateFlow）
+    │       │       ├── AppPreferences.kt        # 书架排序 / 更新节流（SharedPreferences）
+    │       │       ├── LibraryStore.kt          # 书架读写（Room: books）
+    │       │       ├── ReadingProgressStore.kt  # 进度 / 已读标记（Room: reading_progress）
+    │       │       ├── LocalDataMigration.kt    # 旧 SharedPreferences → Room 的一次性搬迁门
+    │       │       ├── ShelfOps.kt / ShelfStore.kt      # 多书架纯逻辑 + 书架清单（DataStore: shelves）
+    │       │       ├── AccountOps.kt / AccountStore.kt / DefaultAccount.kt  # 账户开关纯逻辑 + 激活账户名 + 内置账号
+    │       │       ├── ReadingStatsStore.kt / HtmlDiskCache.kt / AppStorageManager.kt
+    │       │       └── db/                # Room 实体 / DAO / AppDatabase + 旧数据解析与校验
+    │       └── ui/
+    │           ├── MainScaffold.kt / AppViewModelProvider.kt / navigation/（Routes.kt / Tabs.kt）
+    │           ├── theme/（Theme / Type / Colors / UiStyle）/ common/ / components/（Expressive / Segmented / Anim / HapticIndication / PagerNavigation / MainFloatingBar / MiuixGlass）
+    │           ├── explore/ detail/ bookcase/ shelf/ account/ stats/ toc/ author/ downloads/ settings/ update/ about/
+    │           ├── reader/                # 阅读器（核心）：ReaderScreen(702) + ReaderBars / ReaderSheets / ReaderScrollContent / ReaderIllustration / ReaderImagePreview / ReaderParagraphs / Pagination / ReaderViewModel / VolumeKeyTurn / ReadingTimeTracker
+    │           └── miuix/                 # MIUIX 全套页面与组件（与 Material 侧零复用，见 §5.6）
+    └── test/java/com/hoshino/wenku8reader/  # 纯 JVM 单测（JUnit4 + org.json 替身，见 §9）
 ```
 
 ---
@@ -117,6 +124,8 @@ Wenku8Reader/
 - `BookInfo.groupId` 可能为 `null`，缺省时用 `id / 1000` 兜底（`Wenku8Repository.groupIdOf()`）。
 - `ChapterContent(title, text, images)`：images 为章节内插图 URL 列表（插图章节 text 为空）。
 - `FlatChapter(index, cid, name)`：目录树扁平化结果，供阅读器前后章导航。
+- `BookcaseItem(aid, name, latestName, latestCid, bid)`：**站方**书架的一行。⚠️ `aid` 是**书 id**、
+  `bid` 是**书架记录 id**，两者不相等且都不能少——移出书架要用 `bid`（见 §4.11）。
 
 ### 4.2 网络客户端（`Wenku8Client.kt`）
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
@@ -142,7 +151,8 @@ Wenku8Reader/
 纯正则（`java.util.regex.Pattern`）。注意：
 - `parseChapter`：用 `indexOf("<div id=\"content\">")` 到 `indexOf("<div id=\"footlink\"")` 截取正文（**不用正则**，防嵌套 div）；剥离 `<ul id="contentdp">` 水印；`<br>/</p>` → `\n`；去标签；实体解码；`\u3000` → 两个半角；按行 trim、合并连续空行。
 - `splitFullTxt(txt, volumes)`：用目录树生成期望章节头（`卷名 章节名`），在 TXT 行里**一次遍历、按行号游标线性定位**并切分章节，用于 EPUB 生成（相比"每行 trim 两次 + 文本→行号全量 map"，8MB/1000 章实测 53ms→38ms、55MB→43MB）。
-- `parseBookcase`：按 `bid` 分组，无 `cid` 链接为书名、有 `cid` 为最新章节。
+- `parseBookcase`：按 `bid` 分组，无 `cid` 链接为书名、有 `cid` 为最新章节；解析前先对 href 做**反转义**
+  （站点可能把分隔符写成 `&amp;`，不解码会拆出 `amp;bid` 这种键，整页书架被**静默**解析成空列表）。
 - `parseHomepage` / `parseBookList`：首页 `<div class="block">` 切块、书籍列表（两者共用 `homeBookAt` 解析条目；封面统一经 `absolutizeCover` 补全域名）。
   > 注：`parseTags` 已删除——标签来源改为内置清单 `BUILT_IN_TAGS`，不再抓取页面。
 
@@ -364,16 +374,24 @@ Wenku8Reader/
 - `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
 - `SettingsComponents.kt`：`SectionTitle` / `SettingLabel` 等复用组件。
+- `TocScreen/ViewModel`（路由 `toc/{id}`）：独立目录页——分卷可折叠（**默认全展开、全卷已读自动折叠**），已读章节灰显 + "已读"标记、当前章主题色加粗；点章节带 `cid` 进阅读器（见 §4.8）。
+- `AuthorBooksScreen/ViewModel`（路由 `author/{name}`）：某作者的全部作品（复用按作者搜索接口）。
+- `ShelfManageScreen`（`ui/shelf/`，路由 `shelf/manage`）：管理书架二级页——新建 / 重命名 / 删除，两套 UI 共用 `ShelfManageViewModel`；**「Wenku8书架」也在这里占一行**（只是没有改名 / 删除入口，见 §4.11）。
+- `AccountScreen/ViewModel` + `MirrorChangeDialog`（`ui/account/`，路由 `settings/account`，实验性）：账户二级页——用户名 / 密码登录、登录态展示、退出登录、切镜像确认；**密码只在登录瞬间内存持有，不落盘**（见 §4.11）。
+- `ReadingStatsScreen/ViewModel`（`ui/stats/`，路由 `stats`，书架顶栏日历图标进入）：阅读热力图 + 汇总卡 + 当日明细（见 §4.7）。
+- `UpdateDialogHost`（`ui/update/`）：应用内更新弹窗宿主（检查 / 下载 / 安装，见 §4.9）。
+- `ui/miuix/Miuix*Page.kt`：MIUIX 侧与上述页面**一一对应的独立实现**（`MiuixExplorePage` / `MiuixBookcasePage` / `MiuixDetailPage` / `MiuixTocPage` / `MiuixAccountPage` / `MiuixShelfManagePage` / `MiuixStatsPage` / `MiuixStoragePage` / `MiuixSettingsPage` / `MiuixCustomizationPage` / `MiuixDownloadsPage` / `MiuixAboutPage` 等，见 §5.6）。
 
-### 5.4 通用组件（`ui/components/Expressive.kt`，material3 1.5 Expressive API）
+### 5.4 通用组件（`ui/components/`，Material 侧；material3 1.5 Expressive API）
 - `ExpressiveScaffold` + `expressiveTopAppBarColors` / `ExpressiveTopAppBar` / `ExpressiveLargeTopAppBar`（+ `rememberExpressiveScrollBehavior`）：surfaceContainer 背景；主 Tab 用静态小顶栏，子页用 Flexible 大顶栏（展开两行、滚动收起）。
 - `TonalCard`：surfaceBright + `MaterialTheme.shapes.large`（20dp，Expressive 形状刻度），可选 onClick/onLongClick。
 - `DecorativeShapeBox` / `ExpressiveEmptyState`：用 `MaterialShapes`（Cookie9Sided / Clover4Leaf / SoftBurst / Boom / Sunny / PuffyDiamond）做装饰形状底 + 空态/错误态（标题 + 说明 + 可选操作按钮），各页不再各自手写空态。
 - `ExpressiveLoadingIndicator` / `ActiveProgressBar`：`LoadingIndicator`（形变加载）与 `LinearWavyProgressIndicator`（波浪进度，仅用于"正在进行"的下载/更新）。
 - `ExpressiveToggleGroup`：官方 `ButtonGroup` + `toggleableItem` + `ButtonGroupDefaults.OverflowIndicator`（项过多自动折叠）。
-- `SegmentedColumn` / `SegmentedListItem` / `SegmentedSwitchItem` / `SegmentedDropdownItem`：分组卡片列表，底层是官方 `SegmentedListItem` + `ListItemDefaults.segmentedShapes/SegmentedGap/segmentedColors`——**按下时按规范做形状变化**，分组圆角取自官方 token；分组下标由 `SegmentedColumn` 经 CompositionLocal 下发，调用点无需手写 index/count。
+- `SegmentedColumn` / `SegmentedListItem` / `SegmentedSwitchItem` / `SegmentedDropdownItem`（实现在 `ui/components/Segmented.kt`）：分组卡片列表，底层是官方 `SegmentedListItem` + `ListItemDefaults.segmentedShapes/SegmentedGap/segmentedColors`——**按下时按规范做形状变化**，分组圆角取自官方 token；分组下标由 `SegmentedColumn` 经 CompositionLocal 下发，调用点无需手写 index/count。
 - `StatusTag` / `ExpressiveSwitch`（✓/✕ 拇指图标，material3 默认不画图标，需由调用方通过 `thumbContent` 提供）。
 - `HapticIndication`（`ui/components/HapticIndication.kt`）：**全局点击振动**——Compose 1.7 `IndicationNodeFactory` + `DelegatingNode` 实现，委托默认 ripple 保留水波纹，按下时调系统 `Vibrator`（`VibrationEffect.createOneShot(20ms, strength*255/100)`，可调强度）；`MainActivity` 根部 `HapticScope` 注入 `LocalIndication`，所有 clickable/按钮/开关自动生效。⚠️ 经验：foundation 1.7 已弃用旧 `Indication` API（`LocalIndication` 在 `androidx.compose.foundation` 包）；`IndicationNodeFactory.create` 返回 `DelegatableNode`，需 `as Modifier.Node` 后交给 `DelegatingNode.delegate()`。
+- `MainFloatingBar.kt`：MIUIX 实验性的**悬浮胶囊底栏**（配合 `MiuixGlass.kt` 的液态玻璃；关闭开关或低版本自动退化为固定底栏 / 半透明纯色）。
 
 ### 5.5 Material 3 Expressive 落地要点（2026-09）
 - **主题**：`MainActivity` 走 `Wenku8ReaderTheme(...)` → `MaterialExpressiveTheme(colorScheme, motionScheme, shapes, typography)`。`motionScheme` 由设置项 `ReaderSettingsState.expressiveMotion` 决定（默认 `MotionScheme.expressive()`，可切 `standard()`）；`shapes` 只把 `large` 抬到 20dp（`ShapeDefaults.LargeIncreased`），其余档位保持 M3 默认，避免菜单/对话框/FAB 圆角被一并改动。
@@ -391,7 +409,13 @@ Wenku8Reader/
 |---|---|
 | `ui/miuix/MiuixComponents.kt` | MIUIX 基础件：`MiuixPage`/`MiuixSubPage`（miuix Scaffold + 大标题/小标题顶栏）、`MiuixSection`（分组卡片）、`MiuixRow`/`MiuixArrowRow`/`MiuixSwitchRow`/`MiuixDropdownRow`/`MiuixSliderRow`、`MiuixRowDivider`、`MiuixLoading`、`MiuixEmptyState`。**只用 miuix 组件**，颜色/字号只取 `MiuixTheme`（图标仍用 material-icons：miuix-icons 图标集太小） |
 | `ui/miuix/MiuixSettingsPage.kt` | MIUIX 设置主 Tab（账号/外观/通用/存储入口/实验性/网络/更新/阅读/关于），逻辑复用 `SettingsViewModel` |
+| `ui/miuix/MiuixSettingsCategories.kt` | MIUIX 设置分类二级页（外观 / 网络 / 更新 / 实验性），`MiuixExperimentalPage` 里是多书架、账户登录与 UI 风格三个开关 |
 | `ui/miuix/MiuixStoragePage.kt` | MIUIX 存储二级页（占用合计、按类型清理、网页缓存明细、上限、过期记录），确认弹窗用 miuix `WindowDialog` |
+| `ui/miuix/MiuixBookcasePage.kt` / `MiuixDetailPage.kt` / `MiuixTocPage.kt` / `MiuixExplorePage.kt` / `MiuixExploreBodies.kt` / `MiuixBookLists.kt` | 书架 / 详情 / 目录 / 探索 等主页面（各自独立实现，零复用 Material 侧） |
+| `ui/miuix/MiuixShelfPicker.kt` / `MiuixShelfManagePage.kt` | 归属勾选弹窗（含站方书架那一项）/ 管理书架页（多书架，§4.6.1 / §4.11） |
+| `ui/miuix/MiuixAccountPage.kt` / `MiuixStatsPage.kt` / `MiuixCustomizationPage.kt` / `MiuixDownloadsPage.kt` / `MiuixAboutPage.kt` / `MiuixUpdateDialog.kt` | 账户（实验性）/ 阅读统计 / 阅读设置 / 下载 / 关于 / 更新弹窗 |
+| `ui/miuix/MiuixReaderSheets.kt` | 阅读器的 MIUIX 版弹层（目录选择 / 设置） |
+| `ui/miuix/MiuixLiquidBottomBar.kt` / `LiquidGlass.kt` / `LiquidInnerShadow.kt` / `liquid/` | 悬浮胶囊底栏与液态玻璃（`MiuixLiquidBottomBar`、`rememberTiltBrightHighlight`、`BackdropEffectScope.vibrancy()/lens()`、`Modifier.innerShadow`；源码改编自 SukiSU-Ultra / AndroidLiquidGlass，见 §5.6 的依赖说明） |
 
 **MIUIX 与 MD3 的解耦（2026-09）**：
 - **不使用动态取色**：MIUIX 模式的配色完全由 miuix 自己的色板决定（`ThemeController` 不传 keyColor，即 HyperOS 默认蓝），不读 Material 侧的 `dynamicColor`/`seedColor`；深浅色仍跟随应用设置。
@@ -407,8 +431,8 @@ Wenku8Reader/
 | 组件分发 | 公共组件（Scaffold / 顶栏 / Card / 列表组 / 开关 / 分段控件 / 进度 / 空态）在 `isMiuixStyle()` 分支里走 MIUIX 实现 | `ui/components/Expressive.kt` |
 | 排版适配 | MIUIX `TextStyles` → Material `Typography` 槽位映射，**所有既有 `MaterialTheme.typography.*` 调用点自动变成 HyperOS 字号** | `ui/theme/Theme.kt`（`miuixTypography`） |
 | 底部导航 | MIUIX `NavigationBar`（固定）或 `FloatingNavigationBar`（悬浮，HyperOS 胶囊底栏）+ `FloatingNavigationBarItem` | `ui/MainScaffold.kt` |
-| 液态玻璃 | `miuix-blur`：`rememberLayerBackdrop` + `Modifier.layerBackdrop`（页面内容作模糊源）+ `drawBackdrop { blur() }`，封装为 `Modifier.miuixGlass` | `ui/components/MiuixGlass.kt` |
-| 入口 | 设置 → 实验性 → UI 风格（`ExperimentalSection`） | `ui/settings/SettingsScreen.kt` |
+| 液态玻璃 | `miuix-blur`：`rememberLayerBackdrop` + `Modifier.layerBackdrop`（页面内容作模糊源）+ `drawBackdrop { blur() }`；运行时门控 `isMiuixGlassSupported`（API ≥ 32） | `ui/miuix/LiquidGlass.kt` + `ui/miuix/liquid/`（效果）/ `ui/components/MiuixGlass.kt`（门控）/ `ui/miuix/MiuixLiquidBottomBar.kt`（悬浮底栏） |
+| 入口 | 设置 → 实验性 → UI 风格（`ExperimentalSection`，同处还有多书架 / 账户登录两个开关） | `ui/settings/SettingsSections.kt` + 页面壳 `ui/settings/SettingsScreen.kt` |
 
 - **为什么内嵌 Material 主题**：页面里仍有大量 Material 组件（`Text`、`Slider`、`DropdownMenu`、`AlertDialog`、阅读器的 `ModalBottomSheet`）。它们在 MIUIX 模式下若拿不到 M3 的 `LocalContentColor`，会退回默认黑色、深色下不可读；映射一层色板后两套组件的配色保持一致。
 - **哪些是真正的 miuix 组件**：`Scaffold`、`SmallTopAppBar`/`TopAppBar`（大标题 + 副标题）、`Card`、`Switch`、`SwitchPreference`（开关行）、`WindowDropdownPreference`（下拉行，HyperOS 圆角弹层）、`Slider`、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`、`NavigationBar`/`FloatingNavigationBar`。只有"行内容任意 composable"的普通列表行仍按 MIUIX 取值自绘（miuix 的行组件要求 `String` 标题，而封面/色点/Slider 这类内容无法字符串化）。
@@ -472,8 +496,31 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - 正文 Text：`fontFamily = fontFamilyFor(rs.fontFamily)`，`fontSize = rs.fontSize.sp`，`lineHeight = (rs.fontSize * rs.lineSpacing).sp`，`color = textColor`。
 - 插图页：`SubcomposeAsyncImage` + `ImageRequest` 带 `Referer: https://www.wenku8.net/`。
 
-### 6.6 阅读器设置项（ReaderSettingsState，含默认值）
-`darkMode(system)/dynamicColor(true)/seedColor/amoled(false)/backgroundMode(color|image)/readerBackgroundLight(纯白)/readerTextColorLight(纯黑)/readerBackgroundDark(纯黑)/readerTextColorDark(纯白)/backgroundImagePath/fontFamily(default|sans|serif|mono)/fontSize(18)/fontWeight(400)/lineSpacing(1.8)/traditionalChinese(false)/scrollMode(false)/volumeKeyTurnPage(true)/autoNextChapter(false)/pageTurnDirection(true)/autoTurnInterval(10s)/clickTurnPage(true)/hapticsEnabled(true)/hapticsStrength(50)/autoPadding(true)/topPadding(24)/bottomPadding(16)/leftPadding(20)/rightPadding(20)`。
+### 6.6 设置项清单（`ReaderSettingsState`，含默认值）
+
+`ReaderSettings` 是**全局唯一设置源**（DataStore，prefs key `settings`，见 §4.6）。字段比"阅读器设置"更宽——主题、网络、更新、实验性开关都在同一个 state 里：
+
+```
+主题/外观: darkMode(system) / dynamicColor(true) / seedColor(0xFF3F5BA9) / amoled(false) / expressiveMotion(true)
+网络/更新: primaryMirror(wenku8.cc) / checkUpdatesOnStartup(true) / updateChannel(stable) / updateSource(github) / cacheMaxMb(30)
+界面语言:  appLanguage(system；可选 zh-CN / zh-TW)
+阅读器:   backgroundMode(color|image) / readerBackgroundLight(纯白) / readerTextColorLight(纯黑) /
+         readerBackgroundDark(纯黑) / readerTextColorDark(纯白) / backgroundImagePath(null) /
+         fontFamily(default|sans|serif|mono) / fontSize(18) / fontWeight(400) / lineSpacing(1.8) /
+         traditionalChinese(false) / scrollMode(false) / volumeKeyTurnPage(true) / autoNextChapter(false) /
+         pageTurnDirection(true，向左) / autoTurnInterval(10s) / clickTurnPage(true) /
+         autoPadding(true) / topPadding(24) / bottomPadding(16) / leftPadding(20) / rightPadding(20)
+触觉:     hapticsEnabled(true) / hapticsStrength(50)
+实验性:   uiStyle(material3|miuix) / floatingBottomBar(true，仅 MIUIX) / bottomBarGlass(true，仅 MIUIX) /
+         multiShelfEnabled(false，§4.6.1) / accountLoginEnabled(false，§4.11)
+```
+
+- ⚠️ **新增一个字段要动 6 处**（漏一处就会表现为"设置不生效 / 重启丢失 / 老用户迁移不到"）：
+  `ReaderSettingsState` 字段与默认值 → `Keys` 键名 → `legacyState()`（旧 SharedPreferences 兼容读取）→
+  `toState()` 解码 → `writeAll()` 编码 → `setXxx()` setter；再在 `ui/settings/SettingsViewModel.kt`
+  加一层薄转发，并**同步 `ReaderSettingsCodecTest` 的往返构造**（新字段必须赋**非默认值**，
+  否则编码漏写也测不出来）。`multiShelfEnabled` / `accountLoginEnabled` 就是照这条链路加的。
+- `hapticsStrength` / `cacheMaxMb` 读取时夹紧到合法区间。
 - 阅读器配色按主题模式分离：`ReaderScreen` 依 `darkMode`（含跟随系统）取 `*Light` 或 `*Dark` 两套背景/字体色；旧 prefs 键 `reader_bg`/`reader_text_color` 自动迁移为浅色模式值（`load()` 中兜底）。
 
 ---
@@ -500,7 +547,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - [x] 主界面：三 Tab 改 `HorizontalPager` + 弹簧动画（`PagerNavigation.kt`），底栏 `NavigationBar` 用 surfaceContainer 同色；返回键先回首页 Tab。
 - [x] 全页面卡片化：折叠大顶栏（LargeTopAppBar + exitUntilCollapsed）、surfaceBright 卡片列表（TonalCard / SegmentedColumn）、StatusTag 药丸、圆角搜索条。
 - [x] 设置页新增「外观」分组：深色模式（跟随系统/浅色/深色）、纯黑模式、动态取色开关、手动种子色选择。
-- [x] 阅读器（ReaderScreen/ViewModel/Pagination）未改动。
+- [x] 阅读器（ReaderScreen/ViewModel/Pagination）当时未改动（2026-09 起已拆分为多个文件，见 §3 与 §11）。
 
 ### 7.3 近期针对阅读器的修复记录
 1. **状态指示器遮挡正文** → 下边距最小 80dp（`maxOf(80.dp, …)`），指示器（40dp）不再压字。
@@ -530,11 +577,16 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - 分页目前用**估算**（宽/字号），可改用 Compose `TextMeasurer` 精确测量后切页（此前实现过基于 TextMeasurer 的 `getSlipStrings`，后为性能改回估算）。
 - **滚动模式长章节**：`ScrollContent` 用单个 `Text(chapter.text)` 一次性排版整章，超长章节打开时首帧排版偏慢；可改为按段落 `LazyColumn` 增量排版（注意保持阅读位置语义）。
 - 章节进度条在非沉浸时可能覆盖正文最后约 1~2 行（浮动层叠于文本之上），如需避免可调整其位置/透明度。
-- 无自动化测试；分页算法 `paginateChapter` 是纯函数，适合补单测（当前无 test 源集）。
+- ~~无自动化测试~~ → **已有纯 JVM 单测源集**（`app/src/test/`，24 个测试类 / 180+ 用例，
+  `./gradlew :app:testDebugUnitTest`，见 §9）。仍可继续补：用现成的 `FakeLibraryDao`（`LegacyMigrationTest`）扩 DAO 用例、
+  `paginateChapter` 的边界（超长段落 / 空章节 / 图片页）、`UpdateChecker` 的版本比较矩阵。⚠️ 无 Robolectric / 无 androidTest，
+  **UI 层仍只能人工验收**——所以纯逻辑尽量往 `data/local/*Ops.kt` 这类可测文件里抽（`ShelfOps` / `AccountOps` / `WordCount` / `SiteShelfEntry` 就是这么来的）。
 - 未做：日/周排行榜、书单、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
-  （**多书架分组已实现**，见 §4.6.1；实验性开关默认关闭。）
+  （**多书架分组**（§4.6.1）与**账户登录 / 网站书架**（§4.11）**已实现**，均为实验性开关、默认关闭。）
 - 账户侧仍可继续做的方向：收藏站点书架的**分组**（`clsssid`）、把站方书架整批导入本地、
   以及"内置账号"相关的运维整理（内置凭据目前仍是硬编码常量）。
+- 书架页里长按「Wenku8书架」的书目前走的是单独的"移出网站书架"确认弹窗（那张卡片可能不在本地书架里，
+  勾本地书架需要额外拉一次 `bookInfo`）；若要把它也并进那个复选框弹窗，得先补上按需拉取。
 
 ### 7.7 2026-09 功能增强（dev 分支开发，fast-forward 合并回 master）
 - **阅读热力图**（`ui/stats/`，书架顶栏日历图标入口）：GitHub 风格周列矩阵 + 时间尺度切换（本周/本月/本年/全部）+ 汇总卡（累计/本周/连续天数/日均）+ 当日详情卡 + 工作日绿/周末蓝双色阶 + 图例（参考 LNR）。
@@ -545,8 +597,14 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 - **CI**：dev 分支独立构建工作流（仅构建、不发布）；语义版本解析**必须用内联 run 步骤**（composite action 输出在本环境失效，曾导致 tag 变 `v`——见 VERSIONING.md §8 教训）；versionCode 为「`2_030_000_000` + 自 2026-01-01 起的分钟数」（跨工作流单调递增、分钟粒度）。
 - **账户登录与网站书架**（§4.11，实验性，依赖多书架）：`AccountStore` 只记激活/上次用户名（**不存密码**）、
   `Wenku8Client` 增 `onUserSessionLost` 回落钩子与站方书架增删（`addbookcase.php` / `bookcase.php?delid=`）、
-  两套账户二级页 + 设置页账户摘要联动、书架切换条末尾的「Wenku8书架」虚拟书架、
-  详情页「网站书架」图标（加入/移出）。
+  两套账户二级页 + 设置页账户摘要联动、书架切换条末尾的「Wenku8书架」。
+- **2026-09-26 站方书架收尾**：① 「Wenku8书架」与本地书架**同等地位**——封面由书 id 推导（零额外请求）、
+  阅读进度套用本地、与本地书架走同一条排序、「管理书架」页里也占一行；② **收藏入口合一**——
+  详情页只留星标一枚按钮，「Wenku8书架」成为收藏弹窗里的一个复选框，勾选 / 取消仍走真实站点请求；
+  ③ 书架页长按站方卡片 → 移出网站书架。
+- **版本状态**：`v0.7.0` 已于 2026-09-25 作为正式版发布（`master` = 那一次 `dev` 合并）；
+  此后 `dev` 上的改动进入 **0.8.0** 周期（多书架多选归属、收藏复选框弹窗、测试版更新通道修正、
+  账户登录与网站书架、站方书架同等地位），预发布包为 `v0.8.0-dev.N`（只保留最近 10 个）。
 
 ---
 
@@ -578,6 +636,12 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
 - **JDK 必须是 17–21（CI 用 21）**：Gradle 9.7.1 支持 JDK 17–24，JDK 25 会在启动阶段直接失败（只打印 `25.0.2`），详见 §2 的说明。
 - **必须加 `--no-daemon`**：本机页面文件小，Gradle/Kotlin 守护进程容易因提交内存不足直接崩 JVM（`gradle.properties` 已把堆压到 `-Xmx1536m` + SerialGC + 进程内 Kotlin 编译）。
 - 依赖版本集中在 `gradle/libs.versions.toml`（见 §2）。
+- **单测**：`app/src/test/` 是**纯 JVM** 源集（JUnit4 + `org.json` 替身，见 `app/build.gradle.kts` 的 `testImplementation`）。
+  不要引入 Robolectric / androidTest / coroutines-test——DAO 用例靠手写 `FakeLibraryDao`（内存 `LinkedHashMap`，样板在 `LegacyMigrationTest`），
+  时间相关的逻辑用可注入的 `now: () -> Long` 而不是时钟替身。
+- **首次构建要下依赖**：依赖没进本地缓存时，第一阶段是长时间无输出的下载（`--info` 能看到 Download 动作）。
+  若怀疑卡死，用 `jcmd <gradle-pid> Thread.print` 看是不是停在 `DownloadAction.execute`（是则只是在下载，别急着重跑）；
+  补齐缓存后同样的构建通常只要 30 秒左右。
 
 ---
 
@@ -588,13 +652,29 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
 3. **gid**：`/novel/` 系列 URL 都要 gid；`BookInfo.groupId` 缺失用 `id/1000` 兜底。
 4. **阅读器边距**：改 `contentPadding` 必须保证 top≥64、bottom≥80 的约束，否则状态指示器/底栏会遮字；且该值不得随 immersive 变化，否则分页抖动。
 5. **分页**：改 `Pagination.kt` 后注意 `LaunchedEffect` keys 是否需要更新；分页在 `Dispatchers.Default` 执行，别放主线程。
-6. **设置**：阅读器与主题共用 `ReaderSettings`；新增设置项需同时改 `ReaderSettingsState` 字段、`load()`、`emit()` 的 prefs 读写、`CustomizationScreen` 的 UI，三处保持同步。
+6. **设置**：阅读器、主题、网络、实验性开关共用 `ReaderSettings`（唯一设置源）。新增字段要动 **6 处**：
+   `ReaderSettingsState` 字段与默认值 → `Keys` 键名 → `legacyState()` → `toState()` → `writeAll()` → `setXxx()`，
+   再加 `SettingsViewModel` 的薄转发与 `ReaderSettingsCodecTest` 的往返构造（**新字段必须赋非默认值**）。详见 §6.6。
 7. **文案**：所有 UI 文本走 `res/values/strings.xml` + `stringResource`；错误消息用 `UiText`（避免 ViewModel 持 Context）。
 8. **沉浸系统栏**：切换用 `WindowInsetsControllerCompat`；离开阅读器时 `DisposableEffect` 恢复显示系统栏。
 9. **图片防盗链**：所有 Coil 请求需带 `Referer: https://www.wenku8.net/`。
 10. **命名/风格**：与现有代码一致即可；文件内大量中文注释，新增注释可用中文。
 11. **material3 版本约束（BOM 2026.05.01 + material3 1.5.0-alpha18）**：Expressive API 现已可用（`MaterialExpressiveTheme` / `MaterialShapes` / `LoadingIndicator` / `ButtonGroup` / `SplitButton` / `LargeFlexibleTopAppBar` / `SegmentedListItem` 等），但整体仍是 `@ExperimentalMaterial3ExpressiveApi` —— 已通过 `app/build.gradle.kts` 的 `compilerOptions.optIn` 全局放行，升级 material3 时按 §5.5 复核。新增 Expressive 组件统一放 `components/Expressive.kt`；页面**不要**直接写死颜色/圆角/动画参数，优先复用该文件的组件与 `MaterialTheme.motionScheme`。
 12. **主题**：`Wenku8ReaderTheme(darkTheme, dynamicColor, seedColor, amoled, expressiveMotion)`；手工色板在 `Theme.kt` 的 `manualScheme()`，要补齐 surfaceContainer* 全角色，勿退回旧版只有 primary/background 的残缺色板。`amoled` / `expressiveMotion` 与 `darkMode/dynamicColor/seedColor` 一样存于 `ReaderSettings`（prefs `settings`）。
+13. **双 UI 成对实现（硬约定）**：任何界面改动**两套都要做**——Material 在 `ui/<模块>/`，MIUIX 在 `ui/miuix/`，
+   两边**只共用 ViewModel 与数据层，UI 代码零复用**；按风格分派的对话框参考 `ui/reader/ReaderImagePreview.kt` 的口径。
+   漏做一套 = 该风格下功能不可用，且不会有任何编译错误提醒。
+14. **文案**：新增字符串必须**同时**写 `res/values/strings.xml` 与 `res/values-zh-rTW/strings.xml`，且**保持同位置**
+   （两文件行号对齐是本仓库的隐性约定，删改字符串时也要成对处理）。
+15. **纯逻辑抽函数 + 单测**：凡是"会不会丢用户数据 / 会不会误判"的判断（书架增删改、归属兜底、开关联动、
+   展示条件、解析与字段映射）都抽成顶层纯函数（`data/local/*Ops.kt` / `CoverUrls.kt` / `SiteShelfEntry.kt` / `WordCount.kt` 是样板）
+   并补 JUnit4 用例——本工程没有 UI 自动化测试，抽不出来就只能靠人工点按。
+16. **存储读写约定**：`LibraryStore` / `ReadingProgressStore` 的每个方法**首行**都要 `migration.ensure()`；
+   新读接口同时提供 suspend 与 Flow 两种形式（约定见 `LibraryDao.kt` 顶部注释）。
+17. **站方书架**：`aid`（书 id）与 `bid`（书架记录 id）**不相等**，移出必须用 `bid`；站点不返回可靠的成败信息，
+   一律**以刷新后的结果为准**（见 §4.11）。
+18. **不改无关代码**：内置账号与 Cookie 相关实现（`DefaultAccount` / `CookieStore` / `Wenku8Client` 的登录内部流程）
+   除非任务明确要求，不要动；凭据值**不得**出现在日志、文档、测试夹具与注释里，也不保存用户密码。
 
 ---
 
@@ -602,17 +682,23 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
 
 | 内容 | 位置 |
 |---|---|
-| contentPadding 常量与 contentWidth/Height | `ReaderScreen.kt:223-242` |
-| 异步分页 LaunchedEffect | `ReaderScreen.kt:244-268` |
-| 沉浸系统栏控制 | `ReaderScreen.kt:151-167` |
-| 点按翻页/唤出 | `ReaderScreen.kt:339-357` |
-| 正文渲染（page Text / 插图） | `ReaderScreen.kt:384-423` |
-| 状态指示器（IndicatorBar） | `ReaderScreen.kt:449-468, 636-687` |
-| 悬浮章节进度条 | `ReaderScreen.kt:470-509` |
-| 分页算法 | `Pagination.kt:22-62` |
-| 简繁转换 + 进度持久化 | `ReaderViewModel.kt:129-172` |
+| 顶/底栏（ReaderTopBar / ReaderBottomBar） | `ReaderBars.kt:69` / `ReaderBars.kt:82` |
+| 状态指示器（IndicatorBar，含电量时钟） | `ReaderBars.kt:165`（使用处 `ReaderScreen.kt:578`） |
+| contentPadding 常量与 contentWidth/Height | `ReaderScreen.kt:269-293`（常量在 `ReaderScreen.kt:87-88`） |
+| 异步分页 LaunchedEffect | `ReaderScreen.kt:297-319` |
+| 沉浸系统栏控制 | `ReaderScreen.kt:207-216` |
+| 点按翻页 / 唤出界面 | `ReaderScreen.kt:419-446` |
+| 正文渲染（分页 pager / 滚动内容） | `ReaderScreen.kt:476-535`（滚动模式在 `ReaderScrollContent.kt`） |
+| 插图页渲染与预览 | `ReaderIllustration.kt` / `ReaderImagePreview.kt` |
+| 章节读完检测（标记已读） | `ReaderScreen.kt:551` 起（`snapshotFlow`） |
+| 悬浮章节进度条 | `ReaderScreen.kt:600-640`（`Slider` 在 :608） |
+| 阅读器设置 / 章节选择弹层 | `ReaderSheets.kt`（`SettingsSheet` :134 / `ChapterSelectionSheet` :59） |
+| 分页算法 | `Pagination.kt:25-89` |
+| 简繁转换 + 进度持久化 | `ReaderViewModel.kt:150-200`（简繁在 :188-189） |
+| 阅读时长埋点 | `ReadingTimeTracker.kt` |
+| 音量键翻页桥 | `VolumeKeyTurn.kt` |
 
-## 12. 关键文件行号索引（UI 重构后）
+## 12. 关键文件索引（UI 重构后；本节给文件 / 符号，不给行号——行号见 §11）
 
 | 内容 | 位置 |
 |---|---|
@@ -627,3 +713,11 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
 | 探索页（折叠顶栏/搜索/推荐/标签） | `explore/ExploreScreen.kt`（`ExplorePage`） |
 | 设置页（分组卡片 + 外观） | `settings/SettingsScreen.kt`（`SettingsPage`） |
 | 详情页卡片化 | `detail/DetailScreen.kt` |
+| 书架页（切换条 / 长按改归属 / 站方书架） | `bookcase/BookcaseScreen.kt` + `bookcase/BookcaseViewModel.kt` |
+| 隶属书架 / 站方书架的复选框弹窗 | `shelf/ShelfPicker.kt`（Material）/ `miuix/MiuixShelfPicker.kt` |
+| 管理书架页 | `shelf/ShelfManageScreen.kt` + `shelf/ShelfManageViewModel.kt` |
+| 账户二级页（实验性） | `account/AccountScreen.kt` + `account/AccountViewModel.kt` |
+| 阅读统计热力图页 | `stats/ReadingStatsScreen.kt` + `stats/ReadingStatsMath.kt`（纯函数） |
+| 目录页（分卷折叠 / 已读标记） | `toc/TocScreen.kt` |
+| 应用内更新弹窗 | `update/UpdateDialogHost.kt` + `data/UpdateChecker.kt` / `data/UpdateCenter.kt` |
+| MIUIX 全套页面与组件（零复用 Material 侧） | `miuix/`（见 §5.6 的表） |
