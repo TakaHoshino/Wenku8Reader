@@ -1,6 +1,7 @@
 package com.hoshino.wenku8reader.data
 
 import android.content.Context
+import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -152,9 +153,15 @@ class Wenku8Client(
         private const val APP_VER = "1.24-pico-mochi"
         private const val APP_UA =
             "Dalvik/2.1.0 (Linux; U; Android 15; 23114RD76B Build/AQ3A.240912.001)"
-        private const val UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        /**
+         * 稳定的设备 UA：**整个进程只算一次**。
+         *
+         * 不要改成"每次请求随机"：真实设备不会换 UA，而 `cf_clearance` 与 UA 绑定，
+         * 随机值既像自动化脚本、又会让挑战令牌复用失效（见 [UserAgent] 的说明）。
+         */
+        private val DEVICE_UA: String by lazy {
+            UserAgent.build(Build.VERSION.RELEASE.orEmpty(), Build.MODEL.orEmpty())
+        }
         private val GB18030: Charset = Charset.forName("GB18030")
         private val RATE_CODES = setOf(403, 429, 500, 502, 503, 504)
 
@@ -206,28 +213,6 @@ class Wenku8Client(
             "大小姐", "性转", "伪娘", "人外", "后宫", "百合", "耽美", "NTR", "女性视角",
         )
 
-        /** 随机 Android Chrome UA（参考 LightNovelReader：随机 Build ID 与子版本）。 */
-        private fun randomAndroidUa(): String {
-            val os = listOf("8.1.0", "9", "10", "11", "12", "13", "14", "15")
-            val device = listOf(
-                "Pixel 7; Build/TQ3A.230805.001",
-                "Pixel 6; Build/TQ3A.230805.001",
-                "SM-G991B; Build/SP1A.210812.016",
-                "SM-G998B; Build/SP1A.210812.016",
-                "SM-S9010; Build/TD1A.220804.031",
-                "Redmi K40; Build/RKQ1.200826.002",
-                "Xiaomi 12; Build/SKQ1.211006.001",
-                "OPPO Reno6; Build/RP1A.200720.011",
-                "vivo X60; Build/RP1A.200720.012",
-            )
-            // Chrome 主版本 100-140，子版本/构建/补丁号随机（增大 UA 熵）
-            val chrome = 100 + Random.nextInt(41)
-            val minor = Random.nextInt(0, 4000)
-            val build = Random.nextInt(0, 200)
-            val patch = Random.nextInt(0, 150)
-            return "Mozilla/5.0 (Linux; Android ${os.random()}; ${device.random()}) " +
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chrome.0.$minor.$build Mobile Safari/537.$patch"
-        }
     }
 
     // ------------------------------------------------------------------ //
@@ -272,7 +257,7 @@ class Wenku8Client(
 
     private fun uaFor(url: String): String =
         runCatching { url.toHttpUrl().host }.getOrNull()?.let { challengeUa[it] }
-            ?: randomAndroidUa()
+            ?: DEVICE_UA
 
     /** 切换主镜像/清空会话时调用：清空全部 Cookie 与 UA 绑定。 */
     fun clearCookies() {
@@ -374,7 +359,7 @@ class Wenku8Client(
     // ------------------------------------------------------------------ //
     private fun Request.Builder.browserHeaders(
         referer: String?,
-        ua: String = UA,
+        ua: String = DEVICE_UA,
     ): Request.Builder {
         header("User-Agent", ua)
         header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -389,7 +374,7 @@ class Wenku8Client(
         return this
     }
 
-    private suspend fun getBytes(url: String, retries: Int = 3, ua: String = UA): ByteArray {
+    private suspend fun getBytes(url: String, retries: Int = 3, ua: String = DEVICE_UA): ByteArray {
         val req = Request.Builder()
             .url(url)
             .browserHeaders(refererFor(url), ua)
@@ -404,7 +389,7 @@ class Wenku8Client(
     }.getOrNull()
 
     /** Fetches a page and decodes it as GB18030 on the IO dispatcher. */
-    private suspend fun getHtml(url: String, retries: Int = 3, ua: String = UA): String =
+    private suspend fun getHtml(url: String, retries: Int = 3, ua: String = DEVICE_UA): String =
         withContext(Dispatchers.IO) {
             val bytes = getBytes(url, retries, ua)
             String(bytes, GB18030)
@@ -420,7 +405,7 @@ class Wenku8Client(
         ttlMs: Long,
         category: String = "other",
         retries: Int = 3,
-        ua: String = UA,
+        ua: String = DEVICE_UA,
     ): String {
         htmlCache.get(url, ttlMs, category)?.let { return it }
         val html = getHtml(url, retries, ua)
@@ -769,7 +754,7 @@ class Wenku8Client(
     /**
      * 首页栏目。快路径：默认 UA 直连（常规情况毫秒级返回）；
      * 若直连失败或返回疑似 CF 挑战页（解析为空），自动升级到
-     * WebView → Cronet → OkHttp 随机 UA 的三级 Cloudflare 绕过栈。
+     * WebView → Cronet → OkHttp 的三级 Cloudflare 绕过栈（三者统一使用稳定的设备 UA）。
      */
     suspend fun homepage(): List<HomeSection> = withContext(Dispatchers.IO) {
         // 快路径：cf_clearance cookie-first 逐镜像直连（磁盘缓存 1 小时，避免二次加载）
@@ -857,7 +842,7 @@ class Wenku8Client(
     /**
      * Cloudflare 三级绕过抓取（与 tags/tagBooks 同栈）：
      * WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）→ Cronet（TLS 指纹）
-     * → OkHttp 随机 Android UA，逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
+     * → OkHttp（携带设备 UA），逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
      * 返回 null 表示全部失败。
      *
      * 注：原先还有一个 `steps: MutableList<String>` 诊断参数，用于收集各层失败原因，
@@ -1059,7 +1044,7 @@ class Wenku8Client(
                             cont.invokeOnCancellation {
                                 webView.post { destroyWebView(webView) }
                             }
-                            var usedUa = randomAndroidUa()
+                            var usedUa = DEVICE_UA
                             val host = runCatching { url.toHttpUrl().host }.getOrNull()
                             runCatching {
                                 webView.settings.javaScriptEnabled = true
@@ -1161,7 +1146,7 @@ class Wenku8Client(
     suspend fun imageBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(Wenku8Hosts.normalizeImageUrl(url))
-            .browserHeaders(Wenku8Hosts.IMAGE_REFERER, UA)
+            .browserHeaders(Wenku8Hosts.IMAGE_REFERER)
             .build()
         readBytes(execute(req))
     }

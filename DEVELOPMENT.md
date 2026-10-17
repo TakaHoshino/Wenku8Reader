@@ -34,7 +34,7 @@
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
 | 持久化 | **Room 2.7.2**（书架 `books` / 阅读进度 `reading_progress`，KSP 生成）+ **DataStore 1.2.1**（设置 `settings` / 书架清单 `shelves` / 激活账户 `account`）+ SharedPreferences（书架排序、更新节流、阅读统计） |
-| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；27 个测试类 / 197 用例，见 §9 |
+| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；28 个测试类 / 201 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
@@ -131,7 +131,8 @@ Wenku8Reader/
 ### 4.2 网络客户端（`Wenku8Client.kt`）
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
-- **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`、随机/固定 Chrome UA。
+- **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`，UA 统一用 `UserAgent.build()` 生成的**设备 UA**（真实 `Build.VERSION.RELEASE` + `Build.MODEL`，WebKit/Safari 固定 `537.36`、Chrome 主版本固定，进程内只算一次）。
+  > ⚠️ **不要改回"每次请求随机 UA"**：随机机型/系统组合、`Chrome/140.0.12.3`、`Safari/537.118` 这类不存在的值本身就是自动化特征；而 `cf_clearance` 与 UA 绑定，换 UA 还会让令牌复用失效。参考 LightNovelReader 2026-10-02 的 `fix(web): 修正UA生成器`（同样是改成真实 Build + 固定版本 + 缓存）。
 - **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
   ⚠️ `www.wenku8.com` 已于 **2026-10 下线**：实测（PC 与 Android 17 设备一致）解析到 47.243.247.59，
   TLS 证书是 `s1.n9z.net`（SAN 只有该域名），主机名校验必然失败，每次冷启动白等约 4.6s。
@@ -141,7 +142,7 @@ Wenku8Reader/
 - **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 OkHttp/Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
 - **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
 - **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
-- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp 随机 Android UA，逐镜像尝试。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
+- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp（设备 UA），逐镜像尝试；**三层共用同一个 UA**，挑战令牌才能复用。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
 - **登录去重（`loginMutex` + 双检）**：启动静默登录、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。
 - **隐藏 WebView 的生命周期与并发**：`webViewGet()` 用 `webViewMutex` 串行化（同一时刻只有一个 WebView 解挑战：多开会在主线程同时跑 JS、放大内存与风控样本，而串行化后第二个请求通常直接复用刚拿到的 cf_clearance 走快路径）；`cont.invokeOnCancellation` 保证协程被取消（离开页面/超时/VModel 销毁）时也会销毁 WebView，统一走 `destroyWebView()`（stopLoading → about:blank → clearHistory → removeAllViews → 换掉 WebViewClient → destroy，每步 runCatching）。超时分两层：单次解挑战 15s，等待锁 + 执行整体 25s。
 - **Cronet 挂起等待**：`cronetGet()` 不再用 `CountDownLatch.await(8s)`（每个请求独占一个 IO 线程空等，取消也要等超时才释放），改为 `suspendCancellableCoroutine` + `withTimeoutOrNull`，线程在等待期间释放，取消直接传播到 `UrlRequest.cancel()`。
@@ -596,7 +597,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 ### 7.3 近期针对阅读器的修复记录
 1. **状态指示器遮挡正文** → 下边距最小 80dp（`maxOf(80.dp, …)`），指示器（40dp）不再压字。
 2. **纯字数分页裁切** → 改为「charsPerLine/linesPerPage + 逐行模拟」分页，段落残行计入，不裁切。
-3. 网络层已跟进 `wenku8-bypass-analysis.md` 的清单：GB18030 解码、`Sec-Fetch-*` 头、多镜像域名、随机 Android UA、WebView/Cronet/OkHttp 三级兜底、自适应限速 + 429 退避。
+3. 网络层已跟进 `wenku8-bypass-analysis.md` 的清单：GB18030 解码、`Sec-Fetch-*` 头、多镜像域名、稳定的设备 UA（见 §4.2）、WebView/Cronet/OkHttp 三级兜底、自适应限速 + 429 退避。
 
 ### 7.4 性能优化（2026-08，卡顿 + 高刷新率）
 - **阅读器整屏重组修复**：电池/时间状态原提升在 ReaderScreen 顶层，每 15s 触发整个阅读器重组；已下沉到 `IndicatorBar` 内部（30s 更新），重组范围缩到指示器本身。
