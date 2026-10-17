@@ -26,7 +26,9 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +41,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.BookInfo
 import com.hoshino.wenku8reader.data.JobStatus
+import com.hoshino.wenku8reader.data.local.DEFAULT_SHELF
+import com.hoshino.wenku8reader.data.local.WENKU8_SHELF
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
 import com.hoshino.wenku8reader.ui.detail.DetailViewModel
@@ -76,6 +80,10 @@ fun MiuixDetailPage(
         (job.status == JobStatus.RUNNING || job.status == JobStatus.PENDING)
 
     val context = LocalContext.current
+    // 多书架：收藏前选择目标书架；取消收藏前也要确认（并指出它当前在哪个书架）。
+    // pickingForRemoval 区分这两件事——两者共用同一个弹窗（需求要求复用同一样式）。
+    var showShelfPicker by remember { mutableStateOf(false) }
+    var pickingForRemoval by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         vm.favoriteMessages.collect { message ->
             Toast.makeText(context, message.asString(context), Toast.LENGTH_SHORT).show()
@@ -85,17 +93,28 @@ fun MiuixDetailPage(
         title = info?.title ?: stringResource(R.string.detail_title_default),
         onBack = onBack,
         actions = {
-            // 收藏：五角星（已收藏为实心 + 主题色，未收藏为空心星），
-            // 与「收藏」文案一致；这里不复用 MiuixIconButton 是因为需要按状态改 tint
-            top.yukonga.miuix.kmp.basic.IconButton(onClick = { vm.toggleLocalFavorite() }) {
+            // 收藏：五角星（已收藏——本地或网站书架——为实心 + 主题色，未收藏为空心星）；
+            // 站方书架可用时它是弹窗里的一个复选框，没有第二个按钮。
+            // 这里不复用 MiuixIconButton 是因为需要按状态改 tint
+            top.yukonga.miuix.kmp.basic.IconButton(
+                // 多书架开启 → 弹窗里勾选书架；关闭开关时走原来的"点一下即刻收藏/移出"
+                onClick = {
+                    if (ui.multiShelfEnabled) {
+                        pickingForRemoval = ui.favoriteActive
+                        showShelfPicker = true
+                    } else {
+                        vm.toggleLocalFavorite()
+                    }
+                },
+            ) {
                 Icon(
-                    imageVector = if (ui.inLocalLibrary) {
+                    imageVector = if (ui.favoriteActive) {
                         Icons.Filled.Star
                     } else {
                         Icons.Filled.StarBorder
                     },
                     contentDescription = stringResource(R.string.detail_favorite),
-                    tint = if (ui.inLocalLibrary) {
+                    tint = if (ui.favoriteActive) {
                         MiuixTheme.colorScheme.primary
                     } else {
                         MiuixTheme.colorScheme.onBackground
@@ -184,6 +203,39 @@ fun MiuixDetailPage(
                 Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
             }
         }
+    }
+
+    if (showShelfPicker) {
+        MiuixShelfPicker(
+            title = stringResource(
+                if (pickingForRemoval) R.string.shelf_picker_remove_title
+                else R.string.shelf_picker_add_title,
+            ),
+            shelves = ui.shelves,
+            // 收藏默认预勾选默认书架（不挑就直接进默认，沿用旧习惯）；
+            // 但"只在网站书架里"的书不能预勾默认，否则点确定会顺手多出一个本地收藏
+            initial = when {
+                ui.inLocalLibrary -> ui.currentShelves
+                ui.inSiteShelf -> emptySet()
+                else -> setOf(DEFAULT_SHELF)
+            },
+            confirmLabel = stringResource(R.string.action_confirm),
+            // 取消收藏：全部取消勾选 = 完全取消收藏，此时确认按钮改叫"取消收藏"
+            emptyConfirmLabel = if (pickingForRemoval) {
+                stringResource(R.string.shelf_picker_remove_title)
+            } else {
+                null
+            },
+            message = if (pickingForRemoval) stringResource(R.string.shelf_picker_remove_message) else null,
+            // 站方书架就是这个弹窗里的一个复选框：勾选/取消会走真实的站点加入 / 移出请求
+            siteShelfName = if (ui.siteShelfAvailable) WENKU8_SHELF else null,
+            siteShelfInitial = ui.inSiteShelf,
+            onDismiss = { showShelfPicker = false },
+            onConfirm = { result ->
+                showShelfPicker = false
+                vm.applyFavorite(result.shelves, result.siteShelf)
+            },
+        )
     }
 }
 

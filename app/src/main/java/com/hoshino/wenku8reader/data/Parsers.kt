@@ -359,6 +359,7 @@ object Parsers {
     fun parseBookcase(html: String): List<BookcaseItem> {
         class Row {
             var aid: Int = 0
+            var bid: Int = 0
             var name: String = ""
             var latest: String? = null
             var latestCid: String? = null
@@ -366,7 +367,9 @@ object Parsers {
         val rows = LinkedHashMap<String, Row>()
         val m = BOOKCASE_LINK.matcher(html)
         while (m.find()) {
-            val href = m.groupOrEmpty(1)
+            // href 先反转义：站点可能把 `&` 写成 `&amp;`，那样下面的参数拆分只会得到
+            // 一个 `amp;bid` 键，整页书架会被解析成空列表（而且是静默的）。
+            val href = unescape(m.groupOrEmpty(1))
             val text = clean(m.groupOrEmpty(2))
             val qs = href.substringAfter("?", "")
             val params = qs.split("&")
@@ -375,7 +378,13 @@ object Parsers {
                     if (p.size == 2) p[0] to p[1] else null
                 }.toMap()
             val bid = params["bid"] ?: continue
-            val row = rows.getOrPut(bid) { Row().apply { aid = params["aid"]?.toIntOrNull() ?: 0 } }
+            val row = rows.getOrPut(bid) {
+                Row().apply {
+                    aid = params["aid"]?.toIntOrNull() ?: 0
+                    // bid 是"移出书架"必需的记录 id（站点 checkbox 的 value 也是它）
+                    this.bid = bid.toIntOrNull() ?: 0
+                }
+            }
             if (params.containsKey("cid")) {
                 row.latest = text
                 row.latestCid = params["cid"]
@@ -383,7 +392,7 @@ object Parsers {
                 row.name = text
             }
         }
-        return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid) }
+        return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid, it.bid) }
     }
 
     // ------------------------------------------------------------------ //

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.CloudDownload
@@ -27,11 +28,16 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +49,9 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.Wenku8Hosts
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
+import com.hoshino.wenku8reader.data.local.AccountSwitchAction
+import com.hoshino.wenku8reader.data.local.accountSwitchAction
+import com.hoshino.wenku8reader.ui.account.MirrorChangeDialog
 import com.hoshino.wenku8reader.ui.components.ExpressiveSlider
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedDropdownItem
@@ -56,24 +65,58 @@ import com.hoshino.wenku8reader.ui.theme.UiStyle
 // ------------------------------------------------------------------ //
 
 /**
- * 账号分组：**说明性**展示（无交互，符合产品设计）。
+ * 账号分组。
  *
- * 本应用全程使用内置共享账号取数，不提供登录、退出或切换账号的入口，
- * 因此这里不需要（也不应该）展示"未登录 / 某个用户名"这类用户可切换的状态——
- * 那会暗示存在用户可操作但实际不存在的登录流程。
- * 此前的实现只写死一句提示、与运行状态无关，容易被误读为"能操作却没做"，
- * 现改为明确说明"无需登录/切换"，语义与真实行为一致。
+ * 两种形态由**实验性「账户登录」开关**决定：
+ * - 关闭（默认）：与引入本功能之前**完全一致**——只读说明行、不可点击、原文案。
+ *   此时应用全程使用内置共享账号取数，展示"未登录/某个用户名"这类可切换状态只会误导用户。
+ * - 开启：摘要随登录状态变化（未登录 → 提示点击登录；已登录 → 显示用户名），点击进账户二级页。
  */
 @Composable
-internal fun AccountSection() {
+internal fun AccountSection(
+    rs: ReaderSettingsState,
+    vm: SettingsViewModel,
+    onOpenAccount: () -> Unit,
+) {
+    if (!rs.accountLoginEnabled) {
+        AccountInfoCard(
+            headline = stringResource(R.string.settings_builtin_account),
+            summary = stringResource(R.string.settings_account_builtin_desc),
+        )
+        return
+    }
+    val username by vm.accountUsername.collectAsStateWithLifecycle()
+    SegmentedColumn(
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+        title = stringResource(R.string.settings_section_account),
+        items = listOf {
+            SegmentedListItem(
+                onClick = onOpenAccount,
+                leadingContent = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
+                headlineContent = { Text(stringResource(R.string.settings_account_login)) },
+                supportingContent = {
+                    val name = username
+                    Text(
+                        if (name == null) stringResource(R.string.account_tap_login)
+                        else stringResource(R.string.account_logged_in, name),
+                    )
+                },
+            )
+        },
+    )
+}
+
+/** 只读的账户说明卡（账户开关关闭时的形态）。 */
+@Composable
+private fun AccountInfoCard(headline: String, summary: String) {
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_account),
         items = listOf {
             SegmentedListItem(
                 leadingContent = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
-                headlineContent = { Text(stringResource(R.string.settings_builtin_account)) },
-                supportingContent = { Text(stringResource(R.string.settings_account_builtin_desc)) },
+                headlineContent = { Text(headline) },
+                supportingContent = { Text(summary) },
             )
         },
     )
@@ -206,6 +249,8 @@ internal fun ExperimentalSection(
     vm: SettingsViewModel,
 ) {
     val styles = UiStyle.entries
+    // 账户登录的前置依赖确认框（多书架未开时点账户开关才会出现）
+    var askShelfPrerequisite by remember { mutableStateOf(false) }
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_experimental),
@@ -227,12 +272,62 @@ internal fun ExperimentalSection(
                     onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
                 )
             },
+            {
+                // 多书架是**通用**实验功能（Material 与 MIUIX 都生效），
+                // 因此和"仅 MIUIX 生效"的悬浮底栏/液态玻璃不同，它两套设置页都放。
+                SegmentedSwitchItem(
+                    icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                    title = stringResource(R.string.settings_multi_shelf),
+                    summary = stringResource(R.string.settings_multi_shelf_summary),
+                    checked = rs.multiShelfEnabled,
+                    onCheckedChange = vm::setMultiShelfEnabled,
+                )
+            },
+            {
+                // 账户登录：同样是通用实验功能，且**依赖多书架**。
+                // 点在"多书架未开"时先弹前置依赖确认；状态机在 AccountOps 里（有单测）。
+                SegmentedSwitchItem(
+                    icon = Icons.Filled.AccountCircle,
+                    title = stringResource(R.string.settings_account_login),
+                    summary = stringResource(R.string.settings_account_login_summary),
+                    checked = rs.accountLoginEnabled,
+                    onCheckedChange = {
+                        when (accountSwitchAction(rs.multiShelfEnabled, rs.accountLoginEnabled)) {
+                            AccountSwitchAction.EnableAccount -> vm.setAccountLoginEnabled(true)
+                            AccountSwitchAction.DisableAccount -> vm.setAccountLoginEnabled(false)
+                            AccountSwitchAction.AskShelfPrerequisite -> askShelfPrerequisite = true
+                        }
+                    },
+                )
+            },
             // 说明：这里**不再**放「悬浮底栏 / 液态玻璃」两个开关。
             // M3 底栏是固定样式的 NavigationBar，不接受这两个设置（见 MainScaffold 的
             // `floatingBar = isMiuixStyle() && …`），摆在 MD3 页里只会让人以为"开了却没效果"。
             // 它们只属于 MIUIX 的实验性页（MiuixExperimentalPage）。
         ),
     )
+
+    if (askShelfPrerequisite) {
+        AlertDialog(
+            onDismissRequest = { askShelfPrerequisite = false },
+            title = { Text(stringResource(R.string.account_dep_title)) },
+            text = { Text(stringResource(R.string.account_dep_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        askShelfPrerequisite = false
+                        // 两个开关一起打开
+                        vm.enableAccountLoginWithMultiShelf()
+                    },
+                ) { Text(stringResource(R.string.action_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { askShelfPrerequisite = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 }
 
 /** 通用分组：触觉反馈总开关。 */
@@ -318,6 +413,8 @@ internal fun NetworkSection(
             )
         },
     )
+    // 切换镜像会退出当前登录的用户账户（Cookie 不跨域）——有用户账户时先确认
+    MirrorChangeDialog(vm = vm)
 }
 
 /** 更新分组：启动检查、更新通道、更新源、手动检查。 */

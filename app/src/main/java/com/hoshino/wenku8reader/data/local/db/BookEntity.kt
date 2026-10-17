@@ -48,8 +48,13 @@ internal fun BookEntity.toBookInfo(): BookInfo = BookInfo(
     tags = tags,
 )
 
-/** [BookInfo] → 书目快照（入架时使用）。 */
-internal fun BookInfo.toEntity(shelf: String, addedAt: Long): BookEntity = BookEntity(
+/**
+ * [BookInfo] → 书目快照（入架时使用）。
+ *
+ * [shelfValue] 是**编码后的归属**（JSON 数组字符串，见 `ShelfOps.encodeShelves`），
+ * 不是单个书架名——一本书可以同时属于多个书架。
+ */
+internal fun BookInfo.toEntity(shelfValue: String, addedAt: Long): BookEntity = BookEntity(
     id = id,
     title = title,
     author = author,
@@ -61,6 +66,6 @@ internal fun BookInfo.toEntity(shelf: String, addedAt: Long): BookEntity = BookE
     coverUrl = Wenku8Hosts.normalizeImageUrl(coverUrl.orEmpty()).ifEmpty { null },
     groupId = groupId,
     tags = tags,
-    shelf = shelf,
+    shelf = shelfValue,
     addedAt = addedAt,
 )

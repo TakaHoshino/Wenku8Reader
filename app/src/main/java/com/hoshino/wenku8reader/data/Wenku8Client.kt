@@ -1,6 +1,7 @@
 package com.hoshino.wenku8reader.data
 
 import android.content.Context
+import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -43,6 +44,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import com.hoshino.wenku8reader.data.log.AppLogger
+import com.hoshino.wenku8reader.data.log.LogSanitizer
 import com.hoshino.wenku8reader.data.local.HtmlDiskCache
 
 /**
@@ -64,6 +67,22 @@ class Wenku8Client(
     private val defaultCredentials: () -> Pair<String, String>? = { null },
     /** 磁盘缓存上限（MB，设置页可调）；每次写入前同步，动态生效 */
     private val cacheMaxMbProvider: () -> Int = { 30 },
+    /**
+     * 回落到内置共享账号时的回调（用于清掉"当前激活账户"标记）。
+     *
+     * 内置账号登录后同样持有会话，所以"有没有会话"区分不出内置与用户；这个回调保证
+     * **只要发生回落，激活标记就一定被清掉**，界面不会出现"其实已经掉回内置、却还显示
+     * 某个用户已登录"。用回调而不是直接依赖 `AccountStore`，是为了让客户端不反向依赖
+     * 具体存储（与镜像、缓存上限的注入方式一致）。
+     */
+    private val onUserSessionLost: suspend () -> Unit = {},
+    /**
+     * 应用日志（重点记录网络访问）。
+     *
+     * 允许为 null：单测 / 工具脚本构造客户端时不需要日志；生产装配见 `AppContainer`。
+     * 打点只写"方法 + 脱敏地址 + 状态码 + 耗时 + 错误类型"，**不写**请求体、Cookie 与正文。
+     */
+    private val logger: AppLogger? = null,
 ) {
 
     private val appContext = context.applicationContext
@@ -115,6 +134,12 @@ class Wenku8Client(
     private val webViewMutex = Mutex()
 
     companion object {
+        /** 日志标签：网络请求 / Cloudflare 绕过 / 登录态 / 站方书架。 */
+        private const val TAG_NET = "NET"
+        private const val TAG_BYPASS = "BYPASS"
+        private const val TAG_AUTH = "AUTH"
+        private const val TAG_SHELF = "SHELF"
+
         /** 默认主站镜像（单一来源：[Wenku8Hosts]）。 */
         private const val DEFAULT_BASE = Wenku8Hosts.DEFAULT_BASE
         private const val DL = "https://dl.wenku8.com"
@@ -128,9 +153,15 @@ class Wenku8Client(
         private const val APP_VER = "1.24-pico-mochi"
         private const val APP_UA =
             "Dalvik/2.1.0 (Linux; U; Android 15; 23114RD76B Build/AQ3A.240912.001)"
-        private const val UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        /**
+         * 稳定的设备 UA：**整个进程只算一次**。
+         *
+         * 不要改成"每次请求随机"：真实设备不会换 UA，而 `cf_clearance` 与 UA 绑定，
+         * 随机值既像自动化脚本、又会让挑战令牌复用失效（见 [UserAgent] 的说明）。
+         */
+        private val DEVICE_UA: String by lazy {
+            UserAgent.build(Build.VERSION.RELEASE.orEmpty(), Build.MODEL.orEmpty())
+        }
         private val GB18030: Charset = Charset.forName("GB18030")
         private val RATE_CODES = setOf(403, 429, 500, 502, 503, 504)
 
@@ -182,28 +213,6 @@ class Wenku8Client(
             "大小姐", "性转", "伪娘", "人外", "后宫", "百合", "耽美", "NTR", "女性视角",
         )
 
-        /** 随机 Android Chrome UA（参考 LightNovelReader：随机 Build ID 与子版本）。 */
-        private fun randomAndroidUa(): String {
-            val os = listOf("8.1.0", "9", "10", "11", "12", "13", "14", "15")
-            val device = listOf(
-                "Pixel 7; Build/TQ3A.230805.001",
-                "Pixel 6; Build/TQ3A.230805.001",
-                "SM-G991B; Build/SP1A.210812.016",
-                "SM-G998B; Build/SP1A.210812.016",
-                "SM-S9010; Build/TD1A.220804.031",
-                "Redmi K40; Build/RKQ1.200826.002",
-                "Xiaomi 12; Build/SKQ1.211006.001",
-                "OPPO Reno6; Build/RP1A.200720.011",
-                "vivo X60; Build/RP1A.200720.012",
-            )
-            // Chrome 主版本 100-140，子版本/构建/补丁号随机（增大 UA 熵）
-            val chrome = 100 + Random.nextInt(41)
-            val minor = Random.nextInt(0, 4000)
-            val build = Random.nextInt(0, 200)
-            val patch = Random.nextInt(0, 150)
-            return "Mozilla/5.0 (Linux; Android ${os.random()}; ${device.random()}) " +
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chrome.0.$minor.$build Mobile Safari/537.$patch"
-        }
     }
 
     // ------------------------------------------------------------------ //
@@ -222,7 +231,12 @@ class Wenku8Client(
 
     private val mirrors: List<String>
         get() {
-            val primary = primaryMirrorProvider().ifBlank { DEFAULT_BASE }
+            // 兜底校验：设置里可能残留已下线的镜像（例如 2026-10 下线的 www.wenku8.com）。
+            // 不校验的话，老用户的"主站"会一直指向一个证书不匹配的域名。
+            val primary = primaryMirrorProvider()
+                .ifBlank { DEFAULT_BASE }
+                .takeIf { Wenku8Hosts.isValidMirror(it) }
+                ?: DEFAULT_BASE
             if (primary != cachedPrimary) {
                 cachedMirrors = buildList {
                     add(primary)
@@ -243,7 +257,7 @@ class Wenku8Client(
 
     private fun uaFor(url: String): String =
         runCatching { url.toHttpUrl().host }.getOrNull()?.let { challengeUa[it] }
-            ?: randomAndroidUa()
+            ?: DEVICE_UA
 
     /** 切换主镜像/清空会话时调用：清空全部 Cookie 与 UA 绑定。 */
     fun clearCookies() {
@@ -285,19 +299,40 @@ class Wenku8Client(
     // ------------------------------------------------------------------ //
     private suspend fun execute(req: Request, retries: Int = 3): Response {
         var attempt = 0
+        val startedAt = System.currentTimeMillis()
+        // 请求体（登录表单）与 Cookie 一律不进日志，只记方法与脱敏后的地址
+        val target = "${req.method} ${LogSanitizer.sanitizeUrl(req.url.toString())}"
         while (true) {
             pacer.pace()
-            val resp = withContext(Dispatchers.IO) { okHttp.newCall(req).execute() }
+            val resp = try {
+                withContext(Dispatchers.IO) { okHttp.newCall(req).execute() }
+            } catch (e: IOException) {
+                logger?.warn(
+                    TAG_NET,
+                    "$target -> ${e.javaClass.simpleName}: ${e.message.orEmpty()} " +
+                        "(${elapsedMs(startedAt)} ms, attempt ${attempt + 1})",
+                )
+                throw e
+            }
             if (resp.code in RATE_CODES) {
                 pacer.adjust(ok = false)
                 if (attempt < retries) {
                     resp.close()
                     val backoff = min(1500L * (1L shl attempt), 30000L)
+                    logger?.warn(
+                        TAG_NET,
+                        "$target -> HTTP ${resp.code}，${backoff} ms 后重试（第 ${attempt + 1} 次）",
+                    )
                     delay(backoff)
                     attempt++
                     continue
                 }
                 resp.close()
+                logger?.error(
+                    TAG_NET,
+                    "$target -> HTTP ${resp.code}，重试 ${attempt + 1} 次后放弃" +
+                        "（${elapsedMs(startedAt)} ms）",
+                )
                 val msg = if (resp.code == 429) {
                     "站点限流(HTTP 429)，请稍后重试"
                 } else {
@@ -306,9 +341,15 @@ class Wenku8Client(
                 throw IOException(msg)
             }
             pacer.adjust(ok = true)
+            logger?.info(
+                TAG_NET,
+                "$target -> ${resp.code}（${elapsedMs(startedAt)} ms, attempt ${attempt + 1}）",
+            )
             return resp
         }
     }
+
+    private fun elapsedMs(startedAt: Long): Long = System.currentTimeMillis() - startedAt
 
     private suspend fun readBytes(resp: Response): ByteArray =
         withContext(Dispatchers.IO) { resp.use { it.body?.bytes() ?: ByteArray(0) } }
@@ -318,7 +359,7 @@ class Wenku8Client(
     // ------------------------------------------------------------------ //
     private fun Request.Builder.browserHeaders(
         referer: String?,
-        ua: String = UA,
+        ua: String = DEVICE_UA,
     ): Request.Builder {
         header("User-Agent", ua)
         header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -333,7 +374,7 @@ class Wenku8Client(
         return this
     }
 
-    private suspend fun getBytes(url: String, retries: Int = 3, ua: String = UA): ByteArray {
+    private suspend fun getBytes(url: String, retries: Int = 3, ua: String = DEVICE_UA): ByteArray {
         val req = Request.Builder()
             .url(url)
             .browserHeaders(refererFor(url), ua)
@@ -348,7 +389,7 @@ class Wenku8Client(
     }.getOrNull()
 
     /** Fetches a page and decodes it as GB18030 on the IO dispatcher. */
-    private suspend fun getHtml(url: String, retries: Int = 3, ua: String = UA): String =
+    private suspend fun getHtml(url: String, retries: Int = 3, ua: String = DEVICE_UA): String =
         withContext(Dispatchers.IO) {
             val bytes = getBytes(url, retries, ua)
             String(bytes, GB18030)
@@ -364,7 +405,7 @@ class Wenku8Client(
         ttlMs: Long,
         category: String = "other",
         retries: Int = 3,
-        ua: String = UA,
+        ua: String = DEVICE_UA,
     ): String {
         htmlCache.get(url, ttlMs, category)?.let { return it }
         val html = getHtml(url, retries, ua)
@@ -449,7 +490,11 @@ class Wenku8Client(
         if (isLoggedIn()) return true
         return loginMutex.withLock {
             if (isLoggedIn()) return@withLock true
+            // 走到这里说明没有可用会话：若之前是用户账户登录，此刻它已经失效 →
+            // 先清掉激活标记，再用内置账号登录（顺序不能反）
+            onUserSessionLost()
             val creds = defaultCredentials() ?: return@withLock false
+            logger?.warn(TAG_AUTH, "会话缺失，回落到内置账号登录")
             loginInternal(creds.first, creds.second)
         }
     }
@@ -474,15 +519,19 @@ class Wenku8Client(
         readBytes(resp)
         // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
         val ok = hasSession()
+        // 只记成败，不记用户名（账户名属于用户隐私）
+        logger?.info(TAG_AUTH, "登录${if (ok) "成功" else "失败"}")
         if (ok) {
             cookieStore.persist()
         }
         ok
     }
 
-    // 说明：这里**没有** logout()。本应用全程使用内置共享账号、不提供退出入口，
-    // 原先的 logout() 在全仓已无任何调用点（清除会话统一走 clearCookies()），
-    // 故一并移除，避免留下"可以退出登录"的误导性 API。
+    // 关于「退出登录」：客户端这里只提供 [clearCookies]（清会话），**不提供 logout()**。
+    // 因为退出登录还牵扯"当前激活账户"这一层状态（见 AccountStore），而客户端并不持有它；
+    // 由 ui/account 的 ViewModel 编排「clearCookies() + AccountStore.setActive(null)」两步，
+    // 之后 ensureLoggedIn() 会自动用内置共享账号静默登录，阅读与探索无感续用。
+    // 另：内置共享账号仍是**默认路径**，用户账户（由实验性开关控制）只是可选的覆盖。
 
     // ------------------------------------------------------------------ //
     // read operations
@@ -649,14 +698,63 @@ class Wenku8Client(
         return AppParsers.parseAppChapter(text)
     }
 
+    /**
+     * 站方书架（账号的默认分组）。
+     *
+     * 与 `tags()` / `tagBooks()` 一样**必须先确保登录**：本方法以前漏了这一步，未登录时
+     * 站点会 302 到登录页，解析出来是个空书架——一个静默的错误结果。
+     */
     suspend fun bookcase(): List<BookcaseItem> = withContext(Dispatchers.IO) {
-        Parsers.parseBookcase(getHtml("$base/modules/article/bookcase.php"))
+        ensureLoggedIn()
+        val html = getHtml("$base/modules/article/bookcase.php")
+        // 会话在服务端失效时 OkHttp 会跟随 302 拿到登录页。正常书架页**一定**带这个表单
+        // （空书架也有，页面里有"您的书架可收藏 300 本"那一段），据此把"真的没有书"与
+        // "掉登录了"分开——否则用户会看到"书架空了"而不是"请重新登录"。
+        if (!html.contains("checkform") && html.contains("login.php")) {
+            logger?.warn(TAG_SHELF, "站方书架会话失效（被重定向到登录页）")
+            onUserSessionLost()
+            throw SessionExpiredException()
+        }
+        Parsers.parseBookcase(html).also {
+            logger?.info(TAG_SHELF, "站方书架 -> ${it.size} 本")
+        }
+    }
+
+    /** 用户会话在服务端已失效（请求被重定向到登录页）。 */
+    class SessionExpiredException : IllegalStateException("登录状态已失效，请重新登录")
+
+    /**
+     * 把一本书加入站方书架（`addbookcase.php?bid=<书 id>`）。
+     *
+     * 站点无论成功与否都返回 200（成功后会跳回书架页），所以这里**不解析返回值**——
+     * 调用方应在之后刷新一次站方书架来确认真的是否加上了（`Wenku8Shelf.add` 就是这么做的）。
+     */
+    suspend fun addToSiteBookcase(bookId: Int) {
+        withContext(Dispatchers.IO) {
+            ensureLoggedIn()
+            getHtml("$base/modules/article/addbookcase.php?bid=$bookId")
+            logger?.info(TAG_SHELF, "加入站方书架 book=$bookId")
+        }
+    }
+
+    /**
+     * 把一本书从站方书架移出（`bookcase.php?delid=<书架记录 id>`）。
+     *
+     * 注意参数是 [bookcaseId]（站点行里的 `bid`），**不是书 id**——两者不相等，
+     * 传错会移不掉或移错书。同样不解析返回值，由调用方刷新确认。
+     */
+    suspend fun removeFromSiteBookcase(bookcaseId: Int) {
+        withContext(Dispatchers.IO) {
+            ensureLoggedIn()
+            getHtml("$base/modules/article/bookcase.php?delid=$bookcaseId")
+            logger?.info(TAG_SHELF, "移出站方书架 delid=$bookcaseId")
+        }
     }
 
     /**
      * 首页栏目。快路径：默认 UA 直连（常规情况毫秒级返回）；
      * 若直连失败或返回疑似 CF 挑战页（解析为空），自动升级到
-     * WebView → Cronet → OkHttp 随机 UA 的三级 Cloudflare 绕过栈。
+     * WebView → Cronet → OkHttp 的三级 Cloudflare 绕过栈（三者统一使用稳定的设备 UA）。
      */
     suspend fun homepage(): List<HomeSection> = withContext(Dispatchers.IO) {
         // 快路径：cf_clearance cookie-first 逐镜像直连（磁盘缓存 1 小时，避免二次加载）
@@ -744,7 +842,7 @@ class Wenku8Client(
     /**
      * Cloudflare 三级绕过抓取（与 tags/tagBooks 同栈）：
      * WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）→ Cronet（TLS 指纹）
-     * → OkHttp 随机 Android UA，逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
+     * → OkHttp（携带设备 UA），逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
      * 返回 null 表示全部失败。
      *
      * 注：原先还有一个 `steps: MutableList<String>` 诊断参数，用于收集各层失败原因，
@@ -756,13 +854,19 @@ class Wenku8Client(
     ): T? {
         for (h in mirrors) {
             val html = webViewGet(urlFor(h)) ?: continue
-            parse(html)?.let { return it }
+            parse(html)?.let {
+                logger?.info(TAG_BYPASS, "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                return it
+            }
         }
         val engine = cronetEngine
         if (engine != null) {
             for (h in mirrors) {
                 val html = cronetGet(engine, urlFor(h)) ?: continue
-                parse(html)?.let { return it }
+                parse(html)?.let {
+                    logger?.info(TAG_BYPASS, "BYPASS 命中 cronet: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                    return it
+                }
             }
         }
         for (h in mirrors) {
@@ -771,8 +875,12 @@ class Wenku8Client(
             val parsed = runCatchingNotCancelling {
                 parse(getHtml(urlFor(h), retries = 1, ua = ua))
             }.getOrNull()
-            if (parsed != null) return parsed
+            if (parsed != null) {
+                logger?.info(TAG_BYPASS, "BYPASS 命中 okhttp: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                return parsed
+            }
         }
+        logger?.error(TAG_BYPASS, "BYPASS 全部失败（webview / cronet / okhttp × ${mirrors.size} 个镜像）")
         return null
     }
 
@@ -784,7 +892,19 @@ class Wenku8Client(
      * 线程仍会等到超时才释放。改成 `suspendCancellableCoroutine` 后：
      * 线程在等待期间被释放、取消能立刻传播到 `UrlRequest.cancel()`。
      */
-    private suspend fun cronetGet(engine: CronetEngine, url: String): String? =
+    private suspend fun cronetGet(engine: CronetEngine, url: String): String? {
+        val startedAt = System.currentTimeMillis()
+        val html = cronetGetRaw(engine, url)
+        if (html == null) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
+            )
+        }
+        return html
+    }
+
+    private suspend fun cronetGetRaw(engine: CronetEngine, url: String): String? =
         withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
             val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
             val body = ByteArrayOutputStream()
@@ -829,6 +949,11 @@ class Wenku8Client(
                 }
 
                 override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
+                    logger?.info(
+                        TAG_BYPASS,
+                        "CRONET GET ${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
+                            "（${body.size()} bytes）",
+                    )
                     if (cont.isActive) cont.resume(String(body.toByteArray(), GB18030))
                 }
 
@@ -837,6 +962,11 @@ class Wenku8Client(
                     info: UrlResponseInfo?,
                     error: CronetException,
                 ) {
+                    logger?.warn(
+                        TAG_BYPASS,
+                        "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> " +
+                            "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                    )
                     if (cont.isActive) cont.resume(null)
                 }
 
@@ -877,7 +1007,25 @@ class Wenku8Client(
      * 2. 把 WebView 写入的 Cookie（含 cf_clearance / __cf_bm）持久化到 CookieStore，
      *    之后 OkHttp/Cronet 直接带令牌请求，无需每次重跑 WebView。
      */
-    private suspend fun webViewGet(url: String): String? =
+    private suspend fun webViewGet(url: String): String? {
+        val startedAt = System.currentTimeMillis()
+        val html = webViewGetRaw(url)
+        if (html != null) {
+            logger?.info(
+                TAG_BYPASS,
+                "WEBVIEW GET ${LogSanitizer.sanitizeUrl(url)} -> ${html.length} chars" +
+                    "（${elapsedMs(startedAt)} ms）",
+            )
+        } else {
+            logger?.warn(
+                TAG_BYPASS,
+                "WEBVIEW GET ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
+            )
+        }
+        return html
+    }
+
+    private suspend fun webViewGetRaw(url: String): String? =
         // 串行化：同一时刻只有一个隐藏 WebView 在解挑战（见 webViewMutex 说明）。
         // 外层超时覆盖"排队 + 执行"，避免排在后面的请求无限期等待。
         withTimeoutOrNull(WEBVIEW_LOCK_TIMEOUT_MS) {
@@ -896,7 +1044,7 @@ class Wenku8Client(
                             cont.invokeOnCancellation {
                                 webView.post { destroyWebView(webView) }
                             }
-                            var usedUa = randomAndroidUa()
+                            var usedUa = DEVICE_UA
                             val host = runCatching { url.toHttpUrl().host }.getOrNull()
                             runCatching {
                                 webView.settings.javaScriptEnabled = true
@@ -998,7 +1146,7 @@ class Wenku8Client(
     suspend fun imageBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url(Wenku8Hosts.normalizeImageUrl(url))
-            .browserHeaders(Wenku8Hosts.IMAGE_REFERER, UA)
+            .browserHeaders(Wenku8Hosts.IMAGE_REFERER)
             .build()
         readBytes(execute(req))
     }

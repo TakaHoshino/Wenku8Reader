@@ -1,5 +1,9 @@
 package com.hoshino.wenku8reader.ui.miuix
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,9 +16,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
@@ -23,14 +30,20 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.local.WENKU8_SHELF
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseEntry
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseSortType
@@ -41,6 +54,7 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * MIUIX 书架页（主 Tab）——与 Material 版（`ui/bookcase/BookcaseScreen.kt`）完全独立。
@@ -55,14 +69,27 @@ fun MiuixBookcasePage(
     onOpenBook: (Int) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenStats: () -> Unit,
+    onOpenShelfManage: () -> Unit,
     vm: BookcaseViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.load() }
 
+    var movingEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
+    // 长按站方条目 → 从网站书架移出（与本地归属是两套独立状态）
+    var removingSiteEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
+
     MiuixPage(
         title = stringResource(R.string.bookcase_title),
         actions = {
+            // 管理书架只属于多书架模式：关闭时顶栏与本功能上线前一致
+            if (ui.multiShelfEnabled) {
+                MiuixIconButton(
+                    icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                    contentDescription = stringResource(R.string.bookcase_manage_shelves),
+                    onClick = onOpenShelfManage,
+                )
+            }
             MiuixIconButton(
                 icon = Icons.Filled.CalendarMonth,
                 contentDescription = stringResource(R.string.action_stats),
@@ -98,7 +125,9 @@ fun MiuixBookcasePage(
                     .padding(inner),
             )
 
-            ui.entries.isEmpty() -> MiuixEmptyState(
+            // 只有**关闭**多书架且整库为空时才用整屏空态（与上线前一致）。
+            // 开启时整屏空态会连同顶部的书架切换条一起盖掉，用户新建空书架后就切不回去了。
+            ui.entries.isEmpty() && !ui.multiShelfEnabled -> MiuixEmptyState(
                 title = stringResource(R.string.bookcase_empty_local),
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 modifier = Modifier
@@ -118,6 +147,20 @@ fun MiuixBookcasePage(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (ui.multiShelfEnabled) {
+                    item(key = "shelf_switch") {
+                        MiuixShelfSwitcherRow(
+                            shelves = ui.shelves,
+                            selected = ui.selectedShelf,
+                            onSelect = { vm.selectShelf(it) },
+                            modifier = Modifier.padding(
+                                start = 16.dp,
+                                end = 16.dp,
+                                bottom = 8.dp,
+                            ),
+                        )
+                    }
+                }
                 item(key = "sort") {
                     MiuixSection(title = stringResource(R.string.bookcase_sort)) {
                         MiuixDropdownRow(
@@ -140,10 +183,118 @@ fun MiuixBookcasePage(
                         )
                     }
                 }
-                items(ui.entries, key = { it.bookId }) { entry ->
-                    MiuixBookCard(entry = entry, onOpenBook = onOpenBook)
+                if (ui.entries.isEmpty()) {
+                    // 当前书架为空：空态作为列表的一项，切换条与排序条依然可见可用。
+                    // 固定高度是必要的——LazyColumn 的项在主轴上没有上界，fillMaxSize 无从生效。
+                    item(key = "shelf_empty") {
+                        MiuixEmptyState(
+                            title = stringResource(
+                                if (ui.siteShelf) R.string.wenku8_shelf_empty
+                                else R.string.bookcase_shelf_empty,
+                            ),
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp),
+                        )
+                    }
+                } else {
+                    items(ui.entries, key = { it.bookId }) { entry ->
+                        MiuixBookCard(
+                            entry = entry,
+                            onOpenBook = onOpenBook,
+                            onLongPress = {
+                                // 站方书架：移出网站书架；本地书架：编辑所属书架
+                                if (ui.siteShelf) removingSiteEntry = entry
+                                else if (ui.multiShelfEnabled) movingEntry = entry
+                            },
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    movingEntry?.let { entry ->
+        val inSiteShelf = entry.bookId in ui.siteBookIds
+        MiuixShelfPicker(
+            title = stringResource(R.string.shelf_picker_membership_title),
+            // 本地书架写归属；站方书架作为额外一项，勾它会走站点的加入/移出请求
+            shelves = ui.localShelves,
+            initial = entry.shelves,
+            confirmLabel = stringResource(R.string.action_confirm),
+            siteShelfName = if (ui.siteShelfAvailable) WENKU8_SHELF else null,
+            siteShelfInitial = inSiteShelf,
+            onDismiss = { movingEntry = null },
+            onConfirm = { result ->
+                movingEntry = null
+                // 勾选没变就不写库
+                if (result.shelves != entry.shelves) vm.setShelves(entry.bookId, result.shelves)
+                // 站方那一项真的变了才发请求：勾选没变时点确定不该产生任何网络请求
+                if (ui.siteShelfAvailable && result.siteShelf != inSiteShelf) {
+                    vm.setSiteShelf(entry.bookId, result.siteShelf)
+                }
+            },
+        )
+    }
+
+    removingSiteEntry?.let { entry ->
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.wenku8_shelf_remove),
+            summary = stringResource(R.string.wenku8_shelf_remove_message, entry.title),
+            onDismissRequest = { removingSiteEntry = null },
+        ) {
+            MiuixDialogButtons(
+                confirmText = stringResource(R.string.wenku8_shelf_remove),
+                dismissText = stringResource(R.string.action_cancel),
+                onConfirm = {
+                    removingSiteEntry = null
+                    vm.removeFromSiteShelf(entry.bookId)
+                },
+                onDismiss = { removingSiteEntry = null },
+            )
+        }
+    }
+}
+
+/**
+ * 书架切换条（MIUIX 版）。
+ *
+ * miuiX 没有 chip/FilterChip：沿用 `MiuixExplorePage` 里"主题色胶囊文字表达选中态"的既有做法，
+ * 横向可滚动以容纳任意数量的书架（`TabRow` 条目一多就会被挤成不可读的窄条）。
+ */
+@Composable
+private fun MiuixShelfSwitcherRow(
+    shelves: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        shelves.forEach { name ->
+            val active = name == selected
+            Text(
+                text = name,
+                style = MiuixTheme.textStyles.footnote1,
+                color = if (active) {
+                    MiuixTheme.colorScheme.primary
+                } else {
+                    MiuixTheme.colorScheme.onSurfaceSecondary
+                },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (active) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        else Color.Transparent,
+                    )
+                    .clickable { onSelect(name) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
     }
 }
@@ -156,17 +307,24 @@ fun MiuixBookcasePage(
 private fun MiuixBookCard(
     entry: BookcaseEntry,
     onOpenBook: (Int) -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier.fillMaxWidth(),
+        // miuix 的 Card 没有 onLongClick：点击与长按都放在外层 modifier 上。
+        // 这里**不能**再给 Card 传 onClick——两者会各自响应，长按还会先触发一次打开详情。
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onOpenBook(entry.bookId) },
+                onLongClick = onLongPress,
+            ),
         cornerRadius = 16.dp,
         insideMargin = PaddingValues(12.dp),
         colors = CardDefaults.defaultColors(
             color = MiuixTheme.colorScheme.surfaceContainer,
             contentColor = MiuixTheme.colorScheme.onSurfaceContainer,
         ),
-        onClick = { onOpenBook(entry.bookId) },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CoverImage(

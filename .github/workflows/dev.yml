@@ -2,7 +2,8 @@
 # - 触发：push 到 dev 分支，或手动 workflow_dispatch；纯文档/图标改动不触发
 # - 行为：构建 Release APK（正式签名）并作为 Actions Artifact + GitHub Prerelease 产出
 #   · versionName = 与 master 同一套语义版本系统 + `-dev.<run_number>` 后缀
-#   · versionCode = 时间基准 yyyymmddHH（跨工作流单调递增，必然大于历史已装版本）
+#   · versionCode = 2_030_000_000 + 自 2026-01-01 UTC 起的分钟数
+#     （跨工作流单调递增、必然大于历史已装版本，且分钟粒度避免同小时撞号；见 VERSIONING.md §2）
 # - 产物下载：Actions 页面 → 选中本次运行 → Artifacts（右上角）
 #
 # 安全设计与 release.yml 保持一致：
@@ -134,10 +135,23 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           chmod 600 "$RUNNER_TEMP/release.keystore"
 
-      # ---- 构建：versionCode 用时间基准 yyyymmddHH，跨工作流单调递增 ----
-      - name: 计算递增 versionCode（时间基准）
+      # ---- 构建：versionCode 用**分钟**基准，跨工作流单调递增 ----
+      # 编码：versionCode = 2_030_000_000 + 自 2026-01-01 00:00 UTC 起的分钟数
+      #   · Android 的 versionCode 是 32 位 int（上限 2_147_483_647），所以
+      #     "把时间直接拼进去"的 yyyyMMddHHmm 必然溢出（2026 年那串就是 2.0e11）；
+      #   · 基准 2_030_000_000 刻意选在历史已发布值（最高 2_026_092_508）之上，
+      #     保证任何存量用户都能覆盖安装；余量约 1.17 亿分钟 ≈ 223 年；
+      #   · 相对原来的 yyyymmddHH，同一小时内多次构建也能区分先后（原位问题：
+      #     同小时的两个包 versionCode 相同 → 更新判不出来、覆盖安装被拒）。
+      - name: 计算递增 versionCode（分钟基准）
         id: vcode
-        run: echo "version_code=$(date +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          EPOCH="$(date -u -d '2026-01-01T00:00:00Z' +%s)"
+          NOW="$(date -u +%s)"
+          CODE=$(( 2030000000 + (NOW - EPOCH) / 60 ))
+          echo "version_code=${CODE}" >> "$GITHUB_OUTPUT"
+          echo "构建时间（UTC）：$(date -u '+%Y-%m-%d %H:%M') → versionCode=${CODE}"
 
       - name: 构建 Release APK
         env:

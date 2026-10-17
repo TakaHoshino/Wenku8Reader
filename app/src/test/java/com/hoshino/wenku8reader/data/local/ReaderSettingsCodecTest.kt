@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -26,6 +27,14 @@ class ReaderSettingsCodecTest {
     }
 
     @Test
+    fun `多书架开关默认关闭`() {
+        // 产品要求：实验性功能必须默认关闭，老用户升级后书架页与收藏行为不得有任何变化
+        assertFalse(emptyPreferences().toState().multiShelfEnabled)
+        // 账户登录同样默认关闭（它依赖多书架，默认连入口都不该出现）
+        assertFalse(emptyPreferences().toState().accountLoginEnabled)
+    }
+
+    @Test
     fun `每个字段都能原样往返`() {
         // 每一项都取与默认值不同的值——只要有字段没被 writeAll 写进去（或写错键），
         // 读回来就会退化成默认值，下面的断言立刻失败。
@@ -34,7 +43,8 @@ class ReaderSettingsCodecTest {
             dynamicColor = false,
             seedColor = 0xFF123456L,
             amoled = true,
-            primaryMirror = "https://example.org",
+            // 必须是合法镜像：读取时会把已下线/未知主站回落到默认值（见下面的专项用例）
+            primaryMirror = "https://www.wenku8.net",
             backgroundMode = "image",
             readerBackgroundLight = 0xFFF0F0F0L,
             readerTextColorLight = 0xFF111111L,
@@ -63,6 +73,8 @@ class ReaderSettingsCodecTest {
             uiStyle = "miuix",
             floatingBottomBar = false,
             bottomBarGlass = false,
+            multiShelfEnabled = true,
+            accountLoginEnabled = true,
             autoPadding = false,
             topPadding = 1,
             bottomPadding = 2,
@@ -92,6 +104,16 @@ class ReaderSettingsCodecTest {
         val state = prefs.toState()
         assertEquals(100, state.hapticsStrength)
         assertEquals(10, state.cacheMaxMb)
+    }
+
+    @Test
+    fun `已下线的镜像在读取时回落到默认主站`() {
+        // 2026-10 实测 www.wenku8.com 的证书是 s1.n9z.net（主机名不匹配），已从镜像清单移除。
+        // 老用户设置里可能还残留这个值，读取时必须回落，否则每次冷启动都会白等一次 TLS 失败。
+        val prefs = mutablePreferencesOf(
+            stringPreferencesKey("primary_mirror") to "https://www.wenku8.com",
+        )
+        assertEquals(ReaderSettingsState.DEFAULT_MIRROR, prefs.toState().primaryMirror)
     }
 
     @Test

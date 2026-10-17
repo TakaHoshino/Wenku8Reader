@@ -9,12 +9,15 @@ import android.os.Build
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.log.AppLogger
+import com.hoshino.wenku8reader.data.log.LogSanitizer
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** GitHub Release 信息（更新检查结果）。 */
@@ -31,7 +34,10 @@ data class ReleaseInfo(
  * 更新检查：查询 GitHub Releases 最新版（`api.github.com`），下载 APK（直连或 gh-proxy 镜像），
  * 并用 FileProvider 拉起系统安装器。
  */
-class UpdateChecker {
+class UpdateChecker(
+    /** 网络访问日志（可空：单测与工具脚本不需要日志）。 */
+    private val logger: AppLogger? = null,
+) {
 
     /**
      * 超时必须显式设置：默认配置下 `OkHttpClient` 无读/写超时，
@@ -91,6 +97,7 @@ class UpdateChecker {
                 .header("Accept", "application/vnd.github+json")
                 .build()
             client.newCall(req).execute().use { resp ->
+                logger?.info("UPDATE", "GET $url -> ${resp.code}")
                 if (resp.code == 404) return@runCatching null
                 check(resp.isSuccessful) { "检查更新失败（HTTP ${resp.code}）" }
                 // 204/HEAD 等场景 body 可能为空，避免强制解包崩溃
@@ -98,16 +105,7 @@ class UpdateChecker {
                 val json = if (stable) {
                     JSONObject(text)
                 } else {
-                    val arr = org.json.JSONArray(text)
-                    var best: JSONObject? = null
-                    for (i in 0 until arr.length()) {
-                        val o = arr.getJSONObject(i)
-                        if (apkUrlOf(o) != null) {
-                            best = o
-                            break
-                        }
-                    }
-                    best ?: return@runCatching null
+                    pickLatestReleaseWithApk(text) ?: return@runCatching null
                 }
                 val tag = json.optString("tag_name", "")
                 val apkUrl = apkUrlOf(json)
@@ -123,17 +121,9 @@ class UpdateChecker {
                         ?.groupValues?.get(1)?.toLongOrNull(),
                 )
             }
+        }.onFailure {
+            logger?.warn("UPDATE", "检查更新失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}")
         }
-    }
-
-    /** 取 release JSON 中第一个 APK 资产的下载地址（无则 null）。 */
-    private fun apkUrlOf(json: JSONObject): String? {
-        val assets = json.optJSONArray("assets") ?: return null
-        for (i in 0 until assets.length()) {
-            val a = assets.getJSONObject(i)
-            if (a.optString("name").endsWith(".apk")) return a.optString("browser_download_url")
-        }
-        return null
     }
 
     /** 按更新源拼 APK 下载地址（github 直连 / gh-proxy 镜像前缀）。 */
@@ -148,6 +138,7 @@ class UpdateChecker {
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder().url(url).header("User-Agent", UA).build()
+            logger?.info("UPDATE", "下载 APK: ${LogSanitizer.sanitizeUrl(url)}")
             client.newCall(req).execute().use { resp ->
                 check(resp.isSuccessful) { "下载失败（HTTP ${resp.code}）" }
                 // 统一用空安全访问：204/HEAD 等场景 body 为空
@@ -168,7 +159,10 @@ class UpdateChecker {
                     }
                 }
             }
+            logger?.info("UPDATE", "下载完成: ${dest.name}（${dest.length()} bytes）")
             dest
+        }.onFailure {
+            logger?.warn("UPDATE", "下载 APK 失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}")
         }
     }
 
@@ -273,3 +267,34 @@ class UpdateChecker {
         return allowEqual
     }
 }
+
+/** 取 release JSON 中第一个 APK 资产的下载地址（无则 null）。 */
+internal fun apkUrlOf(json: JSONObject): String? {
+    val assets = json.optJSONArray("assets") ?: return null
+    for (i in 0 until assets.length()) {
+        val a = assets.getJSONObject(i)
+        if (a.optString("name").endsWith(".apk")) return a.optString("browser_download_url")
+    }
+    return null
+}
+
+/**
+ * 从 `releases` 列表 JSON 里挑出**最新的一条带 APK 的发布**（测试版通道用）。
+ *
+ * 必须显式按 `published_at` 排序，**不能相信接口返回的顺序**：2026-09-25 实测 GitHub 的
+ * releases 列表会把最新的一条排到中间——`v0.8.0-dev.100` 的 `id` 与 `created_at` 都是最新，
+ * 却排在 `dev.94` 之后（新建的探针 release 同样没排到首位，且带随机参数绕过缓存后顺序不变，
+ * 说明是 GitHub 侧的顺序本身不可靠）。原来"取第一条带 APK 的"因此会把旧包当成最新，
+ * 测试版通道会一直提示已经过期好几个版本的 dev 包。
+ *
+ * `published_at` 是 ISO-8601（`2026-09-25T11:10:05Z`），同一格式下字典序即时间序；
+ * 缺失该字段的条目排在最后。空列表或坏 JSON 返回 null（调用方按"没有更新"处理）。
+ */
+internal fun pickLatestReleaseWithApk(json: String): JSONObject? = runCatching {
+    val arr = JSONArray(json)
+    (0 until arr.length())
+        .mapNotNull { i -> arr.optJSONObject(i) }
+        .filter { apkUrlOf(it) != null }
+        .sortedByDescending { it.optString("published_at") }
+        .firstOrNull()
+}.getOrNull()

@@ -194,7 +194,7 @@
     <string name="settings_category_network_summary">主站鏡像與存取方式</string>
     <string name="settings_category_update_summary">更新通道、更新來源與檢查頻率</string>
     <string name="settings_category_storage_summary">快取佔用與清理</string>
-    <string name="settings_category_experimental_summary">UI 風格、懸浮底欄與液態玻璃</string>
+    <string name="settings_category_experimental_summary">UI 風格、多書架、帳戶登入、懸浮底欄與液態玻璃</string>
     <string name="settings_category_about_summary">版本、開源倉庫與回饋管道</string>
     <string name="settings_ui_style">UI 風格</string>
     <string name="settings_ui_style_summary">切換 Material 3 Expressive 與 MIUIX（HyperOS）；實驗性功能，介面可能隨版本調整</string>
@@ -204,6 +204,57 @@
     <string name="settings_floating_bottom_bar_summary">HyperOS 風格的膠囊式底欄（僅 MIUIX 風格生效）</string>
     <string name="settings_bottom_bar_glass">底欄液態玻璃</string>
     <string name="settings_bottom_bar_glass_summary">對底欄背後內容做即時模糊（僅懸浮底欄、Android 12L+ 生效）</string>
+
+    <!-- 多書架（實驗性） -->
+    <string name="settings_multi_shelf">多書架</string>
+    <string name="settings_multi_shelf_summary">啟用後可在書架頁新增與切換書架，並於收藏時指定目標書架；關閉僅隱藏相關入口，已儲存的資料不受影響</string>
+    <!-- 帳戶登入（實驗性，依賴多書架） -->
+    <string name="settings_account_login">帳戶登入</string>
+    <string name="settings_account_login_summary">使用自己的 wenku8 帳戶登入，可同步網站書架；關閉僅隱藏入口，登入狀態保留</string>
+    <string name="account_dep_title">需要多書架</string>
+    <string name="account_dep_message">帳戶登入依賴多書架管理，是否同時開啟該前置功能？</string>
+    <!-- 帳戶二級頁 + 設定頁帳戶分區（僅帳戶開關打開時可見） -->
+    <string name="account_tap_login">點擊登入 wenku8 帳戶</string>
+    <string name="account_logged_in">已登入：%1$s</string>
+    <string name="account_username">使用者名稱</string>
+    <string name="account_password">密碼</string>
+    <string name="account_login_action">登入</string>
+    <string name="account_logout_action">登出</string>
+    <string name="account_current_title">目前帳戶</string>
+    <string name="account_using_builtin">目前使用內建共享帳號，登入後可同步網站書架。</string>
+    <string name="account_privacy_hint">密碼僅用於本次登入，不會儲存在裝置上。</string>
+    <string name="account_error_input">請填寫使用者名稱與密碼</string>
+    <string name="account_error_failed">登入失敗：使用者名稱或密碼不正確，也可能是網路問題</string>
+    <string name="account_login_ok">已登入：%1$s</string>
+    <string name="account_logout_ok">已登出，繼續使用內建共享帳號</string>
+    <string name="account_mirror_confirm_title">切換主鏡像</string>
+    <string name="account_mirror_confirm_message">切換主鏡像會登出目前登入的帳戶（Cookie 不跨網域），需要在新的鏡像重新登入。是否繼續？</string>
+    <string name="shelf_manage_title">管理書架</string>
+    <string name="shelf_new">新增書架</string>
+    <string name="shelf_rename">重新命名</string>
+    <string name="shelf_delete">刪除</string>
+    <string name="shelf_name_label">書架名稱</string>
+    <string name="shelf_book_count">共 %1$d 本</string>
+    <string name="shelf_name_error_empty">書架名稱不能為空</string>
+    <string name="shelf_name_error_too_long">書架名稱不能超過 %1$d 個字元</string>
+    <string name="shelf_name_error_duplicate">已存在同名書架</string>
+    <string name="shelf_delete_confirm_title">刪除書架</string>
+    <string name="shelf_delete_confirm_message">「%1$s」內的書籍將移入預設書架，不會被刪除。</string>
+    <string name="shelf_picker_add_title">選擇要加入的書架</string>
+    <string name="shelf_picker_membership_title">所屬書架</string>
+    <string name="shelf_picker_remove_title">取消收藏</string>
+    <string name="shelf_picker_remove_message">該書位於以下書架；取消勾選即從對應書架移除，全部取消勾選則完全取消收藏。</string>
+    <!-- Wenku8 書架（虛擬書架，需登入使用者帳戶） -->
+    <string name="wenku8_shelf_load_failed">網站書架載入失敗，請下拉重試</string>
+    <string name="wenku8_shelf_empty">網站書架暫無書籍</string>
+    <string name="wenku8_shelf_remove">移出網站書架</string>
+    <string name="wenku8_shelf_remove_message">將從你的 wenku8 帳戶書架中移出《%1$s》。</string>
+    <string name="detail_site_shelf_added">已加入網站書架</string>
+    <string name="detail_site_shelf_removed">已從網站書架移出</string>
+    <string name="detail_site_shelf_failed">操作失敗，請檢查登入狀態或網路</string>
+    <string name="bookcase_shelf_empty">該書架暫無書籍</string>
+    <string name="bookcase_manage_shelves">管理書架</string>
+    <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>
     <string name="settings_storage">儲存設定</string>
     <string name="settings_storage_desc">快取管理、快取上限與過期紀錄清理</string>
     <string name="settings_section_general">一般</string>
@@ -263,6 +314,11 @@
     <string name="settings_cache_confirm_clear_all_message">將釋放網頁離線快取、圖片快取、更新安裝檔與暫存檔。閱讀進度、書櫃與設定不會被刪除。</string>
     <string name="settings_cache_confirm_cleanup_title">清理過期閱讀紀錄？</string>
     <string name="settings_cache_confirm_cleanup_message">將刪除 %1$d 天前、之後未再閱讀的書本進度與已讀標記，此操作無法復原。</string>
+    <string name="settings_logs">日誌</string>
+    <string name="settings_logs_export">匯出日誌</string>
+    <string name="settings_logs_export_summary">封裝最近日誌（不含密碼與 Cookie），便於回報問題</string>
+    <string name="settings_logs_share_subject">Wenku8Reader 日誌</string>
+    <string name="settings_logs_export_failed">日誌匯出失敗，請稍後重試</string>
     <string name="action_confirm">確定</string>
     <string name="action_cancel">取消</string>
 

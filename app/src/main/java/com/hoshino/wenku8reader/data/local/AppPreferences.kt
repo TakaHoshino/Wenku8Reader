@@ -14,6 +14,8 @@ import android.content.Context
  * 经全仓检索确认从未被调用，属于纯粹的安全暴露面，故整体移除——登录态由
  * [com.hoshino.wenku8reader.data.CookieStore] 持久化的会话 Cookie 承担，
  * 无需保存密码即可免登录。
+ * 实验性「账户登录」同样只保存**用户名**（见 [AccountStore]），密码仅在登录请求期间
+ * 存在于内存中。
  */
 class AppPreferences(context: Context) {
 
@@ -39,7 +41,11 @@ class AppPreferences(context: Context) {
             ui.edit().putString("skipped_update_version", value).apply()
         }
 
-    /** 上次启动自动检查更新的时间戳（毫秒）；用于节流，降低网络无线电功耗。 */
+    /**
+     * 上次**启动自动检查**更新的时间戳（毫秒）。
+     *
+     * 2026-10 起启动检查改为"每次启动一次"，本值只用于诊断，不再作为节流依据。
+     */
     var lastUpdateCheckAt: Long
         get() = ui.getLong("last_update_check_at", 0L)
         set(value) {

@@ -1,7 +1,8 @@
 # 自动化版本发布（详见 VERSIONING.md）
 # - 触发：push 到 main/master，或手动 workflow_dispatch
 # - 版本：解析 Conventional Commits 自动升级（feat→minor，fix/perf→patch，BREAKING→major）
-# - versionCode：时间基准 yyyymmddHH（跨工作流单调递增，必然大于任何历史已装版本）
+# - versionCode：2_030_000_000 + 自 2026-01-01 UTC 起的分钟数（跨工作流单调递增，
+#   必然大于任何历史已装版本；分钟粒度避免同小时撞号，见 VERSIONING.md §2）
 # - 产出：打 git tag vX.Y.Z + GitHub Release（含 APK、SHA256SUMS 与自动生成更新日志）
 #
 # 安全设计（对应 CI 安全评审）：
@@ -157,13 +158,21 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           chmod 600 "$RUNNER_TEMP/release.keystore"
 
-      # ---- 构建：versionName 由语义解析注入，versionCode 用时间基准 yyyymmddHH ----
-      # （跨工作流单调递增、必然大于任何历史已装版本；避免 run_number 各工作流独立计数
-      #   导致 code 过小、用户无法从本地包/旧包覆盖升级）
-      - name: 计算递增 versionCode（时间基准）
+      # ---- 构建：versionName 由语义解析注入，versionCode 用**分钟**基准 ----
+      # 编码：versionCode = 2_030_000_000 + 自 2026-01-01 00:00 UTC 起的分钟数
+      # （与 dev.yml 完全同一套：跨工作流单调递增、必然大于任何历史已装版本，
+      #   且同一小时内多次构建也能区分先后。为什么不是 yyyyMMddHHmm：versionCode
+      #   是 32 位 int，拼时间必然溢出，详见 VERSIONING.md §2）
+      - name: 计算递增 versionCode（分钟基准）
         if: steps.version.outputs.skip != 'true'
         id: vcode
-        run: echo "version_code=$(date +%Y%m%d%H)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          EPOCH="$(date -u -d '2026-01-01T00:00:00Z' +%s)"
+          NOW="$(date -u +%s)"
+          CODE=$(( 2030000000 + (NOW - EPOCH) / 60 ))
+          echo "version_code=${CODE}" >> "$GITHUB_OUTPUT"
+          echo "构建时间（UTC）：$(date -u '+%Y-%m-%d %H:%M') → versionCode=${CODE}"
 
       - name: 构建 Release APK
         if: steps.version.outputs.skip != 'true'

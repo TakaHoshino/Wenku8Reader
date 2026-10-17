@@ -64,6 +64,12 @@ data class ReaderSettingsState(
     // 实验性（仅 MIUIX 风格生效）：悬浮底栏（HyperOS 的胶囊式底栏）与其液态玻璃背景
     val floatingBottomBar: Boolean = true,
     val bottomBarGlass: Boolean = true,
+    // 实验性：多书架（Material 与 MIUIX 都生效）。关闭时仅隐藏多书架 UI，
+    // 书架清单与书籍归属**一律保留**，重新开启即恢复原状。
+    val multiShelfEnabled: Boolean = false,
+    // 实验性：账户登录（依赖多书架）。关闭时账户分区保持只读说明、Wenku8 书架与登录页入口
+    // 一律不出现；**登录态与用户名保留**，重新开启即恢复。
+    val accountLoginEnabled: Boolean = false,
     val autoPadding: Boolean = true,           // 自动边距（跟随安全区）
     val topPadding: Int = 24,
     val bottomPadding: Int = 16,
@@ -120,6 +126,8 @@ private object Keys {
     val uiStyle = stringPreferencesKey("ui_style")
     val floatingBottomBar = booleanPreferencesKey("floating_bottom_bar")
     val bottomBarGlass = booleanPreferencesKey("bottom_bar_glass")
+    val multiShelfEnabled = booleanPreferencesKey("multi_shelf_enabled")
+    val accountLoginEnabled = booleanPreferencesKey("account_login_enabled")
     val autoPadding = booleanPreferencesKey("auto_padding")
     val topPadding = intPreferencesKey("pad_top")
     val bottomPadding = intPreferencesKey("pad_bottom")
@@ -235,6 +243,8 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
             // 默认 wenku8.cc；旧默认 wenku8.net（用户未手动改过）自动迁移到新默认
             primaryMirror = legacyPrefs.getString("primary_mirror", null)
                 ?.takeUnless { it == ReaderSettingsState.LEGACY_DEFAULT_MIRROR }
+                // 已下线镜像（如 2026-10 的 www.wenku8.com）一律回落到默认主站
+                ?.takeIf { Wenku8Hosts.isValidMirror(it) }
                 ?: ReaderSettingsState.DEFAULT_MIRROR,
             backgroundMode = legacyPrefs.getString("bg_mode", "color") ?: "color",
             // 旧版本只有单一 reader_bg / reader_text_color：迁移为浅色模式配色
@@ -271,6 +281,9 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
             uiStyle = legacyPrefs.getString("ui_style", "material3") ?: "material3",
             floatingBottomBar = legacyPrefs.getBoolean("floating_bottom_bar", true),
             bottomBarGlass = legacyPrefs.getBoolean("bottom_bar_glass", true),
+            // 旧版本没有这个键 → 读到默认 false（新功能默认关闭）
+            multiShelfEnabled = legacyPrefs.getBoolean("multi_shelf_enabled", false),
+            accountLoginEnabled = legacyPrefs.getBoolean("account_login_enabled", false),
             autoPadding = legacyPrefs.getBoolean("auto_padding", true),
             topPadding = legacyPrefs.getInt("pad_top", 24),
             bottomPadding = legacyPrefs.getInt("pad_bottom", 16),
@@ -315,6 +328,8 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
     fun setUiStyle(style: String) = emit { it.copy(uiStyle = style) }
     fun setFloatingBottomBar(enabled: Boolean) = emit { it.copy(floatingBottomBar = enabled) }
     fun setBottomBarGlass(enabled: Boolean) = emit { it.copy(bottomBarGlass = enabled) }
+    fun setMultiShelfEnabled(enabled: Boolean) = emit { it.copy(multiShelfEnabled = enabled) }
+    fun setAccountLoginEnabled(enabled: Boolean) = emit { it.copy(accountLoginEnabled = enabled) }
     fun setAutoPadding(enabled: Boolean) = emit { it.copy(autoPadding = enabled) }
     fun setTopPadding(v: Int) = emit { it.copy(topPadding = v) }
     fun setBottomPadding(v: Int) = emit { it.copy(bottomPadding = v) }
@@ -333,7 +348,8 @@ internal fun Preferences.toState(): ReaderSettingsState = ReaderSettingsState(
     dynamicColor = this[Keys.dynamicColor] ?: true,
     seedColor = this[Keys.seedColor] ?: 0xFF3F5BA9L,
     amoled = this[Keys.amoled] ?: false,
-    primaryMirror = this[Keys.primaryMirror] ?: ReaderSettingsState.DEFAULT_MIRROR,
+    primaryMirror = (this[Keys.primaryMirror] ?: ReaderSettingsState.DEFAULT_MIRROR)
+        .takeIf { Wenku8Hosts.isValidMirror(it) } ?: ReaderSettingsState.DEFAULT_MIRROR,
     backgroundMode = this[Keys.backgroundMode] ?: "color",
     readerBackgroundLight = this[Keys.readerBackgroundLight] ?: 0xFFFFFFFFL,
     readerTextColorLight = this[Keys.readerTextColorLight] ?: 0xFF000000L,
@@ -363,6 +379,10 @@ internal fun Preferences.toState(): ReaderSettingsState = ReaderSettingsState(
     uiStyle = this[Keys.uiStyle] ?: "material3",
     floatingBottomBar = this[Keys.floatingBottomBar] ?: true,
     bottomBarGlass = this[Keys.bottomBarGlass] ?: true,
+    // 默认关闭：新功能必须由用户显式开启
+    multiShelfEnabled = this[Keys.multiShelfEnabled] ?: false,
+    // 默认关闭：新功能必须由用户显式开启
+    accountLoginEnabled = this[Keys.accountLoginEnabled] ?: false,
     autoPadding = this[Keys.autoPadding] ?: true,
     topPadding = this[Keys.topPadding] ?: 24,
     bottomPadding = this[Keys.bottomPadding] ?: 16,
@@ -415,6 +435,8 @@ internal fun MutablePreferences.writeAll(state: ReaderSettingsState) {
     this[Keys.uiStyle] = state.uiStyle
     this[Keys.floatingBottomBar] = state.floatingBottomBar
     this[Keys.bottomBarGlass] = state.bottomBarGlass
+    this[Keys.multiShelfEnabled] = state.multiShelfEnabled
+    this[Keys.accountLoginEnabled] = state.accountLoginEnabled
     this[Keys.autoPadding] = state.autoPadding
     this[Keys.topPadding] = state.topPadding
     this[Keys.bottomPadding] = state.bottomPadding

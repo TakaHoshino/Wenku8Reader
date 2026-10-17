@@ -400,6 +400,13 @@ class LegacyMigrationTest {
 
         override suspend fun bookCount(): Int = bookRows.size
 
+        // ---- 多书架：归属（与 SQL 的 UPDATE 语义一致：目标不存在就是 0 行受影响）----
+
+        override suspend fun updateShelves(bookId: Int, value: String) {
+            val row = bookRows[bookId] ?: return
+            bookRows[bookId] = row.copy(shelf = value)
+        }
+
         override suspend fun progress(bookId: Int): ReadingProgressEntity? = progressRows[bookId]
 
         override fun observeProgress(bookId: Int): Flow<ReadingProgressEntity?> =

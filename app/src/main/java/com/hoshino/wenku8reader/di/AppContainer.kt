@@ -5,7 +5,9 @@ import com.hoshino.wenku8reader.data.DownloadEngine
 import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.UpdateChecker
 import com.hoshino.wenku8reader.data.Wenku8Client
+import com.hoshino.wenku8reader.data.Wenku8Shelf
 import com.hoshino.wenku8reader.data.local.AppPreferences
+import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
 import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.LibraryStore
@@ -13,7 +15,9 @@ import com.hoshino.wenku8reader.data.local.LocalDataMigration
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
+import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.db.AppDatabase
+import com.hoshino.wenku8reader.data.log.AppLogger
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,8 +59,22 @@ class AppContainer(context: Context) {
      */
     fun launchIo(block: suspend CoroutineScope.() -> Unit): Job = ioScope.launch(block = block)
 
+    /**
+     * 应用日志（重点记录网络访问）。
+     *
+     * 单例：网络层、更新检查与设置页的"导出日志"必须写/读同一个滚动文件；
+     * 校验通过与导出入口见 `AppLogger` 与 `ui/settings`。
+     */
+    val logger: AppLogger = AppLogger(context)
+
     /** 设置存储需要应用级作用域来串行落盘（见 ReaderSettings 的说明）。 */
     val readerSettings: ReaderSettings = ReaderSettings(context, applicationScope)
+
+    /**
+     * 账户登录（实验性）的状态：只存用户名（激活账户 + 预填用的上一次用户名），不存密码。
+     * 声明在 [client] 之前——客户端回落内置账号时要靠它清掉"激活账户"标记。
+     */
+    val accountStore: AccountStore = AccountStore(context)
 
     /** 主镜像随设置可切换（见 ReaderSettings.primaryMirror）；注入内置账号供静默登录。 */
     val client: Wenku8Client = Wenku8Client(
@@ -64,9 +82,21 @@ class AppContainer(context: Context) {
         { readerSettings.flow.value.primaryMirror },
         { DefaultAccount.USERNAME to DefaultAccount.PASSWORD },
         { readerSettings.flow.value.cacheMaxMb },
+        // 回落到内置账号 ⇒ 用户账户的"激活标记"随之失效。
+        // 必须这么做：内置账号登录后同样有会话，"有没有会话"区分不出账户归属。
+        onUserSessionLost = {
+            if (accountStore.read().activeUsername != null) accountStore.setActive(null)
+        },
+        logger = logger,
     )
 
     val repository: Wenku8Repository = Wenku8Repository(client)
+
+    /**
+     * 站方书架（Wenku8 账户的书架）的应用内状态：远端镜像、不落库。
+     * 书架页要渲染"Wenku8书架"这一栏、详情页要判断某本书是否已在网站书架，故为容器级单例。
+     */
+    val wenku8Shelf: Wenku8Shelf = Wenku8Shelf(repository)
 
     val preferences: AppPreferences = AppPreferences(context)
 
@@ -92,11 +122,19 @@ class AppContainer(context: Context) {
     val readingProgressStore: ReadingProgressStore =
         ReadingProgressStore(database.libraryDao(), localDataMigration)
 
+    /**
+     * 多书架：书架清单（只含用户自建的书架）的持久化。
+     *
+     * 与书籍归属分处两地是有意的——归属是 `BookEntity.shelf` 列（跟着书一起迁移），
+     * 清单是独立的小集合，放 DataStore 可以完全避开 Room 升版与迁移。
+     */
+    val shelfStore: ShelfStore = ShelfStore(context)
+
     /** 阅读时长聚合存储（按书+日期，热力图数据源）。 */
     val readingStats: ReadingStatsStore = ReadingStatsStore(context)
 
     /** 更新检查与安装（GitHub Releases 源）。 */
-    val updateChecker: UpdateChecker = UpdateChecker()
+    val updateChecker: UpdateChecker = UpdateChecker(logger)
     val updateCenter: UpdateCenter =
         UpdateCenter(context, updateChecker, preferences, readerSettings, applicationScope)
 
@@ -109,6 +147,12 @@ class AppContainer(context: Context) {
          */
         launchIo {
             runCatching { localDataMigration.ensure() }
+                .onFailure {
+                    logger.error(
+                        "STORE",
+                        "旧数据搬迁失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}",
+                    )
+                }
         }
         /**
          * 启动时回收陈旧缓存产物（更新安装包 / 残留临时文件）。

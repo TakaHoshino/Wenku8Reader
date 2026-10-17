@@ -75,6 +75,14 @@ class UpdateCenter(
         }.getOrDefault(0L)
 
     /**
+     * 启动检查闸门：每次**进程启动**检查一次。
+     *
+     * 用户明确要求"每次启动都检查更新"，因此原先的 24 小时节流已移除；
+     * 闸门只负责挡住同一进程内的重复调用（Activity 重建、多个入口）。
+     */
+    private val startupCheckGate = StartupCheckGate()
+
+    /**
      * 查询最新版。[manual] = true 时（用户主动点「检查更新」），把
      * 「已是最新 / 无可用更新 / 检查失败」通过 [notices] 提示；启动检查不打扰。
      * 「跳过该版本」**仅影响自动检查**：手动检查始终按实际版本判定（仍可弹窗）。
@@ -82,11 +90,11 @@ class UpdateCenter(
      */
     fun check(manual: Boolean = false) {
         if (_state.value.checking) return
-        // 功耗优化：启动自动检查最多 24h 一次（减少网络无线电）；手动检查不受限
         if (!manual) {
-            val now = System.currentTimeMillis()
-            if (now - preferences.lastUpdateCheckAt < 24L * 60 * 60 * 1000) return
-            preferences.lastUpdateCheckAt = now
+            // 不再有 24h 节流：每次启动都检查一次；手动检查不受闸门限制
+            if (!startupCheckGate.tryAcquire()) return
+            // 仅用于诊断（"上次启动检查是什么时候"），不再参与节流判断
+            preferences.lastUpdateCheckAt = System.currentTimeMillis()
         }
         val stable = settings.flow.value.updateChannel != "beta"
         _state.update { it.copy(checking = true) }

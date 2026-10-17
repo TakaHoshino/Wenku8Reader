@@ -38,13 +38,20 @@ data class ChapterContent(
     val images: List<String> = emptyList(),
 )
 
-/** A row in the user's bookshelf */
+/**
+ * 站方书架的一行。
+ *
+ * [aid] 是**书 id**（与 `/book/{id}.htm`、本地书架的 bookId 同一套编号）；
+ * [bid] 是**书架记录 id**——站点用它来"移出书架"（`bookcase.php?delid=<bid>`）。
+ * 两者不相等，混用会移错/移不掉，所以都要保留。
+ */
 @Immutable
 data class BookcaseItem(
     val aid: Int,
     val name: String,
     val latestName: String? = null,
     val latestCid: String? = null,
+    val bid: Int = 0,
 )
 
 /** A chapter flattened out of the volume tree, for the reader */

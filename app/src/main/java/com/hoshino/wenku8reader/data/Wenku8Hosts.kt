@@ -9,11 +9,19 @@ package com.hoshino.wenku8reader.data
  */
 object Wenku8Hosts {
 
-    /** 可用镜像（第一个为默认主站）。 */
+    /**
+     * 可用镜像（第一个为默认主站）。
+     *
+     * ⚠️ **`https://www.wenku8.com` 已于 2026-10 下线**：实测（PC 与 Android 17 设备一致）
+     * 该域名解析到 47.243.247.59，TLS 证书是 `s1.n9z.net`（SAN 只有 `s1.n9z.net`），
+     * 主机名校验必然失败——每次冷启动都要白等一次 4.6s 的 `SSLPeerUnverifiedException`。
+     * 域名若恢复为站点所有，再把它加回本列表即可。
+     * 注意图片（`img.wenku8.com`）、下载（`dl.wenku8.com`）与官方 App API（`app.wenku8.com`）
+     * 是**另外的域名**，不受此条影响。
+     */
     val MIRRORS: List<String> = listOf(
         "https://www.wenku8.cc",
         "https://www.wenku8.net",
-        "https://www.wenku8.com",
     )
 
     /** 默认主站镜像。 */

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.hoshino.wenku8reader.Wenku8Application
 import com.hoshino.wenku8reader.ui.author.AuthorBooksViewModel
+import com.hoshino.wenku8reader.ui.account.AccountViewModel
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseViewModel
 import com.hoshino.wenku8reader.ui.detail.DetailViewModel
 import com.hoshino.wenku8reader.ui.downloads.DownloadsViewModel
@@ -14,6 +15,7 @@ import com.hoshino.wenku8reader.ui.explore.ExploreViewModel
 import com.hoshino.wenku8reader.ui.explore.TagBooksViewModel
 import com.hoshino.wenku8reader.ui.reader.ReaderViewModel
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
+import com.hoshino.wenku8reader.ui.shelf.ShelfManageViewModel
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsViewModel
 import com.hoshino.wenku8reader.ui.toc.TocViewModel
 
@@ -30,15 +32,36 @@ object AppViewModelProvider {
                 application().container.readerSettings,
                 application().container.client,
                 application().container.readingProgressStore,
+                application().container.accountStore,
                 application().container.storage,
                 application().container.updateCenter,
+                application().container.logger,
+            )
+        }
+        initializer {
+            AccountViewModel(
+                application().container.client,
+                application().container.accountStore,
             )
         }
         initializer {
             BookcaseViewModel(
                 application().container.libraryStore,
                 application().container.readingProgressStore,
+                application().container.shelfStore,
+                application().container.accountStore,
+                application().container.wenku8Shelf,
+                application().container.readerSettings,
                 application().container.preferences,
+            )
+        }
+        initializer {
+            ShelfManageViewModel(
+                application().container.libraryStore,
+                application().container.shelfStore,
+                application().container.readerSettings,
+                application().container.accountStore,
+                application().container.wenku8Shelf,
             )
         }
         initializer {
@@ -48,6 +71,10 @@ object AppViewModelProvider {
                 application().container.downloadEngine,
                 application().container.libraryStore,
                 application().container.readingProgressStore,
+                application().container.shelfStore,
+                application().container.accountStore,
+                application().container.wenku8Shelf,
+                application().container.readerSettings,
             )
         }
         initializer { DownloadsViewModel(application().container.downloadEngine) }

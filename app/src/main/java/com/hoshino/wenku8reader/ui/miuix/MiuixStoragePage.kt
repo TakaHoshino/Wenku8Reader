@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Public
@@ -32,6 +33,7 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CacheCategory
+import com.hoshino.wenku8reader.ui.common.shareFile
 import com.hoshino.wenku8reader.ui.common.formatByteSize
 import com.hoshino.wenku8reader.ui.settings.CacheActionResult
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
@@ -75,6 +77,26 @@ fun MiuixStoragePage(
                     }
             }
             android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    // 日志导出：zip 已生成 → 拉起系统分享面板；失败只提示
+    LaunchedEffect(Unit) {
+        vm.logExport.collect { result ->
+            result.onSuccess { file ->
+                shareFile(
+                    context = context,
+                    file = file,
+                    mimeType = "application/zip",
+                    subject = context.getString(R.string.settings_logs_share_subject),
+                    chooserTitle = context.getString(R.string.settings_logs_export),
+                )
+            }.onFailure {
+                android.widget.Toast.makeText(
+                    context,
+                    R.string.settings_logs_export_failed,
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
     LaunchedEffect(Unit) { vm.refreshStorageStats() }
@@ -204,6 +226,20 @@ fun MiuixStoragePage(
                     onClick = { confirmCleanupHistory = true },
                 )
             }
+
+            // 日志导出（排查网络问题时发给开发者）
+            MiuixSection(
+                title = stringResource(R.string.settings_logs),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+            ) {
+                MiuixArrowRow(
+                    title = stringResource(R.string.settings_logs_export),
+                    summary = formatByteSize(stats.logs) + " · " +
+                        stringResource(R.string.settings_logs_export_summary),
+                    icon = Icons.Filled.Description,
+                    onClick = vm::exportLogs,
+                )
+            }
             Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
         }
     }
@@ -277,15 +313,18 @@ private fun MiuixClearRow(
 
 /** 弹窗内的两枚 miuix 按钮（确认 / 取消）。 */
 @Composable
-private fun MiuixDialogButtons(
+internal fun MiuixDialogButtons(
     confirmText: String,
     dismissText: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    /** 确认按钮是否可用（书架弹窗在"一个书架都没勾"时要置灰）。 */
+    confirmEnabled: Boolean = true,
 ) {
     Column(Modifier.padding(top = 12.dp)) {
         Button(
             onClick = onConfirm,
+            enabled = confirmEnabled,
             // 必须是 fillMaxWidth：写成 fillMaxSize 时按钮会去撑满弹窗的整个可用空间，
             // 结果是弹窗被拉到满屏、次要按钮被挤出可见区域（用户看到的巨型弹窗就是这个原因）。
             modifier = Modifier.fillMaxWidth(),

@@ -1,6 +1,7 @@
 package com.hoshino.wenku8reader.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
@@ -13,6 +14,17 @@ import org.junit.Test
  * 这里锁定"图片域名必须升级为 https、其它地址不得被改写"的行为。
  */
 class Wenku8HostsTest {
+
+    @Test
+    fun `镜像清单全是 https_且不包含已下线的 www_wenku8_com`() {
+        assertEquals(Wenku8Hosts.MIRRORS.first(), Wenku8Hosts.DEFAULT_BASE)
+        Wenku8Hosts.MIRRORS.forEach { url ->
+            org.junit.Assert.assertTrue("镜像必须是 https：$url", url.startsWith("https://"))
+        }
+        // 2026-10 实测：该域名证书为 s1.n9z.net，TLS 主机名校验必然失败
+        assertFalse(Wenku8Hosts.MIRRORS.any { it.contains("//www.wenku8.com") })
+        assertFalse(Wenku8Hosts.isValidMirror("https://www.wenku8.com"))
+    }
 
     @Test
     fun upgradesHttpImageHostsToHttps() {

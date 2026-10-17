@@ -194,7 +194,7 @@
     <string name="settings_category_network_summary">主站镜像与访问方式</string>
     <string name="settings_category_update_summary">更新通道、更新源与检查频率</string>
     <string name="settings_category_storage_summary">缓存占用与清理</string>
-    <string name="settings_category_experimental_summary">UI 风格、悬浮底栏与液态玻璃</string>
+    <string name="settings_category_experimental_summary">UI 风格、多书架、账户登录、悬浮底栏与液态玻璃</string>
     <string name="settings_category_about_summary">版本、开源仓库与反馈渠道</string>
     <string name="settings_ui_style">UI 风格</string>
     <string name="settings_ui_style_summary">切换 Material 3 Expressive 与 MIUIX（HyperOS）；实验性功能，界面可能随版本调整</string>
@@ -204,6 +204,57 @@
     <string name="settings_floating_bottom_bar_summary">HyperOS 风格的胶囊式底栏（仅 MIUIX 风格生效）</string>
     <string name="settings_bottom_bar_glass">底栏液态玻璃</string>
     <string name="settings_bottom_bar_glass_summary">对底栏背后内容做实时模糊（仅悬浮底栏、Android 12L+ 生效）</string>
+
+    <!-- 多书架（实验性） -->
+    <string name="settings_multi_shelf">多书架</string>
+    <string name="settings_multi_shelf_summary">启用后可在书架页新建与切换书架，并在收藏时指定目标书架；关闭仅隐藏相关入口，已保存的数据不受影响</string>
+    <!-- 账户登录（实验性，依赖多书架） -->
+    <string name="settings_account_login">账户登录</string>
+    <string name="settings_account_login_summary">使用自己的 wenku8 账户登录，可同步网站书架；关闭仅隐藏入口，登录状态保留</string>
+    <string name="account_dep_title">需要多书架</string>
+    <string name="account_dep_message">账户登录依赖多书架管理，是否同时开启该前置功能？</string>
+    <!-- 账户二级页 + 设置页账户分区（仅账户开关打开时可见） -->
+    <string name="account_tap_login">点击登录 wenku8 账户</string>
+    <string name="account_logged_in">已登录：%1$s</string>
+    <string name="account_username">用户名</string>
+    <string name="account_password">密码</string>
+    <string name="account_login_action">登录</string>
+    <string name="account_logout_action">退出登录</string>
+    <string name="account_current_title">当前账户</string>
+    <string name="account_using_builtin">当前使用内置共享账号，登录后可同步网站书架。</string>
+    <string name="account_privacy_hint">密码仅用于本次登录，不会保存在设备上。</string>
+    <string name="account_error_input">请填写用户名与密码</string>
+    <string name="account_error_failed">登录失败：用户名或密码不正确，也可能是网络问题</string>
+    <string name="account_login_ok">已登录：%1$s</string>
+    <string name="account_logout_ok">已退出登录，继续使用内置共享账号</string>
+    <string name="account_mirror_confirm_title">切换主镜像</string>
+    <string name="account_mirror_confirm_message">切换主镜像会退出当前登录的账户（Cookie 不跨域），需要在新的镜像重新登录。是否继续？</string>
+    <string name="shelf_manage_title">管理书架</string>
+    <string name="shelf_new">新建书架</string>
+    <string name="shelf_rename">重命名</string>
+    <string name="shelf_delete">删除</string>
+    <string name="shelf_name_label">书架名称</string>
+    <string name="shelf_book_count">共 %1$d 本</string>
+    <string name="shelf_name_error_empty">书架名称不能为空</string>
+    <string name="shelf_name_error_too_long">书架名称不能超过 %1$d 个字符</string>
+    <string name="shelf_name_error_duplicate">已存在同名书架</string>
+    <string name="shelf_delete_confirm_title">删除书架</string>
+    <string name="shelf_delete_confirm_message">「%1$s」内的书籍将移入默认书架，不会被删除。</string>
+    <string name="shelf_picker_add_title">选择要加入的书架</string>
+    <string name="shelf_picker_membership_title">所属书架</string>
+    <string name="shelf_picker_remove_title">取消收藏</string>
+    <string name="shelf_picker_remove_message">该书位于以下书架；取消勾选即从对应书架移除，全部取消勾选则完全取消收藏。</string>
+    <!-- Wenku8 书架（虚拟书架，需登录用户账户） -->
+    <string name="wenku8_shelf_load_failed">网站书架加载失败，请下拉重试</string>
+    <string name="wenku8_shelf_empty">网站书架暂无书籍</string>
+    <string name="wenku8_shelf_remove">移出网站书架</string>
+    <string name="wenku8_shelf_remove_message">将从你的 wenku8 账户书架中移出《%1$s》。</string>
+    <string name="detail_site_shelf_added">已加入网站书架</string>
+    <string name="detail_site_shelf_removed">已从网站书架移出</string>
+    <string name="detail_site_shelf_failed">操作失败，请检查登录状态或网络</string>
+    <string name="bookcase_shelf_empty">该书架暂无书籍</string>
+    <string name="bookcase_manage_shelves">管理书架</string>
+    <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>
     <string name="settings_storage">存储设置</string>
     <string name="settings_storage_desc">缓存管理、缓存上限与过期记录清理</string>
     <string name="settings_section_general">通用</string>
@@ -268,6 +319,11 @@
     <string name="settings_cache_confirm_clear_all_message">将释放网页离线缓存、图片缓存、更新安装包与临时文件。阅读进度、书架与设置不会被删除。</string>
     <string name="settings_cache_confirm_cleanup_title">清理过期阅读记录？</string>
     <string name="settings_cache_confirm_cleanup_message">将删除 %1$d 天前、之后未再阅读的书本进度与已读标记，此操作无法撤销。</string>
+    <string name="settings_logs">日志</string>
+    <string name="settings_logs_export">导出日志</string>
+    <string name="settings_logs_export_summary">打包最近日志（不含密码与 Cookie），便于反馈问题</string>
+    <string name="settings_logs_share_subject">Wenku8Reader 日志</string>
+    <string name="settings_logs_export_failed">日志导出失败，请稍后重试</string>
     <string name="action_confirm">确定</string>
     <string name="action_cancel">取消</string>
 

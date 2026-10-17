@@ -2,4 +2,6 @@
 <paths>
     <!-- 更新安装包缓存目录（UpdateCenter 下载到 cacheDir/updates/） -->
     <cache-path name="updates" path="updates/" />
+    <!-- 日志导出压缩包（AppLogger 生成在 cacheDir/log_exports/），经分享面板外发 -->
+    <cache-path name="log_exports" path="log_exports/" />
 </paths>

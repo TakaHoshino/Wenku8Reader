@@ -73,6 +73,8 @@ import com.hoshino.wenku8reader.ui.settings.AppearanceSettingsPage
 import com.hoshino.wenku8reader.ui.settings.NetworkSettingsPage
 import com.hoshino.wenku8reader.ui.settings.UpdateSettingsPage
 import com.hoshino.wenku8reader.ui.settings.ExperimentalSettingsPage
+import com.hoshino.wenku8reader.ui.shelf.ShelfManageScreen
+import com.hoshino.wenku8reader.ui.account.AccountScreen
 import com.hoshino.wenku8reader.ui.settings.StorageSettingsPage
 import com.hoshino.wenku8reader.ui.stats.ReadingStatsScreen
 import com.hoshino.wenku8reader.ui.toc.TocScreen
@@ -80,6 +82,8 @@ import com.hoshino.wenku8reader.ui.update.UpdateDialogHost
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import com.hoshino.wenku8reader.ui.components.isMiuixGlassSupported
 import com.hoshino.wenku8reader.ui.miuix.MiuixSettingsPage
+import com.hoshino.wenku8reader.ui.miuix.MiuixShelfManagePage
+import com.hoshino.wenku8reader.ui.miuix.MiuixAccountPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixStoragePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixBookcasePage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAppearancePage
@@ -166,7 +170,7 @@ fun MainScaffold() {
         delay(STARTUP_UPDATE_CHECK_DELAY_MS)
         // 必须读取**最新**的设置值：原实现在此读取的是 LaunchedEffect(Unit) 首次组合时
         // 捕获的旧快照，导致用户在延迟窗口内关掉「启动检查」仍会被检查（反之亦然）。
-        // 更新中心自身还有 24h 节流（见 UpdateCenter.check），此处延迟只为避让首屏竞争。
+        // 更新中心保证"每次进程启动只检查一次"（见 UpdateCenter.check），此处延迟只为避让首屏竞争。
         if (container.readerSettings.flow.value.checkUpdatesOnStartup) {
             container.updateCenter.check(manual = false)
         }
@@ -243,6 +247,7 @@ fun MainScaffold() {
                         nav.navigate(Routes.search(keyword, byAuthor))
                     },
                     onOpenStats = { nav.navigate(Routes.STATS) { launchSingleTop = true } },
+                    onOpenShelfManage = { nav.navigate(Routes.SHELF_MANAGE) { launchSingleTop = true } },
                     onOpenCustom = { nav.navigate(Routes.SETTINGS_CUSTOM) },
                     onOpenAbout = { nav.navigate(Routes.ABOUT) },
                     onOpenStorageSettings = { nav.navigate(Routes.STORAGE_SETTINGS) },
@@ -251,6 +256,7 @@ fun MainScaffold() {
                     onOpenNetwork = { nav.navigate(Routes.SETTINGS_NETWORK) },
                     onOpenUpdate = { nav.navigate(Routes.SETTINGS_UPDATE) },
                     onOpenExperimental = { nav.navigate(Routes.SETTINGS_EXPERIMENTAL) },
+                    onOpenAccount = { nav.navigate(Routes.ACCOUNT) { launchSingleTop = true } },
                 )
             }
             composable(
@@ -342,6 +348,22 @@ fun MainScaffold() {
                     MiuixExperimentalPage(onBack = { nav.popBackStack() })
                 } else {
                     ExperimentalSettingsPage(onBack = { nav.popBackStack() })
+                }
+            }
+            composable(Routes.SHELF_MANAGE) {
+                // 与设置页同一口径：MIUIX 走完全独立的 miuix 实现，只共用 ViewModel
+                if (isMiuixStyle()) {
+                    MiuixShelfManagePage(onBack = { nav.popBackStack() })
+                } else {
+                    ShelfManageScreen(onBack = { nav.popBackStack() })
+                }
+            }
+            composable(Routes.ACCOUNT) {
+                // 与设置页同一口径：MIUIX 走完全独立的 miuix 实现，只共用 ViewModel
+                if (isMiuixStyle()) {
+                    MiuixAccountPage(onBack = { nav.popBackStack() })
+                } else {
+                    AccountScreen(onBack = { nav.popBackStack() })
                 }
             }
             composable(Routes.ABOUT) {
@@ -478,6 +500,8 @@ private fun MainPagerScreen(
     onOpenNetwork: () -> Unit,
     onOpenUpdate: () -> Unit,
     onOpenExperimental: () -> Unit,
+    onOpenShelfManage: () -> Unit,
+    onOpenAccount: () -> Unit,
 ) {
     CompositionLocalProvider(LocalFloatingBarInset provides floatingBarInset) {
     HorizontalPager(
@@ -512,12 +536,14 @@ private fun MainPagerScreen(
                         onOpenBook = onOpenBook,
                         onOpenDownloads = onOpenDownloads,
                         onOpenStats = onOpenStats,
+                        onOpenShelfManage = onOpenShelfManage,
                     )
                 } else {
                     BookcasePage(
                         onOpenBook = onOpenBook,
                         onOpenDownloads = onOpenDownloads,
                         onOpenStats = onOpenStats,
+                        onOpenShelfManage = onOpenShelfManage,
                     )
                 }
             2 ->
@@ -532,6 +558,7 @@ private fun MainPagerScreen(
                         onOpenExperimental = onOpenExperimental,
                         onOpenDownloads = onOpenDownloads,
                         onOpenAbout = onOpenAbout,
+                        onOpenAccount = onOpenAccount,
                     )
                 } else {
                     SettingsPage(
@@ -543,6 +570,7 @@ private fun MainPagerScreen(
                         onOpenDownloads = onOpenDownloads,
                         onOpenAbout = onOpenAbout,
                         onOpenStorageSettings = onOpenStorageSettings,
+                        onOpenAccount = onOpenAccount,
                     )
                 }
             // 显式兜底：新增 Tab 时若忘记补分支，这里会立刻暴露而不是静默渲染空白页
