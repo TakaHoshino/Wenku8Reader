@@ -243,6 +243,8 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
             // 默认 wenku8.cc；旧默认 wenku8.net（用户未手动改过）自动迁移到新默认
             primaryMirror = legacyPrefs.getString("primary_mirror", null)
                 ?.takeUnless { it == ReaderSettingsState.LEGACY_DEFAULT_MIRROR }
+                // 已下线镜像（如 2026-10 的 www.wenku8.com）一律回落到默认主站
+                ?.takeIf { Wenku8Hosts.isValidMirror(it) }
                 ?: ReaderSettingsState.DEFAULT_MIRROR,
             backgroundMode = legacyPrefs.getString("bg_mode", "color") ?: "color",
             // 旧版本只有单一 reader_bg / reader_text_color：迁移为浅色模式配色
@@ -346,7 +348,8 @@ internal fun Preferences.toState(): ReaderSettingsState = ReaderSettingsState(
     dynamicColor = this[Keys.dynamicColor] ?: true,
     seedColor = this[Keys.seedColor] ?: 0xFF3F5BA9L,
     amoled = this[Keys.amoled] ?: false,
-    primaryMirror = this[Keys.primaryMirror] ?: ReaderSettingsState.DEFAULT_MIRROR,
+    primaryMirror = (this[Keys.primaryMirror] ?: ReaderSettingsState.DEFAULT_MIRROR)
+        .takeIf { Wenku8Hosts.isValidMirror(it) } ?: ReaderSettingsState.DEFAULT_MIRROR,
     backgroundMode = this[Keys.backgroundMode] ?: "color",
     readerBackgroundLight = this[Keys.readerBackgroundLight] ?: 0xFFFFFFFFL,
     readerTextColorLight = this[Keys.readerTextColorLight] ?: 0xFF000000L,

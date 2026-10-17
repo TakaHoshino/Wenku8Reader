@@ -34,7 +34,7 @@
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
 | 持久化 | **Room 2.7.2**（书架 `books` / 阅读进度 `reading_progress`，KSP 生成）+ **DataStore 1.2.1**（设置 `settings` / 书架清单 `shelves` / 激活账户 `account`）+ SharedPreferences（书架排序、更新节流、阅读统计） |
-| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；27 个测试类 / 195 用例，见 §9 |
+| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；27 个测试类 / 197 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
@@ -132,7 +132,12 @@ Wenku8Reader/
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
 - **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`、随机/固定 Chrome UA。
-- **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net, www.wenku8.com]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
+- **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
+  ⚠️ `www.wenku8.com` 已于 **2026-10 下线**：实测（PC 与 Android 17 设备一致）解析到 47.243.247.59，
+  TLS 证书是 `s1.n9z.net`（SAN 只有该域名），主机名校验必然失败，每次冷启动白等约 4.6s。
+  它已从清单移除；**老用户设置里残留的该值会在读取时回落到默认主站**（`ReaderSettings.toState()`），
+  `Wenku8Client.mirrors` 还有一层 `isValidMirror` 兜底。图片 / 下载 / 官方 App API 用的是
+  `img.wenku8.com` / `dl.wenku8.com` / `app.wenku8.com`，不受此条影响。
 - **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 OkHttp/Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
 - **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
 - **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。

@@ -246,7 +246,12 @@ class Wenku8Client(
 
     private val mirrors: List<String>
         get() {
-            val primary = primaryMirrorProvider().ifBlank { DEFAULT_BASE }
+            // 兜底校验：设置里可能残留已下线的镜像（例如 2026-10 下线的 www.wenku8.com）。
+            // 不校验的话，老用户的"主站"会一直指向一个证书不匹配的域名。
+            val primary = primaryMirrorProvider()
+                .ifBlank { DEFAULT_BASE }
+                .takeIf { Wenku8Hosts.isValidMirror(it) }
+                ?: DEFAULT_BASE
             if (primary != cachedPrimary) {
                 cachedMirrors = buildList {
                     add(primary)

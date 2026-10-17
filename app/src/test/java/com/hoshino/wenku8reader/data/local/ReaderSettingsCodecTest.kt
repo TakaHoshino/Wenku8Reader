@@ -43,7 +43,8 @@ class ReaderSettingsCodecTest {
             dynamicColor = false,
             seedColor = 0xFF123456L,
             amoled = true,
-            primaryMirror = "https://example.org",
+            // 必须是合法镜像：读取时会把已下线/未知主站回落到默认值（见下面的专项用例）
+            primaryMirror = "https://www.wenku8.net",
             backgroundMode = "image",
             readerBackgroundLight = 0xFFF0F0F0L,
             readerTextColorLight = 0xFF111111L,
@@ -103,6 +104,16 @@ class ReaderSettingsCodecTest {
         val state = prefs.toState()
         assertEquals(100, state.hapticsStrength)
         assertEquals(10, state.cacheMaxMb)
+    }
+
+    @Test
+    fun `已下线的镜像在读取时回落到默认主站`() {
+        // 2026-10 实测 www.wenku8.com 的证书是 s1.n9z.net（主机名不匹配），已从镜像清单移除。
+        // 老用户设置里可能还残留这个值，读取时必须回落，否则每次冷启动都会白等一次 TLS 失败。
+        val prefs = mutablePreferencesOf(
+            stringPreferencesKey("primary_mirror") to "https://www.wenku8.com",
+        )
+        assertEquals(ReaderSettingsState.DEFAULT_MIRROR, prefs.toState().primaryMirror)
     }
 
     @Test
