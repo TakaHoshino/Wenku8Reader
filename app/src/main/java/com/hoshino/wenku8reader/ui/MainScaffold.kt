@@ -170,7 +170,7 @@ fun MainScaffold() {
         delay(STARTUP_UPDATE_CHECK_DELAY_MS)
         // 必须读取**最新**的设置值：原实现在此读取的是 LaunchedEffect(Unit) 首次组合时
         // 捕获的旧快照，导致用户在延迟窗口内关掉「启动检查」仍会被检查（反之亦然）。
-        // 更新中心自身还有 24h 节流（见 UpdateCenter.check），此处延迟只为避让首屏竞争。
+        // 更新中心保证"每次进程启动只检查一次"（见 UpdateCenter.check），此处延迟只为避让首屏竞争。
         if (container.readerSettings.flow.value.checkUpdatesOnStartup) {
             container.updateCenter.check(manual = false)
         }

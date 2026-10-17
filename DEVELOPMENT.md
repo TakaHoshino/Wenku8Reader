@@ -33,8 +33,8 @@
 | 依赖注入 | 手写 `AppContainer`（`di/AppContainer.kt`） |
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
-| 持久化 | **Room 2.7.2**（书架 `books` / 阅读进度 `reading_progress`，KSP 生成）+ **DataStore 1.2.1**（设置 `settings` / 书架清单 `shelves` / 激活账户 `account`）+ SharedPreferences（书架排序、更新节流、阅读统计） |
-| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；28 个测试类 / 201 用例，见 §9 |
+| 持久化 | **Room 2.7.2**（书架 `books` / 阅读进度 `reading_progress`，KSP 生成）+ **DataStore 1.2.1**（设置 `settings` / 书架清单 `shelves` / 激活账户 `account`）+ SharedPreferences（书架排序、上次更新检查时间、阅读统计） |
+| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；29 个测试类 / 203 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
@@ -98,7 +98,7 @@ Wenku8Reader/
     │       │   ├── repository/            # Wenku8Repository.kt（统一 Result 包装）/ BookGroupId.kt
     │       │   └── local/
     │       │       ├── ReaderSettings.kt        # 全局设置源（DataStore + 同步可读 StateFlow）
-    │       │       ├── AppPreferences.kt        # 书架排序 / 更新节流（SharedPreferences）
+    │       │       ├── AppPreferences.kt        # 书架排序 / 上次更新检查时间（SharedPreferences）
     │       │       ├── LibraryStore.kt          # 书架读写（Room: books）
     │       │       ├── ReadingProgressStore.kt  # 进度 / 已读标记（Room: reading_progress）
     │       │       ├── LocalDataMigration.kt    # 旧 SharedPreferences → Room 的一次性搬迁门
@@ -177,7 +177,7 @@ Wenku8Reader/
   - **一次性搬迁**：`LocalDataMigration` 是唯一入口，两个 store 的每次读写都先 `ensure()`——首帧不会读到"空书架"或丢续读位置。顺序是 解析 → upsert → **逐条读回比对** → 全部一致才清旧数据；任何异常或丢条都保留旧数据、下次启动重试（幂等：主键 upsert 不产生重复行）。旧 `library`/`reading` 偏好键已清理，文件保留作降级兜底。
   - 清理过期阅读用 `ReadingProgressStore.cleanupStale(keepDays)`，判定抽成纯函数 `staleProgressBookIds()` 并单测（`ReadingProgressCleanupTest`）——**没有时间戳的旧记录一律保留**，避免凭猜测删用户数据。
 - **设置（DataStore）**：`ReaderSettings` 仍是**全局唯一设置源**，`StateFlow<ReaderSettingsState>` 同时驱动 MainActivity 主题、阅读器与设置页。存储改为 `files/datastore/settings.preferences_pb`，键名与旧 `settings.xml` **完全同名**，首次运行把旧值搬进来并置 `migrated_from_prefs` 标记（旧文件保留作降级兜底，置位后不再读）。对外仍**同步可读**：`Application.onCreate` 里同步读一次首值，避免启动瞬间按默认值渲染出"设置被重置"的闪烁；写入立即更新内存、再经 conflated 通道按顺序合并落盘（Slider 拖动时不会后写先落）。`hapticsStrength`/`cacheMaxMb` 读取时夹紧；逐字段编解码有单测（`ReaderSettingsCodecTest`）。应用内语言由 `MainActivity.attachBaseContext` 经应用级静态引用读取——那个时点 `activity.application` 尚未赋值。UI 重构新增字段：`amoled`（纯黑模式，深色下 surface 压真黑，仅影响应用主题，不影响阅读器纸张色）。
-- **其余偏好（SharedPreferences）**：`AppPreferences`（prefs：`ui`）只剩书架排序与更新检查节流/跳过版本，**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。
+- **其余偏好（SharedPreferences）**：`AppPreferences`（prefs：`ui`）只剩书架排序、上次更新检查时间（仅诊断）与跳过版本，**不保存任何账号密码**（原先的 `account` 明文凭据接口全仓无调用点，已整体移除；登录态由 `CookieStore` 的会话 Cookie 承担）。
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
 - `DefaultAccount`：**内置共享账号**，未登录用户全程用它访问站点（首启静默登录，任何"回落"都回到它）。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录），**不保存任何用户密码**。账户登录（实验性，见 §4.11）开启后用户可以登录自己的 wenku8 账户；"用户已登录"的判据是**激活账户标记 + 会话 Cookie**两者同时成立，登出即回落内置账号。
 
@@ -239,7 +239,8 @@ Wenku8Reader/
 - **书架已读统计**：`BookcaseEntry.readCount = finishedChapters(bookId).size`（与目录页"已读"同源），进度条 = 已读/总数（原为阅读位置 `(pos+1)/total`，已改为基于目录已读标记）。
 
 ### 4.9 应用内更新（`UpdateChecker` / `UpdateCenter` / `ui/update/`）
-- **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表里**按 `published_at` 排序后**最新的一条带 APK 的发布（**不能相信接口返回的顺序**，见下）。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准「`2_030_000_000` + 分钟偏移」，见 VERSIONING.md §2），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。启动自动检查有 24h 节流。
+- **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表里**按 `published_at` 排序后**最新的一条带 APK 的发布（**不能相信接口返回的顺序**，见下）。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准「`2_030_000_000` + 分钟偏移」，见 VERSIONING.md §2），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。
+  **启动检查频率 = 每次启动一次**（2026-10 起）：不再有 24h 节流，由 `StartupCheckGate` 保证同一进程内只请求一次（Activity 重建 / 多入口不会重复打 GitHub）；失败只在**手动**检查时提示，自动检查静默。「跳过该版本」仍只影响自动检查。
   > ⚠️ **GitHub 的 releases 列表顺序不可靠**（2026-09-25 实测）：`v0.8.0-dev.100` 的 `id`/`created_at` 都是最新，却被排在 `dev.94` 之后（位置第 5）；新建的探针 release 同样落不到首位，带随机参数绕过缓存后顺序不变。所以"取第一条带 APK 的"会把旧包当成最新——测试版通道会一直提示已经过期好几个版本的 dev 包。实现改为显式按 `published_at` 排序（单测 `UpdateCheckerPickLatestTest` 用真实顺序当夹具）。这条**无法用 CI 侧绕过**：重新发布不会置顶，缩减保留数量也治不了。
 - **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；`OkHttpClient` **显式设置连接/读写/整体超时**（默认无超时会长期挂起且无取消点）。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。

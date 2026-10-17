@@ -41,7 +41,11 @@ class AppPreferences(context: Context) {
             ui.edit().putString("skipped_update_version", value).apply()
         }
 
-    /** 上次启动自动检查更新的时间戳（毫秒）；用于节流，降低网络无线电功耗。 */
+    /**
+     * 上次**启动自动检查**更新的时间戳（毫秒）。
+     *
+     * 2026-10 起启动检查改为"每次启动一次"，本值只用于诊断，不再作为节流依据。
+     */
     var lastUpdateCheckAt: Long
         get() = ui.getLong("last_update_check_at", 0L)
         set(value) {
