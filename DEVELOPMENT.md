@@ -34,7 +34,7 @@
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
 | 持久化 | **Room 2.7.2**（书架 `books` / 阅读进度 `reading_progress`，KSP 生成）+ **DataStore 1.2.1**（设置 `settings` / 书架清单 `shelves` / 激活账户 `account`）+ SharedPreferences（书架排序、更新节流、阅读统计） |
-| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；24 个测试类 / 180+ 用例，见 §9 |
+| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；27 个测试类 / 195 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
@@ -59,7 +59,7 @@
 
 AndroidManifest：声明 `INTERNET` / `VIBRATE` 权限。安全加固：
 - 明文流量改为 `networkSecurityConfig` **白名单**（仅 `app.wenku8.com` 保留 http —— 官方 App API 无 HTTPS 端点；封面/插图/站点页面本就都是 HTTPS），不再全局 `usesCleartextTraffic="true"`；
-- `allowBackup` 保留但通过 `fullBackupContent`（API ≤30）与 `dataExtractionRules`（API 31+）**排除 `account`/`cookies`/`library` 三个 SharedPreferences 与 DataStore 的 `datastore/shelves.preferences_pb`**，避免凭据、会话 Cookie 与书架数据进入云备份或 `adb backup`（只带走"书架名"而带不走"书"，恢复后会看到一堆空书架）。注意新增存储文件时要同步这两份规则；
+- `allowBackup` 保留但通过 `fullBackupContent`（API ≤30）与 `dataExtractionRules`（API 31+）**排除 `account`/`cookies`/`library` 三个 SharedPreferences、DataStore 的 `datastore/shelves.preferences_pb` 与 `logs/`**，避免凭据、会话 Cookie、书架数据与日志进入云备份或 `adb backup`（只带走"书架名"而带不走"书"，恢复后会看到一堆空书架；日志只在用户主动导出时才离开设备）。注意新增存储文件时要同步这两份规则；
   > ⚠️ 待定项：DataStore 的 `datastore/account.preferences_pb`（只有激活 / 上次**用户名**，不含密码）目前**不在排除名单**里——
   > 是否要与 Cookie 同口径排除，尚未拍板；若要排除，改这两份规则即可。
 - 有 FileProvider（更新安装用 `cacheDir/updates/`）；无存储权限（下载走 MediaStore）。
@@ -105,10 +105,11 @@ Wenku8Reader/
     │       │       ├── ShelfOps.kt / ShelfStore.kt      # 多书架纯逻辑 + 书架清单（DataStore: shelves）
     │       │       ├── AccountOps.kt / AccountStore.kt / DefaultAccount.kt  # 账户开关纯逻辑 + 激活账户名 + 内置账号
     │       │       ├── ReadingStatsStore.kt / HtmlDiskCache.kt / AppStorageManager.kt
+    │       │       ├── log/              # 应用日志：AppLogger（滚动文件 + zip 导出）/ RollingLogFile / LogSanitizer
     │       │       └── db/                # Room 实体 / DAO / AppDatabase + 旧数据解析与校验
     │       └── ui/
     │           ├── MainScaffold.kt / AppViewModelProvider.kt / navigation/（Routes.kt / Tabs.kt）
-    │           ├── theme/（Theme / Type / Colors / UiStyle）/ common/ / components/（Expressive / Segmented / Anim / HapticIndication / PagerNavigation / MainFloatingBar / MiuixGlass）
+    │           ├── theme/（Theme / Type / Colors / UiStyle）/ common/（UiText / CoilRequests / FileSharing …）/ components/（Expressive / Segmented / Anim / HapticIndication / PagerNavigation / MainFloatingBar / MiuixGlass）
     │           ├── explore/ detail/ bookcase/ shelf/ account/ stats/ toc/ author/ downloads/ settings/ update/ about/
     │           ├── reader/                # 阅读器（核心）：ReaderScreen(702) + ReaderBars / ReaderSheets / ReaderScrollContent / ReaderIllustration / ReaderImagePreview / ReaderParagraphs / Pagination / ReaderViewModel / VolumeKeyTurn / ReadingTimeTracker
     │           └── miuix/                 # MIUIX 全套页面与组件（与 Material 侧零复用，见 §5.6）
@@ -344,6 +345,44 @@ Wenku8Reader/
   `BookcaseItem → BookcaseEntry` 字段映射（封面推导、本地进度、本地字段补全，`SiteShelfEntryTest`）、
   `parseBookcase` 的 aid/bid/最新章解析（`ParsersTest`）、
   书架名的保留与不可删（`ShelfOpsTest`）都有单测。
+
+### 4.12 日志与导出（`data/log/`，2026-10）
+
+**目标**：用户反馈"加载不出来 / 检查更新失败 / 登录失效"时，能拿到**可复现问题的最小信息**，
+而不是靠口头描述；重点记录网络访问，且日志默认**不离开设备**、**不参与备份**。
+
+- **落盘**：`filesDir/logs/`，`app.log` 为当前文件；`RollingLogFile` 按 **512 KiB × 3 份**滚动
+  （`app.1.log` / `app.2.log`，最旧的先删），总量上限约 1.5 MiB。单行格式：
+  `2026-10-17 12:00:00.123 [INFO ] [NET] GET https://… -> 200（123 ms, attempt 1）`。
+  每次 append 打开→写→关闭（而不是长期持有 writer）：日志量按"每个请求一条"计，开销可忽略，
+  换来进程被系统杀掉时不丢已写内容。
+- **记录什么**：
+
+  | 标签 | 内容 |
+  |---|---|
+  | `NET` | 每个 OkHttp 请求：方法 + 脱敏 URL + 状态码 + 耗时 + 第几次尝试；429/5xx 的退避与最终放弃；IOException 类型与消息 |
+  | `BYPASS` | Cloudflare 三级栈：WebView / Cronet / OkHttp 各自的成败与耗时、最终命中哪一层、全部失败 |
+  | `AUTH` | 登录成功 / 失败（**不记用户名**）、会话缺失回落内置账号 |
+  | `SHELF` | 站方书架条目数、加入 / 移出、会话失效 |
+  | `UPDATE` | GitHub Releases 检查与 APK 下载（开始 / 完成 / 失败） |
+  | `APP` / `STORE` | 启动（机型 / Android 版本）、旧数据搬迁失败 |
+
+- **绝不记录**：Cookie、密码、请求体（登录表单）、章节正文 / 页面 HTML、用户名、设备标识。
+  URL 先经 `LogSanitizer.sanitizeUrl`：`user:pass@` → `***@`、敏感查询参数
+  （`password` / `token` / `session` / `cookie` / `key` / `ticket` …）的值 → `***`、丢弃 fragment、超长截断；
+  消息单行化并限长。上述规则由 `LogSanitizerTest` 钉住。
+- **导出**（设置 → 存储 → 日志）：`AppLogger.exportZip()` 把现有日志（旧 → 新）+
+  `device-info.txt`（版本 / Android / 机型 / 语言 / 当前镜像 / UI 风格 / 实验开关 / 更新通道）
+  打成 `cacheDir/log_exports/wenku8reader-logs-yyyyMMdd-HHmmss.zip`；UI 用
+  `ui/common/FileSharing.kt` 的 `shareFile()` 经 `FileProvider` 拉起系统分享面板
+  （不需要存储权限，也不会在 Downloads 留第二份；旧包在下次导出时清掉）。
+- **备份**：`backup_rules.xml` / `data_extraction_rules.xml` 都排除 `logs/`
+  （云备份与设备迁移），日志只有用户主动导出时才会离开设备。
+- **为什么不用第三方日志库**：需求是"几行文本 + 一个 zip"，引框架只会多一个依赖与一套初始化；
+  但**不要**把日志直接写 logcat——系统缓冲区会被清掉，用户事后无法导出。
+- **测试**：`RollingLogFileTest`（滚动 / 上限 / 清理 / 目录自建 / 导出快照）、
+  `LogSanitizerTest`（脱敏 / 截断 / 单行化）与 `LogArchiveTest`（真实 zip 可解压、条目齐全）；
+  三者都是纯 JVM，不需要 Robolectric。
 
 ---
 
@@ -675,6 +714,11 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
    一律**以刷新后的结果为准**（见 §4.11）。
 18. **不改无关代码**：内置账号与 Cookie 相关实现（`DefaultAccount` / `CookieStore` / `Wenku8Client` 的登录内部流程）
    除非任务明确要求，不要动；凭据值**不得**出现在日志、文档、测试夹具与注释里，也不保存用户密码。
+19. **日志**：网络打点统一放在 `Wenku8Client.execute()`（所有 OkHttp 请求的唯一漏斗）与
+    `cronetGet` / `webViewGet` / `fetchWithBypass`；**新增网络路径必须经过这些函数**，否则不会进日志。
+    传给 `AppLogger` 的地址必须先过 `LogSanitizer.sanitizeUrl`，且**不得**传 Cookie、密码、请求体、
+    页面 HTML 或章节正文；日志量按"每个请求一条"控制，不要按字节 / 按页打点。
+    新增存储目录时同步更新 `backup_rules.xml` / `data_extraction_rules.xml`（见 §4.12）。
 
 ---
 
