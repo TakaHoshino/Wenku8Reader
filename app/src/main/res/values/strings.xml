@@ -319,6 +319,11 @@
     <string name="settings_cache_confirm_clear_all_message">将释放网页离线缓存、图片缓存、更新安装包与临时文件。阅读进度、书架与设置不会被删除。</string>
     <string name="settings_cache_confirm_cleanup_title">清理过期阅读记录？</string>
     <string name="settings_cache_confirm_cleanup_message">将删除 %1$d 天前、之后未再阅读的书本进度与已读标记，此操作无法撤销。</string>
+    <string name="settings_logs">日志</string>
+    <string name="settings_logs_export">导出日志</string>
+    <string name="settings_logs_export_summary">打包最近日志（不含密码与 Cookie），便于反馈问题</string>
+    <string name="settings_logs_share_subject">Wenku8Reader 日志</string>
+    <string name="settings_logs_export_failed">日志导出失败，请稍后重试</string>
     <string name="action_confirm">确定</string>
     <string name="action_cancel">取消</string>
 

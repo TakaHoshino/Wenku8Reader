@@ -17,6 +17,7 @@ import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.db.AppDatabase
+import com.hoshino.wenku8reader.data.log.AppLogger
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,14 @@ class AppContainer(context: Context) {
      */
     fun launchIo(block: suspend CoroutineScope.() -> Unit): Job = ioScope.launch(block = block)
 
+    /**
+     * 应用日志（重点记录网络访问）。
+     *
+     * 单例：网络层、更新检查与设置页的"导出日志"必须写/读同一个滚动文件；
+     * 校验通过与导出入口见 `AppLogger` 与 `ui/settings`。
+     */
+    val logger: AppLogger = AppLogger(context)
+
     /** 设置存储需要应用级作用域来串行落盘（见 ReaderSettings 的说明）。 */
     val readerSettings: ReaderSettings = ReaderSettings(context, applicationScope)
 
@@ -78,6 +87,7 @@ class AppContainer(context: Context) {
         onUserSessionLost = {
             if (accountStore.read().activeUsername != null) accountStore.setActive(null)
         },
+        logger = logger,
     )
 
     val repository: Wenku8Repository = Wenku8Repository(client)
@@ -124,7 +134,7 @@ class AppContainer(context: Context) {
     val readingStats: ReadingStatsStore = ReadingStatsStore(context)
 
     /** 更新检查与安装（GitHub Releases 源）。 */
-    val updateChecker: UpdateChecker = UpdateChecker()
+    val updateChecker: UpdateChecker = UpdateChecker(logger)
     val updateCenter: UpdateCenter =
         UpdateCenter(context, updateChecker, preferences, readerSettings, applicationScope)
 
@@ -137,6 +147,12 @@ class AppContainer(context: Context) {
          */
         launchIo {
             runCatching { localDataMigration.ensure() }
+                .onFailure {
+                    logger.error(
+                        "STORE",
+                        "旧数据搬迁失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}",
+                    )
+                }
         }
         /**
          * 启动时回收陈旧缓存产物（更新安装包 / 残留临时文件）。

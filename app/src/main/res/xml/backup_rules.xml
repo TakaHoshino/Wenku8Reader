@@ -15,4 +15,6 @@
     <exclude domain="sharedpref" path="cookies.xml" />
     <exclude domain="sharedpref" path="library.xml" />
     <exclude domain="file" path="datastore/shelves.preferences_pb" />
+    <!-- 日志只用于本机排查，用户主动导出（分享）才会离开设备 -->
+    <exclude domain="file" path="logs/" />
 </full-backup-content>

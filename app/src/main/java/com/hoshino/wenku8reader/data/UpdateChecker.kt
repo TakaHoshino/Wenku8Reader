@@ -9,6 +9,8 @@ import android.os.Build
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.log.AppLogger
+import com.hoshino.wenku8reader.data.log.LogSanitizer
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +34,10 @@ data class ReleaseInfo(
  * 更新检查：查询 GitHub Releases 最新版（`api.github.com`），下载 APK（直连或 gh-proxy 镜像），
  * 并用 FileProvider 拉起系统安装器。
  */
-class UpdateChecker {
+class UpdateChecker(
+    /** 网络访问日志（可空：单测与工具脚本不需要日志）。 */
+    private val logger: AppLogger? = null,
+) {
 
     /**
      * 超时必须显式设置：默认配置下 `OkHttpClient` 无读/写超时，
@@ -92,6 +97,7 @@ class UpdateChecker {
                 .header("Accept", "application/vnd.github+json")
                 .build()
             client.newCall(req).execute().use { resp ->
+                logger?.info("UPDATE", "GET $url -> ${resp.code}")
                 if (resp.code == 404) return@runCatching null
                 check(resp.isSuccessful) { "检查更新失败（HTTP ${resp.code}）" }
                 // 204/HEAD 等场景 body 可能为空，避免强制解包崩溃
@@ -115,6 +121,8 @@ class UpdateChecker {
                         ?.groupValues?.get(1)?.toLongOrNull(),
                 )
             }
+        }.onFailure {
+            logger?.warn("UPDATE", "检查更新失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}")
         }
     }
 
@@ -130,6 +138,7 @@ class UpdateChecker {
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder().url(url).header("User-Agent", UA).build()
+            logger?.info("UPDATE", "下载 APK: ${LogSanitizer.sanitizeUrl(url)}")
             client.newCall(req).execute().use { resp ->
                 check(resp.isSuccessful) { "下载失败（HTTP ${resp.code}）" }
                 // 统一用空安全访问：204/HEAD 等场景 body 为空
@@ -150,7 +159,10 @@ class UpdateChecker {
                     }
                 }
             }
+            logger?.info("UPDATE", "下载完成: ${dest.name}（${dest.length()} bytes）")
             dest
+        }.onFailure {
+            logger?.warn("UPDATE", "下载 APK 失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}")
         }
     }
 

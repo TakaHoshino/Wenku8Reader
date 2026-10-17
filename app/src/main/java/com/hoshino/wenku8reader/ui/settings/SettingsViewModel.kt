@@ -12,6 +12,8 @@ import com.hoshino.wenku8reader.data.local.accountEnabledAfterShelfChange
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.data.local.StorageBreakdown
+import com.hoshino.wenku8reader.data.log.AppLogger
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +68,7 @@ class SettingsViewModel(
     private val accountStore: AccountStore,
     private val storage: AppStorageManager,
     private val updateCenter: UpdateCenter,
+    private val logger: AppLogger,
 ) : ViewModel() {
 
     val ui: StateFlow<ReaderSettingsState> = readerSettings.flow
@@ -82,6 +85,36 @@ class SettingsViewModel(
     /** 网页离线缓存的分类明细（home/book/chapter/tag/...）。 */
     private val _cacheSizes = MutableStateFlow<Map<String, Long>>(emptyMap())
     val cacheSizes: StateFlow<Map<String, Long>> = _cacheSizes.asStateFlow()
+
+    /** 日志导出结果：成功 = 已生成的 zip 文件，失败 = 原因；由 UI 拉起分享面板 / 提示。 */
+    private val _logExport = MutableSharedFlow<Result<File>>(extraBufferCapacity = 1)
+    val logExport: SharedFlow<Result<File>> = _logExport.asSharedFlow()
+
+    /**
+     * 导出日志压缩包（打包当前设置作为排查上下文）。
+     *
+     * 在 IO 线程执行：要读日志文件并写 zip。生成位置是 `cacheDir/log_exports/`，
+     * 与 `file_paths.xml` 的 `log_exports` 对应；ViewModel 不碰 Intent，分享由页面负责。
+     */
+    fun exportLogs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val rs = readerSettings.flow.value
+            val result = logger.exportZip(
+                linkedMapOf(
+                    "主站镜像" to rs.primaryMirror,
+                    "UI 风格" to rs.uiStyle,
+                    "应用语言" to rs.appLanguage,
+                    "多书架" to if (rs.multiShelfEnabled) "开启" else "关闭",
+                    "账户登录" to if (rs.accountLoginEnabled) "开启" else "关闭",
+                    "更新通道" to "${rs.updateChannel} / ${rs.updateSource}",
+                    "网页缓存上限" to "${rs.cacheMaxMb} MB",
+                ),
+            )
+            // 导出后日志多了一条记录，顺手刷新占用
+            _storageStats.value = storage.stats()
+            _logExport.emit(result)
+        }
+    }
 
     init {
         refreshStorageStats()

@@ -14,6 +14,7 @@ class Wenku8Application : Application() {
         container = AppContainer(this)
         // 放在 container 之后：静态引用一旦非空，container 必然已可用
         instance = this
+        container.logger.info("APP", "应用启动（${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}）")
         silentLogin()
     }
 

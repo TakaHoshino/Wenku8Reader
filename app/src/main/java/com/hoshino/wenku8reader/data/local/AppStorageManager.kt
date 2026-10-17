@@ -4,6 +4,7 @@ import android.content.Context
 import android.webkit.WebView
 import coil.imageLoader
 import com.hoshino.wenku8reader.data.Wenku8Client
+import com.hoshino.wenku8reader.data.log.AppLogger
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,6 +37,8 @@ data class StorageBreakdown(
     val otherCache: Long = 0L,
     /** SharedPreferences（阅读进度、已读标记、设置、书架排序等） */
     val preferences: Long = 0L,
+    /** 应用日志：filesDir/logs（滚动上限约 1.5 MiB） */
+    val logs: Long = 0L,
     /** 数据目录中的其余文件（阅读背景图、WebView 数据、数据库等） */
     val appData: Long = 0L,
     /** 数据目录中的 code_cache（JIT/ART 生成，系统管理，不可由应用清理） */
@@ -45,7 +48,7 @@ data class StorageBreakdown(
     val cacheDirTotal: Long get() = imageCache + updatePackage + webViewCache + tempFiles + otherCache
 
     /** 系统「用户数据」口径 */
-    val dataDirTotal: Long get() = htmlCache + preferences + appData + codeCache
+    val dataDirTotal: Long get() = htmlCache + preferences + logs + appData + codeCache
 
     /** 应用可清理的合计（缓存目录 + 网页离线缓存 + SharedPreferences） */
     val clearableTotal: Long get() = cacheDirTotal + htmlCache + preferences
@@ -72,6 +75,7 @@ class AppStorageManager(
     private val updateDir: File get() = File(cacheDir, UPDATE_DIR)
     private val sharedPrefsDir: File get() = File(dataDir, "shared_prefs")
     private val codeCacheDir: File get() = File(dataDir, "code_cache")
+    private val logsDir: File get() = File(dataDir, AppLogger.DIR_NAME)
 
     /** 统计当前占用明细。 */
     suspend fun stats(): StorageBreakdown = withContext(Dispatchers.IO) {
@@ -82,6 +86,7 @@ class AppStorageManager(
         val tempFiles = tempFiles().sumOf { it.length() }
         val cacheTotal = cacheDir.sizeOf()
         val preferences = sharedPrefsDir.sizeOf()
+        val logs = logsDir.sizeOf()
         val codeCache = codeCacheDir.sizeOf()
         val dataTotal = dataDir.sizeOf()
 
@@ -95,7 +100,8 @@ class AppStorageManager(
             otherCache = (cacheTotal - imageCache - updatePackage - webViewCache - tempFiles)
                 .coerceAtLeast(0L),
             preferences = preferences,
-            appData = (dataTotal - htmlCache - preferences - codeCache).coerceAtLeast(0L),
+            logs = logs,
+            appData = (dataTotal - htmlCache - preferences - logs - codeCache).coerceAtLeast(0L),
             codeCache = codeCache,
         )
     }

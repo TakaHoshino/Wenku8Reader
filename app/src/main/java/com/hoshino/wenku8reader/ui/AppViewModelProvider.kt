@@ -35,6 +35,7 @@ object AppViewModelProvider {
                 application().container.accountStore,
                 application().container.storage,
                 application().container.updateCenter,
+                application().container.logger,
             )
         }
         initializer {

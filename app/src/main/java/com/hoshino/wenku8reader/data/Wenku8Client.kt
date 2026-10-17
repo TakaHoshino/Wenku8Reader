@@ -43,6 +43,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import com.hoshino.wenku8reader.data.log.AppLogger
+import com.hoshino.wenku8reader.data.log.LogSanitizer
 import com.hoshino.wenku8reader.data.local.HtmlDiskCache
 
 /**
@@ -73,6 +75,13 @@ class Wenku8Client(
      * 具体存储（与镜像、缓存上限的注入方式一致）。
      */
     private val onUserSessionLost: suspend () -> Unit = {},
+    /**
+     * 应用日志（重点记录网络访问）。
+     *
+     * 允许为 null：单测 / 工具脚本构造客户端时不需要日志；生产装配见 `AppContainer`。
+     * 打点只写"方法 + 脱敏地址 + 状态码 + 耗时 + 错误类型"，**不写**请求体、Cookie 与正文。
+     */
+    private val logger: AppLogger? = null,
 ) {
 
     private val appContext = context.applicationContext
@@ -124,6 +133,12 @@ class Wenku8Client(
     private val webViewMutex = Mutex()
 
     companion object {
+        /** 日志标签：网络请求 / Cloudflare 绕过 / 登录态 / 站方书架。 */
+        private const val TAG_NET = "NET"
+        private const val TAG_BYPASS = "BYPASS"
+        private const val TAG_AUTH = "AUTH"
+        private const val TAG_SHELF = "SHELF"
+
         /** 默认主站镜像（单一来源：[Wenku8Hosts]）。 */
         private const val DEFAULT_BASE = Wenku8Hosts.DEFAULT_BASE
         private const val DL = "https://dl.wenku8.com"
@@ -294,19 +309,40 @@ class Wenku8Client(
     // ------------------------------------------------------------------ //
     private suspend fun execute(req: Request, retries: Int = 3): Response {
         var attempt = 0
+        val startedAt = System.currentTimeMillis()
+        // 请求体（登录表单）与 Cookie 一律不进日志，只记方法与脱敏后的地址
+        val target = "${req.method} ${LogSanitizer.sanitizeUrl(req.url.toString())}"
         while (true) {
             pacer.pace()
-            val resp = withContext(Dispatchers.IO) { okHttp.newCall(req).execute() }
+            val resp = try {
+                withContext(Dispatchers.IO) { okHttp.newCall(req).execute() }
+            } catch (e: IOException) {
+                logger?.warn(
+                    TAG_NET,
+                    "$target -> ${e.javaClass.simpleName}: ${e.message.orEmpty()} " +
+                        "(${elapsedMs(startedAt)} ms, attempt ${attempt + 1})",
+                )
+                throw e
+            }
             if (resp.code in RATE_CODES) {
                 pacer.adjust(ok = false)
                 if (attempt < retries) {
                     resp.close()
                     val backoff = min(1500L * (1L shl attempt), 30000L)
+                    logger?.warn(
+                        TAG_NET,
+                        "$target -> HTTP ${resp.code}，${backoff} ms 后重试（第 ${attempt + 1} 次）",
+                    )
                     delay(backoff)
                     attempt++
                     continue
                 }
                 resp.close()
+                logger?.error(
+                    TAG_NET,
+                    "$target -> HTTP ${resp.code}，重试 ${attempt + 1} 次后放弃" +
+                        "（${elapsedMs(startedAt)} ms）",
+                )
                 val msg = if (resp.code == 429) {
                     "站点限流(HTTP 429)，请稍后重试"
                 } else {
@@ -315,9 +351,15 @@ class Wenku8Client(
                 throw IOException(msg)
             }
             pacer.adjust(ok = true)
+            logger?.info(
+                TAG_NET,
+                "$target -> ${resp.code}（${elapsedMs(startedAt)} ms, attempt ${attempt + 1}）",
+            )
             return resp
         }
     }
+
+    private fun elapsedMs(startedAt: Long): Long = System.currentTimeMillis() - startedAt
 
     private suspend fun readBytes(resp: Response): ByteArray =
         withContext(Dispatchers.IO) { resp.use { it.body?.bytes() ?: ByteArray(0) } }
@@ -462,6 +504,7 @@ class Wenku8Client(
             // 先清掉激活标记，再用内置账号登录（顺序不能反）
             onUserSessionLost()
             val creds = defaultCredentials() ?: return@withLock false
+            logger?.warn(TAG_AUTH, "会话缺失，回落到内置账号登录")
             loginInternal(creds.first, creds.second)
         }
     }
@@ -486,6 +529,8 @@ class Wenku8Client(
         readBytes(resp)
         // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
         val ok = hasSession()
+        // 只记成败，不记用户名（账户名属于用户隐私）
+        logger?.info(TAG_AUTH, "登录${if (ok) "成功" else "失败"}")
         if (ok) {
             cookieStore.persist()
         }
@@ -676,10 +721,13 @@ class Wenku8Client(
         // （空书架也有，页面里有"您的书架可收藏 300 本"那一段），据此把"真的没有书"与
         // "掉登录了"分开——否则用户会看到"书架空了"而不是"请重新登录"。
         if (!html.contains("checkform") && html.contains("login.php")) {
+            logger?.warn(TAG_SHELF, "站方书架会话失效（被重定向到登录页）")
             onUserSessionLost()
             throw SessionExpiredException()
         }
-        Parsers.parseBookcase(html)
+        Parsers.parseBookcase(html).also {
+            logger?.info(TAG_SHELF, "站方书架 -> ${it.size} 本")
+        }
     }
 
     /** 用户会话在服务端已失效（请求被重定向到登录页）。 */
@@ -695,6 +743,7 @@ class Wenku8Client(
         withContext(Dispatchers.IO) {
             ensureLoggedIn()
             getHtml("$base/modules/article/addbookcase.php?bid=$bookId")
+            logger?.info(TAG_SHELF, "加入站方书架 book=$bookId")
         }
     }
 
@@ -708,6 +757,7 @@ class Wenku8Client(
         withContext(Dispatchers.IO) {
             ensureLoggedIn()
             getHtml("$base/modules/article/bookcase.php?delid=$bookcaseId")
+            logger?.info(TAG_SHELF, "移出站方书架 delid=$bookcaseId")
         }
     }
 
@@ -814,13 +864,19 @@ class Wenku8Client(
     ): T? {
         for (h in mirrors) {
             val html = webViewGet(urlFor(h)) ?: continue
-            parse(html)?.let { return it }
+            parse(html)?.let {
+                logger?.info(TAG_BYPASS, "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                return it
+            }
         }
         val engine = cronetEngine
         if (engine != null) {
             for (h in mirrors) {
                 val html = cronetGet(engine, urlFor(h)) ?: continue
-                parse(html)?.let { return it }
+                parse(html)?.let {
+                    logger?.info(TAG_BYPASS, "BYPASS 命中 cronet: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                    return it
+                }
             }
         }
         for (h in mirrors) {
@@ -829,8 +885,12 @@ class Wenku8Client(
             val parsed = runCatchingNotCancelling {
                 parse(getHtml(urlFor(h), retries = 1, ua = ua))
             }.getOrNull()
-            if (parsed != null) return parsed
+            if (parsed != null) {
+                logger?.info(TAG_BYPASS, "BYPASS 命中 okhttp: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                return parsed
+            }
         }
+        logger?.error(TAG_BYPASS, "BYPASS 全部失败（webview / cronet / okhttp × ${mirrors.size} 个镜像）")
         return null
     }
 
@@ -842,7 +902,19 @@ class Wenku8Client(
      * 线程仍会等到超时才释放。改成 `suspendCancellableCoroutine` 后：
      * 线程在等待期间被释放、取消能立刻传播到 `UrlRequest.cancel()`。
      */
-    private suspend fun cronetGet(engine: CronetEngine, url: String): String? =
+    private suspend fun cronetGet(engine: CronetEngine, url: String): String? {
+        val startedAt = System.currentTimeMillis()
+        val html = cronetGetRaw(engine, url)
+        if (html == null) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
+            )
+        }
+        return html
+    }
+
+    private suspend fun cronetGetRaw(engine: CronetEngine, url: String): String? =
         withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
             val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
             val body = ByteArrayOutputStream()
@@ -887,6 +959,11 @@ class Wenku8Client(
                 }
 
                 override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
+                    logger?.info(
+                        TAG_BYPASS,
+                        "CRONET GET ${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
+                            "（${body.size()} bytes）",
+                    )
                     if (cont.isActive) cont.resume(String(body.toByteArray(), GB18030))
                 }
 
@@ -895,6 +972,11 @@ class Wenku8Client(
                     info: UrlResponseInfo?,
                     error: CronetException,
                 ) {
+                    logger?.warn(
+                        TAG_BYPASS,
+                        "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> " +
+                            "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                    )
                     if (cont.isActive) cont.resume(null)
                 }
 
@@ -935,7 +1017,25 @@ class Wenku8Client(
      * 2. 把 WebView 写入的 Cookie（含 cf_clearance / __cf_bm）持久化到 CookieStore，
      *    之后 OkHttp/Cronet 直接带令牌请求，无需每次重跑 WebView。
      */
-    private suspend fun webViewGet(url: String): String? =
+    private suspend fun webViewGet(url: String): String? {
+        val startedAt = System.currentTimeMillis()
+        val html = webViewGetRaw(url)
+        if (html != null) {
+            logger?.info(
+                TAG_BYPASS,
+                "WEBVIEW GET ${LogSanitizer.sanitizeUrl(url)} -> ${html.length} chars" +
+                    "（${elapsedMs(startedAt)} ms）",
+            )
+        } else {
+            logger?.warn(
+                TAG_BYPASS,
+                "WEBVIEW GET ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
+            )
+        }
+        return html
+    }
+
+    private suspend fun webViewGetRaw(url: String): String? =
         // 串行化：同一时刻只有一个隐藏 WebView 在解挑战（见 webViewMutex 说明）。
         // 外层超时覆盖"排队 + 执行"，避免排在后面的请求无限期等待。
         withTimeoutOrNull(WEBVIEW_LOCK_TIMEOUT_MS) {

@@ -15,11 +15,13 @@
         <exclude domain="sharedpref" path="cookies.xml" />
         <exclude domain="sharedpref" path="library.xml" />
         <exclude domain="file" path="datastore/shelves.preferences_pb" />
+        <exclude domain="file" path="logs/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="account.xml" />
         <exclude domain="sharedpref" path="cookies.xml" />
         <exclude domain="sharedpref" path="library.xml" />
         <exclude domain="file" path="datastore/shelves.preferences_pb" />
+        <exclude domain="file" path="logs/" />
     </device-transfer>
 </data-extraction-rules>
