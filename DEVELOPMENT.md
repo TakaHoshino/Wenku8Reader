@@ -678,6 +678,12 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
 - **单测**：`app/src/test/` 是**纯 JVM** 源集（JUnit4 + `org.json` 替身，见 `app/build.gradle.kts` 的 `testImplementation`）。
   不要引入 Robolectric / androidTest / coroutines-test——DAO 用例靠手写 `FakeLibraryDao`（内存 `LinkedHashMap`，样板在 `LegacyMigrationTest`），
   时间相关的逻辑用可注入的 `now: () -> Long` 而不是时钟替身。
+- **安装包体积**：release 已开启 R8 混淆 + 资源收缩（`isMinifyEnabled` / `isShrinkResources`），
+  `defaultConfig.ndk.abiFilters` 只保留 **`arm64-v8a` / `armeabi-v7a`**：
+  32 位 x86 早先已剔除，`x86_64` 只有模拟器会用，而 Cronet 的 x86_64 `so` 单独就占 **4.8 MB**。
+  实测 release APK **16.06 MB → 11.22 MB**（debug 37.0 → 31.8 MB，未混淆，仅供开发）。
+  ⚠️ **不要改用 ABI splits**：发布流水线与更新检查都固定认单个 `app-release.apk`；
+  需要在 x86_64 模拟器上调试时，临时把 `"x86_64"` 加回 `abiFilters` 即可。
 - **首次构建要下依赖**：依赖没进本地缓存时，第一阶段是长时间无输出的下载（`--info` 能看到 Download 动作）。
   若怀疑卡死，用 `jcmd <gradle-pid> Thread.print` 看是不是停在 `DownloadAction.execute`（是则只是在下载，别急着重跑）；
   补齐缓存后同样的构建通常只要 30 秒左右。

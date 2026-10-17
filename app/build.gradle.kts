@@ -44,10 +44,12 @@ android {
         // 声明后 aapt2 只保留这三个语言配置，arsc 体积明显下降（英文留作缺失资源的兜底）。
         resourceConfigurations += listOf("en", "zh", "zh-rTW")
 
-        // 体积优化：裁剪原生库 ABI——仅保留真机必需的 arm64-v8a / armeabi-v7a，
-        // 以及 x86_64（模拟器）。去掉 32 位 x86（已无真实设备，省约 5.5MB）。
+        // 体积优化：裁剪原生库 ABI——只保留真机必需的 arm64-v8a / armeabi-v7a。
+        // 32 位 x86 已无真实设备（早先剔掉，省约 5.5MB）；x86_64 只有模拟器会用，
+        // 而 Cronet 的 x86_64 so 单独就占 4.8MB（release 包 16.1MB → 11.3MB），正式分发包不需要它。
+        // 需要在 x86_64 模拟器上调试时，临时把 "x86_64" 加回本列表即可。
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
