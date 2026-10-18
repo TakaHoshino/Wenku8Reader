@@ -24,6 +24,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
+import org.chromium.net.UploadDataProvider
 import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
 import org.json.JSONTokener
@@ -139,6 +140,7 @@ class Wenku8Client(
         private const val TAG_BYPASS = "BYPASS"
         private const val TAG_AUTH = "AUTH"
         private const val TAG_SHELF = "SHELF"
+        private const val TAG_SEARCH = "SEARCH"
 
         /** 默认主站镜像（单一来源：[Wenku8Hosts]）。 */
         private const val DEFAULT_BASE = Wenku8Hosts.DEFAULT_BASE
@@ -163,7 +165,6 @@ class Wenku8Client(
             UserAgent.build(Build.VERSION.RELEASE.orEmpty(), Build.MODEL.orEmpty())
         }
         private val GB18030: Charset = Charset.forName("GB18030")
-        private val RATE_CODES = setOf(403, 429, 500, 502, 503, 504)
 
         /** 登录页特征串：命中说明拿到的是登录页而非目标内容（不缓存、视为无效）。 */
         private const val LOGIN_PATH = "login.php"
@@ -314,7 +315,18 @@ class Wenku8Client(
                 )
                 throw e
             }
-            if (resp.code in RATE_CODES) {
+            // 403 = Cloudflare 硬拦截：重试没有意义，直接失败交给三级绕过栈
+            //（2026-10-18 设备日志：一天 433 次 403，每次白跑 3 次尝试；随后 Cronet 一次就 200）
+            if (resp.code == HttpRetryPolicy.BLOCKED) {
+                pacer.adjust(ok = false)
+                resp.close()
+                logger?.error(
+                    TAG_NET,
+                    "$target -> HTTP 403（Cloudflare 拦截，不重试，${elapsedMs(startedAt)} ms）",
+                )
+                throw IOException("请求被站点拦截(HTTP 403)")
+            }
+            if (HttpRetryPolicy.shouldRetry(resp.code)) {
                 pacer.adjust(ok = false)
                 if (attempt < retries) {
                     resp.close()
@@ -445,17 +457,14 @@ class Wenku8Client(
         }
     }
 
-    private fun gbkForm(pairs: List<Pair<String, String>>): RequestBody {
-        val sb = StringBuilder()
-        pairs.forEachIndexed { i, (k, v) ->
-            if (i > 0) sb.append('&')
-            sb.append(URLEncoder.encode(k, "GBK"))
-                .append('=')
-                .append(URLEncoder.encode(v, "GBK"))
-        }
-        return sb.toString().toByteArray(GB18030)
-            .toRequestBody("application/x-www-form-urlencoded".toMediaType())
-    }
+    /** GBK 编码的表单体（Cronet POST 需要原始字节，OkHttp 需要 [RequestBody]，共用这一份）。 */
+    private fun gbkFormBytes(pairs: List<Pair<String, String>>): ByteArray =
+        pairs.joinToString("&") { (k, v) ->
+            "${URLEncoder.encode(k, "GBK")}=${URLEncoder.encode(v, "GBK")}"
+        }.toByteArray(GB18030)
+
+    private fun gbkForm(pairs: List<Pair<String, String>>): RequestBody =
+        gbkFormBytes(pairs).toRequestBody("application/x-www-form-urlencoded".toMediaType())
 
     private suspend fun postForm(url: String, pairs: List<Pair<String, String>>): Response {
         val req = Request.Builder()
@@ -538,7 +547,64 @@ class Wenku8Client(
     // ------------------------------------------------------------------ //
     suspend fun search(keyword: String, byAuthor: Boolean): List<SearchResult> =
         withContext(Dispatchers.IO) {
+            // 站点要求登录后才能搜索（见 wenku8-api.md §3.2）；已有会话时这一步是零请求
+            ensureLoggedIn()
             val type = if (byAuthor) "author" else "articlename"
+
+            // 1) Cronet POST /so.php：站点只接受 POST 搜索，而直连 POST 会被 Cloudflare 403，
+            //    Cronet 的 TLS 指纹则能过。精确命中会 302 到 /book/{id}.htm，按最终 URL 解析。
+            val fields = listOf(
+                "searchtype" to type,
+                "searchkey" to keyword,
+                "charset" to "gbk",
+                "Submit" to "\u8F7B\u5C0F\u8BF4\u641C\u7D22",
+            )
+            pacer.paceSearch()
+            val viaCronet = runCatchingNotCancelling {
+                cronetEngine?.let { engine ->
+                    cronetPost(engine, "$base/so.php", gbkFormBytes(fields))
+                }
+            }.getOrNull()
+            if (viaCronet != null) {
+                val (finalUrl, html) = viaCronet
+                val loginPage = html.contains("frmlogin") || html.contains(LOGIN_PATH)
+                if (!loginPage && !html.contains(THROTTLE_MARK) && !html.contains("出现错误")) {
+                    val results = parseSearchResult(finalUrl, html)
+                    logger?.info(TAG_SEARCH, "Cronet POST 命中：${results.size} 条（${html.length} chars）")
+                    return@withContext results
+                }
+                logger?.warn(TAG_SEARCH, "Cronet POST 返回登录页/限流页（${html.length} chars）")
+            }
+
+            // 2) GET 结果页（POST 的 302 目标）走三级绕过栈
+            // 直连被 Cloudflare 拦截时 POST /so.php 根本发不出去；但它的 302 目标
+            // /modules/article/search.php 是 **GET**，可以走三级绕过栈（Cronet 优先）。
+            // 这也是 2026-10 设备日志里"搜索用不了"（so.php 403）的修复点。
+            val encoded = runCatching { URLEncoder.encode(keyword, "GBK") }
+                .getOrDefault(keyword)
+            pacer.paceSearch()
+            val viaBypass = runCatchingNotCancelling {
+                fetchWithBypass(
+                    urlFor = { h ->
+                        "$h/modules/article/search.php?searchtype=$type&searchkey=$encoded"
+                    },
+                    parse = { html ->
+                        when {
+                            // 限流页 → 返回 null，交给下面的 POST 路径按原逻辑重试
+                            html.contains(THROTTLE_MARK) || html.contains("出现错误") -> null
+                            // 结果页（含 0 条结果）→ 正常返回；登录页 / CF 挑战页 → null
+                            html.contains("id=\"centerm\"") || html.contains("<caption") ->
+                                Parsers.parseSearchResults(html)
+                            else -> null
+                        }
+                    },
+                )
+            }.getOrNull()
+            if (viaBypass != null) {
+                logger?.info(TAG_SEARCH, "GET search.php 命中：${viaBypass.size} 条")
+                return@withContext viaBypass
+            }
+
             // 有界重试：站点在两次搜索间隔 < 5s 时返回错误页。
             // 原实现递归调用自身且无次数上限——站点持续返回错误页时会无界深递归，
             // 长时间挂起且协程取消无法从递归中恢复。这里改为定长循环。
@@ -557,10 +623,13 @@ class Wenku8Client(
                 val html = String(readBytes(resp), GB18030)
                 val throttled = html.contains(THROTTLE_MARK) || html.contains("出现错误")
                 if (!throttled) {
-                    return@withContext parseSearchResult(finalUrl, html)
+                    val results = parseSearchResult(finalUrl, html)
+                    logger?.info(TAG_SEARCH, "直连 POST 命中：${results.size} 条（${html.length} chars）")
+                    return@withContext results
                 }
                 if (attempt < SEARCH_MAX_ATTEMPTS - 1) delay(SEARCH_RETRY_DELAY_MS)
             }
+            logger?.error(TAG_SEARCH, "搜索失败：Cronet POST / GET / 直连 POST 均未命中")
             throw IOException("搜索被站点限流，请稍后重试")
         }
 
@@ -588,6 +657,7 @@ class Wenku8Client(
                     )
                 }.getOrNull()
                 val info = web?.takeIf { it.title.isNotBlank() }
+                    ?: fetchBookInfoWithBypass(id)
                     ?: appApiBookInfo(id)
                     ?: throw IOException("书籍信息获取失败")
                 infoCache.put("info_$id", info)
@@ -605,6 +675,7 @@ class Wenku8Client(
                     )
                 }.getOrNull()
                 val volumes = web?.takeIf { it.isNotEmpty() }
+                    ?: fetchVolumesWithBypass(bookId, groupId)
                     ?: appApiVolumes(bookId)
                     ?: throw IOException("章节目录加载失败")
                 tocCache.put("toc_$bookId", volumes)
@@ -624,6 +695,7 @@ class Wenku8Client(
                         )
                     }.getOrNull()
                     val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
+                        ?: fetchChapterWithBypass(gid, bookId, cid)
                         ?: appApiChapter(bookId, cid)
                         ?: throw IOException("章节加载失败")
                     chapterCache.put("chap_${bookId}_$cid", chapter)
@@ -841,24 +913,19 @@ class Wenku8Client(
 
     /**
      * Cloudflare 三级绕过抓取（与 tags/tagBooks 同栈）：
-     * WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）→ Cronet（TLS 指纹）
-     * → OkHttp（携带设备 UA），逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
+     * **Cronet（TLS 指纹）→ WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）**
+     * **→ OkHttp（携带设备 UA）**，逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
      * 返回 null 表示全部失败。
      *
-     * 注：原先还有一个 `steps: MutableList<String>` 诊断参数，用于收集各层失败原因，
-     * 但从未有任何调用方传入（整条诊断链路是半成品），已移除以免误导。
+     * ⚠️ **Cronet 放最前是有意的**（2026-10 调整）：WebView 请求是串行的
+     * （`webViewMutex`），探索页一次要加载几十个标签预览；实测 50 个标签并发时，
+     * 绝大多数请求都卡在 WebView 锁上超时（15s+），而 Cronet 每次约 0.5s 就拿到 200。
+     * WebView 退居第二层，只在 Cronet 失败（例如确实需要跑 JS 挑战）时使用。
      */
     private suspend fun <T> fetchWithBypass(
         urlFor: (String) -> String,
         parse: (String) -> T?,
     ): T? {
-        for (h in mirrors) {
-            val html = webViewGet(urlFor(h)) ?: continue
-            parse(html)?.let {
-                logger?.info(TAG_BYPASS, "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
-                return it
-            }
-        }
         val engine = cronetEngine
         if (engine != null) {
             for (h in mirrors) {
@@ -867,6 +934,13 @@ class Wenku8Client(
                     logger?.info(TAG_BYPASS, "BYPASS 命中 cronet: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
                     return it
                 }
+            }
+        }
+        for (h in mirrors) {
+            val html = webViewGet(urlFor(h)) ?: continue
+            parse(html)?.let {
+                logger?.info(TAG_BYPASS, "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                return it
             }
         }
         for (h in mirrors) {
@@ -880,9 +954,38 @@ class Wenku8Client(
                 return parsed
             }
         }
-        logger?.error(TAG_BYPASS, "BYPASS 全部失败（webview / cronet / okhttp × ${mirrors.size} 个镜像）")
+        logger?.error(TAG_BYPASS, "BYPASS 全部失败（cronet / webview / okhttp × ${mirrors.size} 个镜像）")
         return null
     }
+
+    /**
+     * 详情 / 目录 / 正文的绕过栈兜底。
+     *
+     * 原先这三类只有"直连 → 官方 App API"两条路；2026-10 起 App API 已失效，
+     * 而某些网络下直连会被 Cloudflare 全线 403（设备日志里 `/book/…` 每次重试 4 次仍 403），
+     * 于是详情页直接报"书籍信息获取失败"。这三类同样是 GET + HTML，完全可以复用
+     * [fetchWithBypass]（Cronet 优先），比 App API 更可靠。
+     */
+    private suspend fun fetchBookInfoWithBypass(id: Int): BookInfo? =
+        fetchWithBypass(
+            urlFor = { h -> "$h/book/$id.htm" },
+            parse = { html -> Parsers.parseBookInfo(html, id).takeIf { it.title.isNotBlank() } },
+        )
+
+    private suspend fun fetchVolumesWithBypass(bookId: Int, groupId: Int): List<Volume>? =
+        fetchWithBypass(
+            urlFor = { h -> "$h/novel/$groupId/$bookId/index.htm" },
+            parse = { html -> Parsers.parseChapterIndex(html).takeIf { it.isNotEmpty() } },
+        )
+
+    private suspend fun fetchChapterWithBypass(gid: Int, bookId: Int, cid: String): ChapterContent? =
+        fetchWithBypass(
+            urlFor = { h -> "$h/novel/$gid/$bookId/$cid.htm" },
+            parse = { html ->
+                Parsers.parseChapter(html)
+                    .takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
+            },
+        )
 
     /**
      * GET via Cronet, carrying the app's session cookies; returns null on failure/timeout.
@@ -894,7 +997,7 @@ class Wenku8Client(
      */
     private suspend fun cronetGet(engine: CronetEngine, url: String): String? {
         val startedAt = System.currentTimeMillis()
-        val html = cronetGetRaw(engine, url)
+        val html = cronetRequestRaw(engine, url)?.second
         if (html == null) {
             logger?.warn(
                 TAG_BYPASS,
@@ -904,7 +1007,33 @@ class Wenku8Client(
         return html
     }
 
-    private suspend fun cronetGetRaw(engine: CronetEngine, url: String): String? =
+    /**
+     * Cronet POST（表单）。搜索 `/so.php` 只接受 POST，而直连 POST 会被 Cloudflare 403；
+     * Cronet 与 GET 共用同一套 TLS 指纹与 Cookie，是这条请求唯一可靠的通道。
+     *
+     * @return 最终 URL（精确命中会 302 到 `/book/{id}.htm`）+ 解码后的 HTML。
+     */
+    private suspend fun cronetPost(
+        engine: CronetEngine,
+        url: String,
+        formBytes: ByteArray,
+    ): Pair<String, String>? {
+        val startedAt = System.currentTimeMillis()
+        val result = cronetRequestRaw(engine, url, postBody = formBytes)
+        if (result == null) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET POST ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
+            )
+        }
+        return result
+    }
+
+    private suspend fun cronetRequestRaw(
+        engine: CronetEngine,
+        url: String,
+        postBody: ByteArray? = null,
+    ): Pair<String, String>? =
         withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
             val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
             val body = ByteArrayOutputStream()
@@ -912,7 +1041,7 @@ class Wenku8Client(
             val cookieHeader = cookieStore.loadForRequest(httpUrl)
                 .joinToString("; ") { "${it.name}=${it.value}" }
 
-            suspendCancellableCoroutine { cont ->
+            suspendCancellableCoroutine<Pair<String, String>?> { cont ->
                 val callback = object : UrlRequest.Callback() {
                 override fun onRedirectReceived(
                     request: UrlRequest,
@@ -951,10 +1080,11 @@ class Wenku8Client(
                 override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
                     logger?.info(
                         TAG_BYPASS,
-                        "CRONET GET ${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
+                        "CRONET ${if (postBody == null) "GET" else "POST"} " +
+                            "${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
                             "（${body.size()} bytes）",
                     )
-                    if (cont.isActive) cont.resume(String(body.toByteArray(), GB18030))
+                    if (cont.isActive) cont.resume(info.url to String(body.toByteArray(), GB18030))
                 }
 
                 override fun onFailed(
@@ -964,7 +1094,8 @@ class Wenku8Client(
                 ) {
                     logger?.warn(
                         TAG_BYPASS,
-                        "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> " +
+                        "CRONET ${if (postBody == null) "GET" else "POST"} " +
+                            "${LogSanitizer.sanitizeUrl(url)} -> " +
                             "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
                     )
                     if (cont.isActive) cont.resume(null)
@@ -976,7 +1107,7 @@ class Wenku8Client(
             }
 
             val builder = engine.newUrlRequestBuilder(url, callback, cronetExecutor)
-                .setHttpMethod("GET")
+                .setHttpMethod(if (postBody == null) "GET" else "POST")
                 .addHeader("User-Agent", uaFor(url))
                 .addHeader(
                     "Accept",
@@ -991,6 +1122,11 @@ class Wenku8Client(
                 .addHeader("Sec-Fetch-User", "?1")
             refererFor(url)?.let { builder.addHeader("Referer", it) }
             if (cookieHeader.isNotEmpty()) builder.addHeader("Cookie", cookieHeader)
+            if (postBody != null) {
+                builder.addHeader("Content-Type", "application/x-www-form-urlencoded")
+                builder.addHeader("Origin", base)
+                builder.setUploadDataProvider(uploadProvider(postBody), cronetExecutor)
+            }
             val request = builder.build()
             // 取消（页面离开 / 超时）时立刻取消底层请求，回调再触发 onCanceled 也不影响已取消的协程
             cont.invokeOnCancellation { runCatching { request.cancel() } }
@@ -1113,6 +1249,18 @@ class Wenku8Client(
                 }
             }
         }
+
+    /**
+     * Cronet 的表单上传体。
+     *
+     * ⚠️ 必须用官方 `UploadDataProviders.create`：自实现的读取协议在 cronet 119 上
+     * 会被判为 `CallbackExceptionImpl: Exception received from UploadDataProvider`
+     * （2026-10-18 设备日志实测），POST 直接失败。
+     * 该类虽已标记 deprecated，但仍是当前版本唯一可用的实现，故局部抑制告警。
+     */
+    @Suppress("DEPRECATION")
+    private fun uploadProvider(bytes: ByteArray): UploadDataProvider =
+        org.chromium.net.UploadDataProviders.create(bytes)
 
     /**
      * 隐藏 WebView 的统一销毁路径。
