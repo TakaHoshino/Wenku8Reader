@@ -163,7 +163,6 @@ class Wenku8Client(
             UserAgent.build(Build.VERSION.RELEASE.orEmpty(), Build.MODEL.orEmpty())
         }
         private val GB18030: Charset = Charset.forName("GB18030")
-        private val RATE_CODES = setOf(403, 429, 500, 502, 503, 504)
 
         /** 登录页特征串：命中说明拿到的是登录页而非目标内容（不缓存、视为无效）。 */
         private const val LOGIN_PATH = "login.php"
@@ -314,7 +313,18 @@ class Wenku8Client(
                 )
                 throw e
             }
-            if (resp.code in RATE_CODES) {
+            // 403 = Cloudflare 硬拦截：重试没有意义，直接失败交给三级绕过栈
+            //（2026-10-18 设备日志：一天 433 次 403，每次白跑 3 次尝试；随后 Cronet 一次就 200）
+            if (resp.code == HttpRetryPolicy.BLOCKED) {
+                pacer.adjust(ok = false)
+                resp.close()
+                logger?.error(
+                    TAG_NET,
+                    "$target -> HTTP 403（Cloudflare 拦截，不重试，${elapsedMs(startedAt)} ms）",
+                )
+                throw IOException("请求被站点拦截(HTTP 403)")
+            }
+            if (HttpRetryPolicy.shouldRetry(resp.code)) {
                 pacer.adjust(ok = false)
                 if (attempt < retries) {
                     resp.close()
@@ -538,7 +548,34 @@ class Wenku8Client(
     // ------------------------------------------------------------------ //
     suspend fun search(keyword: String, byAuthor: Boolean): List<SearchResult> =
         withContext(Dispatchers.IO) {
+            // 站点要求登录后才能搜索（见 wenku8-api.md §3.2）；已有会话时这一步是零请求
+            ensureLoggedIn()
             val type = if (byAuthor) "author" else "articlename"
+
+            // 直连被 Cloudflare 拦截时 POST /so.php 根本发不出去；但它的 302 目标
+            // /modules/article/search.php 是 **GET**，可以走三级绕过栈（Cronet 优先）。
+            // 这也是 2026-10 设备日志里"搜索用不了"（so.php 403）的修复点。
+            val encoded = runCatching { URLEncoder.encode(keyword, "GBK") }
+                .getOrDefault(keyword)
+            val viaBypass = runCatchingNotCancelling {
+                fetchWithBypass(
+                    urlFor = { h ->
+                        "$h/modules/article/search.php?searchtype=$type&searchkey=$encoded"
+                    },
+                    parse = { html ->
+                        when {
+                            // 限流页 → 返回 null，交给下面的 POST 路径按原逻辑重试
+                            html.contains(THROTTLE_MARK) || html.contains("出现错误") -> null
+                            // 结果页（含 0 条结果）→ 正常返回；登录页 / CF 挑战页 → null
+                            html.contains("id=\"centerm\"") || html.contains("<caption") ->
+                                Parsers.parseSearchResults(html)
+                            else -> null
+                        }
+                    },
+                )
+            }.getOrNull()
+            if (viaBypass != null) return@withContext viaBypass
+
             // 有界重试：站点在两次搜索间隔 < 5s 时返回错误页。
             // 原实现递归调用自身且无次数上限——站点持续返回错误页时会无界深递归，
             // 长时间挂起且协程取消无法从递归中恢复。这里改为定长循环。
@@ -588,6 +625,7 @@ class Wenku8Client(
                     )
                 }.getOrNull()
                 val info = web?.takeIf { it.title.isNotBlank() }
+                    ?: fetchBookInfoWithBypass(id)
                     ?: appApiBookInfo(id)
                     ?: throw IOException("书籍信息获取失败")
                 infoCache.put("info_$id", info)
@@ -605,6 +643,7 @@ class Wenku8Client(
                     )
                 }.getOrNull()
                 val volumes = web?.takeIf { it.isNotEmpty() }
+                    ?: fetchVolumesWithBypass(bookId, groupId)
                     ?: appApiVolumes(bookId)
                     ?: throw IOException("章节目录加载失败")
                 tocCache.put("toc_$bookId", volumes)
@@ -624,6 +663,7 @@ class Wenku8Client(
                         )
                     }.getOrNull()
                     val chapter = web?.takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
+                        ?: fetchChapterWithBypass(gid, bookId, cid)
                         ?: appApiChapter(bookId, cid)
                         ?: throw IOException("章节加载失败")
                     chapterCache.put("chap_${bookId}_$cid", chapter)
@@ -841,24 +881,19 @@ class Wenku8Client(
 
     /**
      * Cloudflare 三级绕过抓取（与 tags/tagBooks 同栈）：
-     * WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）→ Cronet（TLS 指纹）
-     * → OkHttp（携带设备 UA），逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
+     * **Cronet（TLS 指纹）→ WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）**
+     * **→ OkHttp（携带设备 UA）**，逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
      * 返回 null 表示全部失败。
      *
-     * 注：原先还有一个 `steps: MutableList<String>` 诊断参数，用于收集各层失败原因，
-     * 但从未有任何调用方传入（整条诊断链路是半成品），已移除以免误导。
+     * ⚠️ **Cronet 放最前是有意的**（2026-10 调整）：WebView 请求是串行的
+     * （`webViewMutex`），探索页一次要加载几十个标签预览；实测 50 个标签并发时，
+     * 绝大多数请求都卡在 WebView 锁上超时（15s+），而 Cronet 每次约 0.5s 就拿到 200。
+     * WebView 退居第二层，只在 Cronet 失败（例如确实需要跑 JS 挑战）时使用。
      */
     private suspend fun <T> fetchWithBypass(
         urlFor: (String) -> String,
         parse: (String) -> T?,
     ): T? {
-        for (h in mirrors) {
-            val html = webViewGet(urlFor(h)) ?: continue
-            parse(html)?.let {
-                logger?.info(TAG_BYPASS, "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
-                return it
-            }
-        }
         val engine = cronetEngine
         if (engine != null) {
             for (h in mirrors) {
@@ -867,6 +902,13 @@ class Wenku8Client(
                     logger?.info(TAG_BYPASS, "BYPASS 命中 cronet: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
                     return it
                 }
+            }
+        }
+        for (h in mirrors) {
+            val html = webViewGet(urlFor(h)) ?: continue
+            parse(html)?.let {
+                logger?.info(TAG_BYPASS, "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                return it
             }
         }
         for (h in mirrors) {
@@ -880,9 +922,38 @@ class Wenku8Client(
                 return parsed
             }
         }
-        logger?.error(TAG_BYPASS, "BYPASS 全部失败（webview / cronet / okhttp × ${mirrors.size} 个镜像）")
+        logger?.error(TAG_BYPASS, "BYPASS 全部失败（cronet / webview / okhttp × ${mirrors.size} 个镜像）")
         return null
     }
+
+    /**
+     * 详情 / 目录 / 正文的绕过栈兜底。
+     *
+     * 原先这三类只有"直连 → 官方 App API"两条路；2026-10 起 App API 已失效，
+     * 而某些网络下直连会被 Cloudflare 全线 403（设备日志里 `/book/…` 每次重试 4 次仍 403），
+     * 于是详情页直接报"书籍信息获取失败"。这三类同样是 GET + HTML，完全可以复用
+     * [fetchWithBypass]（Cronet 优先），比 App API 更可靠。
+     */
+    private suspend fun fetchBookInfoWithBypass(id: Int): BookInfo? =
+        fetchWithBypass(
+            urlFor = { h -> "$h/book/$id.htm" },
+            parse = { html -> Parsers.parseBookInfo(html, id).takeIf { it.title.isNotBlank() } },
+        )
+
+    private suspend fun fetchVolumesWithBypass(bookId: Int, groupId: Int): List<Volume>? =
+        fetchWithBypass(
+            urlFor = { h -> "$h/novel/$groupId/$bookId/index.htm" },
+            parse = { html -> Parsers.parseChapterIndex(html).takeIf { it.isNotEmpty() } },
+        )
+
+    private suspend fun fetchChapterWithBypass(gid: Int, bookId: Int, cid: String): ChapterContent? =
+        fetchWithBypass(
+            urlFor = { h -> "$h/novel/$gid/$bookId/$cid.htm" },
+            parse = { html ->
+                Parsers.parseChapter(html)
+                    .takeIf { it.text.isNotBlank() || it.images.isNotEmpty() }
+            },
+        )
 
     /**
      * GET via Cronet, carrying the app's session cookies; returns null on failure/timeout.

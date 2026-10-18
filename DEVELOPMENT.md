@@ -34,7 +34,7 @@
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
 | 持久化 | **Room 2.7.2**（书架 `books` / 阅读进度 `reading_progress`，KSP 生成）+ **DataStore 1.2.1**（设置 `settings` / 书架清单 `shelves` / 激活账户 `account`）+ SharedPreferences（书架排序、上次更新检查时间、阅读统计） |
-| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；29 个测试类 / 203 用例，见 §9 |
+| 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；30 个测试类 / 205 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
@@ -142,16 +142,20 @@ Wenku8Reader/
 - **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 OkHttp/Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
 - **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
 - **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
-- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ Cronet（TLS 指纹过 CF）→ OkHttp（设备 UA），逐镜像尝试；**三层共用同一个 UA**，挑战令牌才能复用。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
+- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：**Cronet（TLS 指纹过 CF）→ WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ OkHttp（设备 UA）**，逐镜像尝试；**三层共用同一个 UA**，挑战令牌才能复用。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
+  > ⚠️ **Cronet 必须排在 WebView 前面**（2026-10 调整）：WebView 请求是串行的（`webViewMutex`），而探索页一次要加载几十个标签预览。2026-10-18 的设备日志里，50 个标签并发时 **202 次 WebView 超时**（大量是排队等锁的 15s），同一批请求换 Cronet 后 **92 次全部 200、每次约 0.5s**。
+- **详情 / 目录 / 正文的兜底**：这三类同样是 GET + HTML，直连失败后**先走 `fetchWithBypass`（Cronet）**，再退到官方 App API。
+  ⚠️ 只靠 App API 是不够的：2026-10 起官方 App API 已失效（返回 200 但内容不可解析），而部分网络下直连会被 Cloudflare 全线 403——设备日志里 `/book/{id}.htm` 每次重试 4 次仍 403，详情页因此报"书籍信息获取失败"。
 - **登录去重（`loginMutex` + 双检）**：启动静默登录、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。
 - **隐藏 WebView 的生命周期与并发**：`webViewGet()` 用 `webViewMutex` 串行化（同一时刻只有一个 WebView 解挑战：多开会在主线程同时跑 JS、放大内存与风控样本，而串行化后第二个请求通常直接复用刚拿到的 cf_clearance 走快路径）；`cont.invokeOnCancellation` 保证协程被取消（离开页面/超时/VModel 销毁）时也会销毁 WebView，统一走 `destroyWebView()`（stopLoading → about:blank → clearHistory → removeAllViews → 换掉 WebViewClient → destroy，每步 runCatching）。超时分两层：单次解挑战 15s，等待锁 + 执行整体 25s。
 - **Cronet 挂起等待**：`cronetGet()` 不再用 `CountDownLatch.await(8s)`（每个请求独占一个 IO 线程空等，取消也要等超时才释放），改为 `suspendCancellableCoroutine` + `withTimeoutOrNull`，线程在等待期间释放，取消直接传播到 `UrlRequest.cancel()`。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
 - **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。三者均带 **LRU 容量上限**（info 128 / toc 32 / chapter 64 条）：只有 TTL 时，长读一本书会让章节正文无限累积在内存里。
 - **本地磁盘缓存**（`data/local/HtmlDiskCache.kt`）：抓取内容按 URL 落盘到 `filesDir/html_cache`（卸载前持久），命中且未过期直接返回、避免二次加载；仅缓存非 CF 挑战/非登录页。TTL：首页 1h、详情/目录 7d、章节正文 30d、标签书单 1d；总量超 30MB 时按最旧优先清理。内存缓存（快）→ 磁盘缓存（持久）→ 网络，三级取数。
-- **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；`RATE_CODES = {403,429,500,502,503,504}` 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。搜索额外 5s 最小间隔；命中站点限流错误页时**有界重试**（最多 3 次、每次等 5s，超出即报错）——原实现是无上限的递归调用，站点持续限流时会一直挂着且无法取消。
+- **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；**429 / 5xx** 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。
+  ⚠️ **403 不重试**（`HttpRetryPolicy`）：Cloudflare 对非浏览器直连是硬拦截，重试只会白等约 4.5s 并继续打站点——2026-10-18 日志里一天 433 次 403，而紧接着的 Cronet 一次就 200。403 现在立刻失败、交给三级绕过栈；搜索额外 5s 最小间隔，命中站点限流错误页时仍有界重试（最多 3 次、每次等 5s）。
 - **取消语义**：所有 `runCatching` 均改为「不吞 `CancellationException`」的封装（`Wenku8Client` / `Wenku8Repository`），否则页面被取消会被误判成"直连失败"，继续走 WebView/Cronet 绕过栈。
-- **搜索精确命中**：POST `/so.php`，302 到 `/book/{id}.htm` 时直接解析单书详情。
+- **搜索**：先走**绕过栈的 GET**（`/modules/article/search.php?searchtype=…&searchkey=…`，关键词按 GBK 百分号编码）——POST `/so.php` 的 302 目标就是它，而 POST 直连在 CF 拦截下根本发不出去；结果页含 `<caption>`/`id="centerm"` 时直接解析（0 条也算成功）。失败后再走原来的 **POST `/so.php`** 路径（精确命中会 302 到 `/book/{id}.htm`，按单书详情解析），并保留 5 秒最小间隔与限流页有界重试。
 - **Referer**：`refererFor()` 按请求自身 host 生成，镜像安全。
 
 ### 4.3 解析（`Parsers.kt`）
