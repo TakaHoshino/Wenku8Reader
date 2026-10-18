@@ -24,6 +24,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
+import org.chromium.net.UploadDataProvider
+import org.chromium.net.UploadDataSink
 import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
 import org.json.JSONTokener
@@ -455,17 +457,14 @@ class Wenku8Client(
         }
     }
 
-    private fun gbkForm(pairs: List<Pair<String, String>>): RequestBody {
-        val sb = StringBuilder()
-        pairs.forEachIndexed { i, (k, v) ->
-            if (i > 0) sb.append('&')
-            sb.append(URLEncoder.encode(k, "GBK"))
-                .append('=')
-                .append(URLEncoder.encode(v, "GBK"))
-        }
-        return sb.toString().toByteArray(GB18030)
-            .toRequestBody("application/x-www-form-urlencoded".toMediaType())
-    }
+    /** GBK 编码的表单体（Cronet POST 需要原始字节，OkHttp 需要 [RequestBody]，共用这一份）。 */
+    private fun gbkFormBytes(pairs: List<Pair<String, String>>): ByteArray =
+        pairs.joinToString("&") { (k, v) ->
+            "${URLEncoder.encode(k, "GBK")}=${URLEncoder.encode(v, "GBK")}"
+        }.toByteArray(GB18030)
+
+    private fun gbkForm(pairs: List<Pair<String, String>>): RequestBody =
+        gbkFormBytes(pairs).toRequestBody("application/x-www-form-urlencoded".toMediaType())
 
     private suspend fun postForm(url: String, pairs: List<Pair<String, String>>): Response {
         val req = Request.Builder()
@@ -552,11 +551,35 @@ class Wenku8Client(
             ensureLoggedIn()
             val type = if (byAuthor) "author" else "articlename"
 
+            // 1) Cronet POST /so.php：站点只接受 POST 搜索，而直连 POST 会被 Cloudflare 403，
+            //    Cronet 的 TLS 指纹则能过。精确命中会 302 到 /book/{id}.htm，按最终 URL 解析。
+            val fields = listOf(
+                "searchtype" to type,
+                "searchkey" to keyword,
+                "charset" to "gbk",
+                "Submit" to "\u8F7B\u5C0F\u8BF4\u641C\u7D22",
+            )
+            pacer.paceSearch()
+            val viaCronet = runCatchingNotCancelling {
+                cronetEngine?.let { engine ->
+                    cronetPost(engine, "$base/so.php", gbkFormBytes(fields))
+                }
+            }.getOrNull()
+            if (viaCronet != null) {
+                val (finalUrl, html) = viaCronet
+                val loginPage = html.contains("frmlogin") || html.contains(LOGIN_PATH)
+                if (!loginPage && !html.contains(THROTTLE_MARK) && !html.contains("出现错误")) {
+                    return@withContext parseSearchResult(finalUrl, html)
+                }
+            }
+
+            // 2) GET 结果页（POST 的 302 目标）走三级绕过栈
             // 直连被 Cloudflare 拦截时 POST /so.php 根本发不出去；但它的 302 目标
             // /modules/article/search.php 是 **GET**，可以走三级绕过栈（Cronet 优先）。
             // 这也是 2026-10 设备日志里"搜索用不了"（so.php 403）的修复点。
             val encoded = runCatching { URLEncoder.encode(keyword, "GBK") }
                 .getOrDefault(keyword)
+            pacer.paceSearch()
             val viaBypass = runCatchingNotCancelling {
                 fetchWithBypass(
                     urlFor = { h ->
@@ -965,7 +988,7 @@ class Wenku8Client(
      */
     private suspend fun cronetGet(engine: CronetEngine, url: String): String? {
         val startedAt = System.currentTimeMillis()
-        val html = cronetGetRaw(engine, url)
+        val html = cronetRequestRaw(engine, url)?.second
         if (html == null) {
             logger?.warn(
                 TAG_BYPASS,
@@ -975,7 +998,33 @@ class Wenku8Client(
         return html
     }
 
-    private suspend fun cronetGetRaw(engine: CronetEngine, url: String): String? =
+    /**
+     * Cronet POST（表单）。搜索 `/so.php` 只接受 POST，而直连 POST 会被 Cloudflare 403；
+     * Cronet 与 GET 共用同一套 TLS 指纹与 Cookie，是这条请求唯一可靠的通道。
+     *
+     * @return 最终 URL（精确命中会 302 到 `/book/{id}.htm`）+ 解码后的 HTML。
+     */
+    private suspend fun cronetPost(
+        engine: CronetEngine,
+        url: String,
+        formBytes: ByteArray,
+    ): Pair<String, String>? {
+        val startedAt = System.currentTimeMillis()
+        val result = cronetRequestRaw(engine, url, postBody = formBytes)
+        if (result == null) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET POST ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
+            )
+        }
+        return result
+    }
+
+    private suspend fun cronetRequestRaw(
+        engine: CronetEngine,
+        url: String,
+        postBody: ByteArray? = null,
+    ): Pair<String, String>? =
         withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
             val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
             val body = ByteArrayOutputStream()
@@ -983,7 +1032,7 @@ class Wenku8Client(
             val cookieHeader = cookieStore.loadForRequest(httpUrl)
                 .joinToString("; ") { "${it.name}=${it.value}" }
 
-            suspendCancellableCoroutine { cont ->
+            suspendCancellableCoroutine<Pair<String, String>?> { cont ->
                 val callback = object : UrlRequest.Callback() {
                 override fun onRedirectReceived(
                     request: UrlRequest,
@@ -1022,10 +1071,11 @@ class Wenku8Client(
                 override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
                     logger?.info(
                         TAG_BYPASS,
-                        "CRONET GET ${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
+                        "CRONET ${if (postBody == null) "GET" else "POST"} " +
+                            "${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
                             "（${body.size()} bytes）",
                     )
-                    if (cont.isActive) cont.resume(String(body.toByteArray(), GB18030))
+                    if (cont.isActive) cont.resume(info.url to String(body.toByteArray(), GB18030))
                 }
 
                 override fun onFailed(
@@ -1035,7 +1085,8 @@ class Wenku8Client(
                 ) {
                     logger?.warn(
                         TAG_BYPASS,
-                        "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> " +
+                        "CRONET ${if (postBody == null) "GET" else "POST"} " +
+                            "${LogSanitizer.sanitizeUrl(url)} -> " +
                             "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
                     )
                     if (cont.isActive) cont.resume(null)
@@ -1047,7 +1098,7 @@ class Wenku8Client(
             }
 
             val builder = engine.newUrlRequestBuilder(url, callback, cronetExecutor)
-                .setHttpMethod("GET")
+                .setHttpMethod(if (postBody == null) "GET" else "POST")
                 .addHeader("User-Agent", uaFor(url))
                 .addHeader(
                     "Accept",
@@ -1062,6 +1113,11 @@ class Wenku8Client(
                 .addHeader("Sec-Fetch-User", "?1")
             refererFor(url)?.let { builder.addHeader("Referer", it) }
             if (cookieHeader.isNotEmpty()) builder.addHeader("Cookie", cookieHeader)
+            if (postBody != null) {
+                builder.addHeader("Content-Type", "application/x-www-form-urlencoded")
+                builder.addHeader("Origin", base)
+                builder.setUploadDataProvider(ByteArrayUploadProvider(postBody), cronetExecutor)
+            }
             val request = builder.build()
             // 取消（页面离开 / 超时）时立刻取消底层请求，回调再触发 onCanceled 也不影响已取消的协程
             cont.invokeOnCancellation { runCatching { request.cancel() } }
@@ -1184,6 +1240,34 @@ class Wenku8Client(
                 }
             }
         }
+
+    /**
+     * Cronet 的表单上传体：直接发送内存里的 GBK 字节。
+     *
+     * 不用 `UploadDataProviders.create(...)`：该工具类在 cronet 119 已标记弃用，
+     * 自实现只有三个方法，也避免新增编译告警。
+     */
+    private class ByteArrayUploadProvider(private val data: ByteArray) : UploadDataProvider() {
+        private var offset = 0
+
+        override fun getLength(): Long = data.size.toLong()
+
+        override fun rewind(uploadDataSink: UploadDataSink) {
+            offset = 0
+            uploadDataSink.onRewindSucceeded()
+        }
+
+        override fun read(uploadDataSink: UploadDataSink, byteBuffer: ByteBuffer) {
+            if (offset >= data.size) {
+                uploadDataSink.onReadSucceeded(true)
+                return
+            }
+            val n = min(byteBuffer.remaining(), data.size - offset)
+            byteBuffer.put(data, offset, n)
+            offset += n
+            uploadDataSink.onReadSucceeded(offset >= data.size)
+        }
+    }
 
     /**
      * 隐藏 WebView 的统一销毁路径。

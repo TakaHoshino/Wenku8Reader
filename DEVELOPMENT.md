@@ -155,7 +155,11 @@ Wenku8Reader/
 - **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；**429 / 5xx** 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。
   ⚠️ **403 不重试**（`HttpRetryPolicy`）：Cloudflare 对非浏览器直连是硬拦截，重试只会白等约 4.5s 并继续打站点——2026-10-18 日志里一天 433 次 403，而紧接着的 Cronet 一次就 200。403 现在立刻失败、交给三级绕过栈；搜索额外 5s 最小间隔，命中站点限流错误页时仍有界重试（最多 3 次、每次等 5s）。
 - **取消语义**：所有 `runCatching` 均改为「不吞 `CancellationException`」的封装（`Wenku8Client` / `Wenku8Repository`），否则页面被取消会被误判成"直连失败"，继续走 WebView/Cronet 绕过栈。
-- **搜索**：先走**绕过栈的 GET**（`/modules/article/search.php?searchtype=…&searchkey=…`，关键词按 GBK 百分号编码）——POST `/so.php` 的 302 目标就是它，而 POST 直连在 CF 拦截下根本发不出去；结果页含 `<caption>`/`id="centerm"` 时直接解析（0 条也算成功）。失败后再走原来的 **POST `/so.php`** 路径（精确命中会 302 到 `/book/{id}.htm`，按单书详情解析），并保留 5 秒最小间隔与限流页有界重试。
+- **搜索**：按成功率三层——
+  ① **Cronet POST `/so.php`**（带会话 Cookie 的 GBK 表单）：站点只接受 POST，而直连 POST 会被 CF 403，Cronet 的 TLS 指纹是唯一可靠通道；精确命中会 302 到 `/book/{id}.htm`，按最终 URL 解析；
+  ② **绕过栈 GET `/modules/article/search.php?searchtype=…&searchkey=…`**（POST 的 302 目标，关键词 GBK 百分号编码）；
+  ③ 原直连 POST（能直连的网络里最快）。
+  结果页含 `<caption>`/`id="centerm"` 时解析（0 条也算成功），登录页/挑战页/限流页则继续下一层；保留 5 秒最小间隔与限流页有界重试。
 - **Referer**：`refererFor()` 按请求自身 host 生成，镜像安全。
 
 ### 4.3 解析（`Parsers.kt`）
