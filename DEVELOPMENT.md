@@ -160,6 +160,10 @@ Wenku8Reader/
   ② **绕过栈 GET `/modules/article/search.php?searchtype=…&searchkey=…`**（POST 的 302 目标，关键词 GBK 百分号编码）；
   ③ 原直连 POST（能直连的网络里最快）。
   结果页含 `<caption>`/`id="centerm"` 时解析（0 条也算成功），登录页/挑战页/限流页则继续下一层；保留 5 秒最小间隔与限流页有界重试。
+  > ⚠️ Cronet POST 的上传体必须用官方 `UploadDataProviders.create(bytes)`：自实现 `UploadDataProvider`
+  > 在 cronet 119 上会直接报 `CallbackExceptionImpl: Exception received from UploadDataProvider`
+  > （2026-10-18 实测），POST 还没发出去就失败。该类虽已 deprecated，但仍是当前版本唯一可用的实现，
+  > 代码里用 `@Suppress("DEPRECATION")` 局部抑制。
 - **Referer**：`refererFor()` 按请求自身 host 生成，镜像安全。
 
 ### 4.3 解析（`Parsers.kt`）

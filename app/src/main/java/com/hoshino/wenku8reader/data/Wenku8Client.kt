@@ -25,7 +25,6 @@ import okhttp3.Response
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
 import org.chromium.net.UploadDataProvider
-import org.chromium.net.UploadDataSink
 import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
 import org.json.JSONTokener
@@ -141,6 +140,7 @@ class Wenku8Client(
         private const val TAG_BYPASS = "BYPASS"
         private const val TAG_AUTH = "AUTH"
         private const val TAG_SHELF = "SHELF"
+        private const val TAG_SEARCH = "SEARCH"
 
         /** 默认主站镜像（单一来源：[Wenku8Hosts]）。 */
         private const val DEFAULT_BASE = Wenku8Hosts.DEFAULT_BASE
@@ -569,8 +569,11 @@ class Wenku8Client(
                 val (finalUrl, html) = viaCronet
                 val loginPage = html.contains("frmlogin") || html.contains(LOGIN_PATH)
                 if (!loginPage && !html.contains(THROTTLE_MARK) && !html.contains("出现错误")) {
-                    return@withContext parseSearchResult(finalUrl, html)
+                    val results = parseSearchResult(finalUrl, html)
+                    logger?.info(TAG_SEARCH, "Cronet POST 命中：${results.size} 条（${html.length} chars）")
+                    return@withContext results
                 }
+                logger?.warn(TAG_SEARCH, "Cronet POST 返回登录页/限流页（${html.length} chars）")
             }
 
             // 2) GET 结果页（POST 的 302 目标）走三级绕过栈
@@ -597,7 +600,10 @@ class Wenku8Client(
                     },
                 )
             }.getOrNull()
-            if (viaBypass != null) return@withContext viaBypass
+            if (viaBypass != null) {
+                logger?.info(TAG_SEARCH, "GET search.php 命中：${viaBypass.size} 条")
+                return@withContext viaBypass
+            }
 
             // 有界重试：站点在两次搜索间隔 < 5s 时返回错误页。
             // 原实现递归调用自身且无次数上限——站点持续返回错误页时会无界深递归，
@@ -617,10 +623,13 @@ class Wenku8Client(
                 val html = String(readBytes(resp), GB18030)
                 val throttled = html.contains(THROTTLE_MARK) || html.contains("出现错误")
                 if (!throttled) {
-                    return@withContext parseSearchResult(finalUrl, html)
+                    val results = parseSearchResult(finalUrl, html)
+                    logger?.info(TAG_SEARCH, "直连 POST 命中：${results.size} 条（${html.length} chars）")
+                    return@withContext results
                 }
                 if (attempt < SEARCH_MAX_ATTEMPTS - 1) delay(SEARCH_RETRY_DELAY_MS)
             }
+            logger?.error(TAG_SEARCH, "搜索失败：Cronet POST / GET / 直连 POST 均未命中")
             throw IOException("搜索被站点限流，请稍后重试")
         }
 
@@ -1116,7 +1125,7 @@ class Wenku8Client(
             if (postBody != null) {
                 builder.addHeader("Content-Type", "application/x-www-form-urlencoded")
                 builder.addHeader("Origin", base)
-                builder.setUploadDataProvider(ByteArrayUploadProvider(postBody), cronetExecutor)
+                builder.setUploadDataProvider(uploadProvider(postBody), cronetExecutor)
             }
             val request = builder.build()
             // 取消（页面离开 / 超时）时立刻取消底层请求，回调再触发 onCanceled 也不影响已取消的协程
@@ -1242,32 +1251,16 @@ class Wenku8Client(
         }
 
     /**
-     * Cronet 的表单上传体：直接发送内存里的 GBK 字节。
+     * Cronet 的表单上传体。
      *
-     * 不用 `UploadDataProviders.create(...)`：该工具类在 cronet 119 已标记弃用，
-     * 自实现只有三个方法，也避免新增编译告警。
+     * ⚠️ 必须用官方 `UploadDataProviders.create`：自实现的读取协议在 cronet 119 上
+     * 会被判为 `CallbackExceptionImpl: Exception received from UploadDataProvider`
+     * （2026-10-18 设备日志实测），POST 直接失败。
+     * 该类虽已标记 deprecated，但仍是当前版本唯一可用的实现，故局部抑制告警。
      */
-    private class ByteArrayUploadProvider(private val data: ByteArray) : UploadDataProvider() {
-        private var offset = 0
-
-        override fun getLength(): Long = data.size.toLong()
-
-        override fun rewind(uploadDataSink: UploadDataSink) {
-            offset = 0
-            uploadDataSink.onRewindSucceeded()
-        }
-
-        override fun read(uploadDataSink: UploadDataSink, byteBuffer: ByteBuffer) {
-            if (offset >= data.size) {
-                uploadDataSink.onReadSucceeded(true)
-                return
-            }
-            val n = min(byteBuffer.remaining(), data.size - offset)
-            byteBuffer.put(data, offset, n)
-            offset += n
-            uploadDataSink.onReadSucceeded(offset >= data.size)
-        }
-    }
+    @Suppress("DEPRECATION")
+    private fun uploadProvider(bytes: ByteArray): UploadDataProvider =
+        org.chromium.net.UploadDataProviders.create(bytes)
 
     /**
      * 隐藏 WebView 的统一销毁路径。
