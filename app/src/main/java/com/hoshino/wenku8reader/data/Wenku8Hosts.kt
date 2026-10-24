@@ -1,5 +1,7 @@
 package com.hoshino.wenku8reader.data
 
+import java.net.URI
+
 /**
  * wenku8 站点主机常量（单一来源）。
  *
@@ -39,6 +41,28 @@ object Wenku8Hosts {
 
     /** 镜像清单中的合法取值集合（设置页校验用）。 */
     fun isValidMirror(url: String): Boolean = url in MIRRORS
+
+    /** 主站镜像的精确主机名；用于把站点返回的明文重定向升级回 HTTPS。 */
+    private val MIRROR_HOSTS: Set<String> = MIRRORS.mapNotNull { url ->
+        runCatching { URI(url).host }.getOrNull()
+    }.toSet()
+
+    /**
+     * 站点部分入口仍会返回 `Location: http://www.wenku8.net/...`（例如未登录首页 →
+     * `login.php`）。应用默认禁止明文流量，直接跟随会得到
+     * `ERR_CLEARTEXT_NOT_PERMITTED`，表现为整站“无法访问”。
+     *
+     * 仅对两个主站镜像的明文地址做协议升级；只替换开头的 scheme，保留原始 path/query
+     * 编码，避免 `URI` 重新序列化时二次编码 `jumpurl` 等嵌套参数。第三方地址不修改。
+     */
+    fun secureMainSiteUrl(url: String): String {
+        val trimmed = url.trim()
+        val parsed = runCatching { URI(trimmed) }.getOrNull() ?: return url
+        if (!parsed.scheme.equals("http", ignoreCase = true) || parsed.host !in MIRROR_HOSTS) {
+            return url
+        }
+        return "https://" + trimmed.substringAfter("://")
+    }
 
     /** 图片内容域名（站点给出的地址是明文 http，但这些域名同样支持 https）。 */
     private val IMAGE_HOSTS = listOf("img.wenku8.com", "pic.777743.xyz")
