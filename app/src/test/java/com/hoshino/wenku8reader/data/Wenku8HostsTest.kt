@@ -69,4 +69,30 @@ class Wenku8HostsTest {
         val notImage = "http://app.wenku8.com/android.php"
         assertEquals(notImage, Wenku8Hosts.normalizeImageUrl(notImage))
     }
+
+    @Test
+    fun upgradesMainSiteRedirectsWithoutReencodingQuery() {
+        val redirect =
+            "http://www.wenku8.net/login.php?jumpurl=http%3A%2F%2Fwww.wenku8.net%2Findex.php"
+        assertEquals(
+            "https://www.wenku8.net/login.php?jumpurl=http%3A%2F%2Fwww.wenku8.net%2Findex.php",
+            Wenku8Hosts.secureMainSiteUrl(redirect),
+        )
+        assertEquals(
+            "https://www.wenku8.cc/book/1.htm",
+            Wenku8Hosts.secureMainSiteUrl("http://www.wenku8.cc/book/1.htm"),
+        )
+    }
+
+    @Test
+    fun doesNotRewriteHttpsOrThirdPartyRedirects() {
+        val https = "https://www.wenku8.net/index.php"
+        assertEquals(https, Wenku8Hosts.secureMainSiteUrl(https))
+
+        val thirdParty = "http://app.wenku8.com/android.php"
+        assertEquals(thirdParty, Wenku8Hosts.secureMainSiteUrl(thirdParty))
+
+        val lookalike = "http://www.wenku8.net.evil.example/login.php"
+        assertEquals(lookalike, Wenku8Hosts.secureMainSiteUrl(lookalike))
+    }
 }

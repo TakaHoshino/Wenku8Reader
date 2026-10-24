@@ -186,6 +186,12 @@ class Wenku8Client(
         /** Cronet 请求等待上限（秒）；超时后 cancel 并返回 null。 */
         private const val CRONET_TIMEOUT_SECONDS = 8L
 
+        /** 一次逻辑请求（含重定向）的总等待上限（秒）。 */
+        private const val CRONET_TOTAL_TIMEOUT_SECONDS = 20L
+
+        /** 手动跟随重定向的层数上限，防止异常 Location 循环。 */
+        private const val CRONET_MAX_REDIRECTS = 6
+
         /** 单个隐藏 WebView 解挑战的等待上限（毫秒）。 */
         private const val WEBVIEW_TIMEOUT_MS = 15_000L
 
@@ -470,6 +476,8 @@ class Wenku8Client(
         val req = Request.Builder()
             .url(url)
             .browserHeaders("$base/login.php")
+            // 表单 POST 是站内导航，与普通地址栏 GET（Sec-Fetch-Site: none）不同。
+            .header("Sec-Fetch-Site", "same-origin")
             .post(gbkForm(pairs))
             .build()
         return execute(req, retries = 2)
@@ -514,27 +522,44 @@ class Wenku8Client(
 
     private suspend fun loginInternal(user: String, pass: String): Boolean =
         withContext(Dispatchers.IO) {
-        val resp = postForm(
-            "$base/login.php?do=submit" +
-                "&jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}",
-            listOf(
+            val fields = listOf(
                 "username" to user,
                 "password" to pass,
                 "usecookie" to "315360000",
                 "action" to "login",
                 "submit" to "\u00A0\u00A0\u767B\u00A0\u00A0\u5F55\u00A0",
             )
-        )
-        readBytes(resp)
-        // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
-        val ok = hasSession()
-        // 只记成败，不记用户名（账户名属于用户隐私）
-        logger?.info(TAG_AUTH, "登录${if (ok) "成功" else "失败"}")
-        if (ok) {
-            cookieStore.persist()
+            val loginUrl = "$base/login.php?do=submit" +
+                "&jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}"
+
+            // OkHttp 的 TLS 指纹很容易被 Cloudflare 403；Cronet 是搜索已经验证过的
+            // 通道。登录响应通常是 302，会话 Cookie 可能在重定向响应而非最终页上，
+            // cronetRequestRaw() 会逐跳保存 Set-Cookie，再按 HTTP 语义继续 GET。
+            val viaCronet = cronetEngine?.let { engine ->
+                runCatchingNotCancelling {
+                    cronetPost(engine, loginUrl, gbkFormBytes(fields))
+                }.getOrNull()
+            }
+            if (viaCronet != null && hasSession()) {
+                cookieStore.persist()
+                logger?.info(TAG_AUTH, "登录成功（Cronet）")
+                return@withContext true
+            }
+
+            if (viaCronet != null) {
+                logger?.warn(TAG_AUTH, "Cronet 登录未建立会话，回退直连")
+            }
+            val resp = postForm(loginUrl, fields)
+            readBytes(resp)
+            // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
+            val ok = hasSession()
+            // 只记成败，不记用户名（账户名属于用户隐私）
+            logger?.info(TAG_AUTH, "登录${if (ok) "成功" else "失败"}")
+            if (ok) {
+                cookieStore.persist()
+            }
+            ok
         }
-        ok
-    }
 
     // 关于「退出登录」：客户端这里只提供 [clearCookies]（清会话），**不提供 logout()**。
     // 因为退出登录还牵扯"当前激活账户"这一层状态（见 AccountStore），而客户端并不持有它；
@@ -829,6 +854,9 @@ class Wenku8Client(
      * WebView → Cronet → OkHttp 的三级 Cloudflare 绕过栈（三者统一使用稳定的设备 UA）。
      */
     suspend fun homepage(): List<HomeSection> = withContext(Dispatchers.IO) {
+        // 未登录时站点会把首页 302 到 login.php，并给出明文 HTTP Location。
+        // 先等待静默登录（已有会话时零网络请求），首页才能拿到真正的栏目内容。
+        ensureLoggedIn()
         // 快路径：cf_clearance cookie-first 逐镜像直连（磁盘缓存 1 小时，避免二次加载）
         tryDirect(
             urlFor = { h -> "$h/index.php" },
@@ -1029,38 +1057,99 @@ class Wenku8Client(
         return result
     }
 
+    /** 单跳 Cronet 结果：成功正文，或需要在 Kotlin 层复核/升级的 Location。 */
+    private sealed interface CronetHop {
+        data class Complete(val url: String, val html: String) : CronetHop
+        data class Redirect(val statusCode: Int, val location: String) : CronetHop
+    }
+
+    /**
+     * Cronet 请求（手动跟随重定向）。
+     *
+     * 不让 Cronet 直接 `followRedirect()` 的原因：
+     * - 重定向响应里的 `Set-Cookie` 也必须保存；登录成功时会话 Cookie 正好在这个 302 上；
+     * - 站点仍会返回 `Location: http://...`，而应用禁止明文流量，直接跟随必然失败；
+     * - 手动跟随可以保持标准语义（301/302/303 后 POST 改为 GET，307/308 保留方法与正文）。
+     */
     private suspend fun cronetRequestRaw(
         engine: CronetEngine,
         url: String,
         postBody: ByteArray? = null,
-    ): Pair<String, String>? =
-        withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
-            val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
-            val body = ByteArrayOutputStream()
-            val httpUrl = url.toHttpUrl()
-            val cookieHeader = cookieStore.loadForRequest(httpUrl)
-                .joinToString("; ") { "${it.name}=${it.value}" }
+    ): Pair<String, String>? = withTimeoutOrNull(CRONET_TOTAL_TIMEOUT_SECONDS * 1000) {
+        var currentUrl = url
+        var currentBody = postBody
+        val visited = HashSet<String>()
 
-            suspendCancellableCoroutine<Pair<String, String>?> { cont ->
-                val callback = object : UrlRequest.Callback() {
+        repeat(CRONET_MAX_REDIRECTS + 1) {
+            if (!visited.add(currentUrl)) {
+                logger?.warn(
+                    TAG_BYPASS,
+                    "CRONET 重定向成环: ${LogSanitizer.sanitizeUrl(currentUrl)}",
+                )
+                return@withTimeoutOrNull null
+            }
+
+            when (val hop = cronetRequestOnce(engine, currentUrl, currentBody)) {
+                null -> return@withTimeoutOrNull null
+                is CronetHop.Complete -> return@withTimeoutOrNull hop.url to hop.html
+                is CronetHop.Redirect -> {
+                    val nextUrl = Wenku8Hosts.secureMainSiteUrl(hop.location)
+                    logger?.info(
+                        TAG_BYPASS,
+                        "CRONET 重定向 ${hop.statusCode}: " +
+                            "${LogSanitizer.sanitizeUrl(currentUrl)} -> " +
+                            LogSanitizer.sanitizeUrl(nextUrl),
+                    )
+                    // 301/302/303 按浏览器行为把 POST 变成 GET；307/308 保留原请求。
+                    if (hop.statusCode != 307 && hop.statusCode != 308) currentBody = null
+                    currentUrl = nextUrl
+                }
+            }
+        }
+
+        logger?.warn(
+            TAG_BYPASS,
+            "CRONET 重定向超过 $CRONET_MAX_REDIRECTS 次: ${LogSanitizer.sanitizeUrl(url)}",
+        )
+        null
+    }
+
+    /** 执行一个不会自动跟随重定向的 Cronet 请求。 */
+    private suspend fun cronetRequestOnce(
+        engine: CronetEngine,
+        url: String,
+        postBody: ByteArray?,
+    ): CronetHop? = withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
+        val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
+        val body = ByteArrayOutputStream()
+        val httpUrl = url.toHttpUrl()
+        val cookieHeader = cookieStore.loadForRequest(httpUrl)
+            .joinToString("; ") { "${it.name}=${it.value}" }
+
+        suspendCancellableCoroutine<CronetHop?> { cont ->
+            val callback = object : UrlRequest.Callback() {
                 override fun onRedirectReceived(
                     request: UrlRequest,
                     info: UrlResponseInfo,
                     newLocationUrl: String?,
                 ) {
-                    request.followRedirect()
+                    saveResponseCookies(info, httpUrl)
+                    val location = newLocationUrl
+                    if (location == null) {
+                        if (cont.isActive) cont.resume(null)
+                        request.cancel()
+                    } else {
+                        // 先恢复 continuation，再取消当前 hop；即使 onCanceled 同步回调，
+                        // 也不会把已经拿到的 Location 覆盖成 null。
+                        if (cont.isActive) {
+                            cont.resume(CronetHop.Redirect(info.httpStatusCode, location))
+                        }
+                        request.cancel()
+                    }
                 }
 
                 override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
-                    runCatching {
-                        info.allHeadersAsList
-                            .filter { it.key.equals("Set-Cookie", ignoreCase = true) }
-                            .mapNotNull { (_, v) ->
-                                runCatching { Cookie.parse(httpUrl, v) }.getOrNull()
-                            }
-                            .takeIf { it.isNotEmpty() }
-                            ?.let { cookieStore.saveFromResponse(httpUrl, it) }
-                    }
+                    saveResponseCookies(info, httpUrl)
                     request.read(readBuffer)
                 }
 
@@ -1084,7 +1173,14 @@ class Wenku8Client(
                             "${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
                             "（${body.size()} bytes）",
                     )
-                    if (cont.isActive) cont.resume(info.url to String(body.toByteArray(), GB18030))
+                    if (cont.isActive) {
+                        cont.resume(
+                            CronetHop.Complete(
+                                info.url,
+                                String(body.toByteArray(), GB18030),
+                            )
+                        )
+                    }
                 }
 
                 override fun onFailed(
@@ -1118,9 +1214,10 @@ class Wenku8Client(
                 .addHeader("Upgrade-Insecure-Requests", "1")
                 .addHeader("Sec-Fetch-Dest", "document")
                 .addHeader("Sec-Fetch-Mode", "navigate")
-                .addHeader("Sec-Fetch-Site", "none")
+                .addHeader("Sec-Fetch-Site", if (postBody == null) "none" else "same-origin")
                 .addHeader("Sec-Fetch-User", "?1")
-            refererFor(url)?.let { builder.addHeader("Referer", it) }
+            val referer = if (postBody == null) refererFor(url) else url.substringBefore('?')
+            referer?.let { builder.addHeader("Referer", it) }
             if (cookieHeader.isNotEmpty()) builder.addHeader("Cookie", cookieHeader)
             if (postBody != null) {
                 builder.addHeader("Content-Type", "application/x-www-form-urlencoded")
@@ -1131,8 +1228,21 @@ class Wenku8Client(
             // 取消（页面离开 / 超时）时立刻取消底层请求，回调再触发 onCanceled 也不影响已取消的协程
             cont.invokeOnCancellation { runCatching { request.cancel() } }
             request.start()
-            }
         }
+    }
+
+    /** 保存 Cronet 响应头里的 Cookie（成功页与中间重定向都要保存）。 */
+    private fun saveResponseCookies(info: UrlResponseInfo, requestUrl: okhttp3.HttpUrl) {
+        runCatching {
+            info.allHeadersAsList
+                .filter { it.key.equals("Set-Cookie", ignoreCase = true) }
+                .mapNotNull { (_, value) ->
+                    runCatching { Cookie.parse(requestUrl, value) }.getOrNull()
+                }
+                .takeIf { it.isNotEmpty() }
+                ?.let { cookieStore.saveFromResponse(requestUrl, it) }
+        }
+    }
 
     /**
      * Loads the page in a hidden WebView so Cloudflare's JS challenge runs like in a
@@ -1199,6 +1309,17 @@ class Wenku8Client(
                                 }
                                 var attempts = 0
                                 webView.webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(
+                                        view: WebView?,
+                                        request: WebResourceRequest?,
+                                    ): Boolean {
+                                        val requested = request?.url?.toString() ?: return false
+                                        val secure = Wenku8Hosts.secureMainSiteUrl(requested)
+                                        if (secure == requested) return false
+                                        view?.loadUrl(secure)
+                                        return true
+                                    }
+
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         view?.evaluateJavascript(
                                             "document.documentElement.outerHTML",
@@ -1219,6 +1340,7 @@ class Wenku8Client(
                                                                     .getCookie(finishedUrl)
                                                                 if (!wvCookies.isNullOrBlank()) {
                                                                     cookieStore.saveRaw(finishedUrl.toHttpUrl(), wvCookies)
+                                                                    CookieManager.getInstance().flush()
                                                                 }
                                                             }
                                                         }
