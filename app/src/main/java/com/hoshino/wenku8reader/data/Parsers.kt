@@ -100,6 +100,11 @@ object Parsers {
     private val BOOKCASE_LINK = Pattern.compile(
         "<a[^>]+href=\"([^\"]*readbookcase\\.php[^\"]*)\"[^>]*>([^<]+?)</a>", Pattern.DOTALL
     )
+    /** 新版书架若改用普通详情链接，仍至少能展示书 id 与书名。 */
+    private val GENERIC_BOOK_LINK = Pattern.compile(
+        "<a[^>]+href=\"[^\"]*?/book/(\\d+)\\.htm\"[^>]*>([^<]+?)</a>",
+        Pattern.DOTALL or Pattern.CASE_INSENSITIVE,
+    )
 
     internal fun unescape(s: String): String = s
         .replace("&nbsp;", " ")
@@ -374,7 +379,8 @@ object Parsers {
         html.contains("checkform") ||
             html.contains("readbookcase.php") ||
             html.contains("addbookcase.php") ||
-            html.contains("您的书架") -> BookcasePageKind.BOOKSHELF
+            html.contains("您的书架") ||
+            html.contains("我的书架") -> BookcasePageKind.BOOKSHELF
         html.contains("login.php") -> BookcasePageKind.LOGIN_REQUIRED
         else -> BookcasePageKind.OTHER
     }
@@ -415,7 +421,20 @@ object Parsers {
                 row.name = text
             }
         }
-        return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid, it.bid) }
+        if (rows.isNotEmpty()) {
+            return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid, it.bid) }
+        }
+
+        // 新版模板兜底：仅展示普通详情链接；拿不到书架记录 id 时 bid=0，移出操作会失败，
+        // 但书架内容不再因为模板改名而整体不可见。旧 readbookcase 模板仍走上面的完整路径。
+        val genericRows = linkedMapOf<Int, String>()
+        val gm = GENERIC_BOOK_LINK.matcher(html)
+        while (gm.find()) {
+            val id = gm.groupOrEmpty(1).toIntOrNull() ?: continue
+            val name = clean(gm.groupOrEmpty(2))
+            if (id > 0 && name.isNotEmpty()) genericRows.putIfAbsent(id, name)
+        }
+        return genericRows.map { (id, name) -> BookcaseItem(id, name, null, null, 0) }
     }
 
     // ------------------------------------------------------------------ //

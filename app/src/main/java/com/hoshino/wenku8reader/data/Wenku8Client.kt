@@ -769,12 +769,12 @@ class Wenku8Client(
             Parsers.BookcasePageKind.OTHER -> {
                 logger?.warn(
                     TAG_SHELF,
-                    "书架页面无法识别（len=${html.length}, " +
+                    "书架页面未命中旧模板，尝试新版解析（len=${html.length}, " +
                         "checkform=${html.contains("checkform")}, " +
                         "readbookcase=${html.contains("readbookcase.php")}, " +
-                        "login=${html.contains(LOGIN_PATH)}）",
+                        "login=${html.contains(LOGIN_PATH)}, " +
+                        "title=${bookcasePageTitle(html)}）",
                 )
-                throw IOException("Wenku8 书架返回了无法识别的页面")
             }
             Parsers.BookcasePageKind.BOOKSHELF -> Unit
         }
@@ -797,7 +797,6 @@ class Wenku8Client(
             ensureLoggedIn()
             val html = fetchSiteBookcasePage(
                 urlFor = { h -> "$h/modules/article/addbookcase.php?bid=$bookId" },
-                acceptOtherPage = true,
             ) ?: throw IOException("加入 Wenku8 书架失败，请稍后重试")
             if (Parsers.classifyBookcasePage(html) == Parsers.BookcasePageKind.LOGIN_REQUIRED) {
                 markBookcaseSessionExpired()
@@ -817,7 +816,6 @@ class Wenku8Client(
             ensureLoggedIn()
             val html = fetchSiteBookcasePage(
                 urlFor = { h -> "$h/modules/article/bookcase.php?delid=$bookcaseId" },
-                acceptOtherPage = true,
             ) ?: throw IOException("移出 Wenku8 书架失败，请稍后重试")
             if (Parsers.classifyBookcasePage(html) == Parsers.BookcasePageKind.LOGIN_REQUIRED) {
                 markBookcaseSessionExpired()
@@ -833,7 +831,6 @@ class Wenku8Client(
      */
     private suspend fun fetchSiteBookcasePage(
         urlFor: (String) -> String,
-        acceptOtherPage: Boolean = false,
     ): String? = fetchWithBypass(
         urlFor = urlFor,
         candidateHosts = listOf(base),
@@ -843,10 +840,8 @@ class Wenku8Client(
             } else {
                 when (Parsers.classifyBookcasePage(html)) {
                     Parsers.BookcasePageKind.BOOKSHELF,
-                    Parsers.BookcasePageKind.LOGIN_REQUIRED -> html
-
-                    Parsers.BookcasePageKind.OTHER ->
-                        html.takeIf { acceptOtherPage && it.isNotBlank() }
+                    Parsers.BookcasePageKind.LOGIN_REQUIRED,
+                    Parsers.BookcasePageKind.OTHER -> html
                 }
             }
         },
@@ -857,6 +852,19 @@ class Wenku8Client(
         isChallenge(html) ||
             html.contains("403 Forbidden", ignoreCase = true) ||
             html.contains("Access denied", ignoreCase = true)
+
+    private fun bookcasePageTitle(html: String): String =
+        Regex(
+            "<title[^>]*>(.*?)</title>",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+        )
+            .find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.take(80)
+            .orEmpty()
 
     private suspend fun markBookcaseSessionExpired(): Nothing {
         logger?.warn(TAG_SHELF, "站方书架会话失效（被重定向到登录页）")
@@ -915,7 +923,12 @@ class Wenku8Client(
 
     private fun isChallenge(html: String): Boolean =
         html.contains("challenge-platform") || html.contains("cf-challenge") ||
-            html.contains("cf_chl") || html.contains("cf-chl")
+            html.contains("cf_chl") || html.contains("cf-chl") ||
+            html.contains("__cf_chl") ||
+            html.contains("Just a moment", ignoreCase = true) ||
+            html.contains("Enable JavaScript and cookies", ignoreCase = true) ||
+            html.contains("We're verifying your browser", ignoreCase = true) ||
+            html.contains("Security Checkpoint", ignoreCase = true)
 
     /**
      * `runCatching` 的同义封装：**不吞协程取消**。

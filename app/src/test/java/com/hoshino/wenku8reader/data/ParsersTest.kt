@@ -395,4 +395,19 @@ class ParsersTest {
         assertEquals(null, items[0].latestName)
         assertEquals(null, items[0].latestCid)
     }
+
+    @Test
+    fun parseBookcase_fallsBackToGenericBookLinksForNewTemplate() {
+        val html = """
+            <title>我的书架 - 轻小说文库</title>
+            <a href="/book/4363.htm">新版书架里的书</a>
+        """.trimIndent()
+
+        val items = Parsers.parseBookcase(html)
+
+        assertEquals(1, items.size)
+        assertEquals(4363, items[0].aid)
+        assertEquals("新版书架里的书", items[0].name)
+        assertEquals(0, items[0].bid)
+    }
 }
