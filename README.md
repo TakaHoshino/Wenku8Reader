@@ -83,7 +83,7 @@
 
 ## 技术栈
 
-原生 **Kotlin + Jetpack Compose** 构建，无 WebView 外壳，界面有 **Material 3 Expressive**（默认）与 **MIUIX / HyperOS**（实验性）两套独立实现；网络层基于 OkHttp + Cronet，图片加载使用 Coil，简繁转换使用 opencc4j，书架与阅读进度用 Room、设置用 DataStore 持久化。
+原生 **Kotlin + Jetpack Compose** 构建，无 WebView 外壳，界面有 **Material 3 Expressive**（默认）与 **MIUIX / HyperOS**（实验性）两套独立实现；全部 HTTP 流量统一走 Cronet，图片加载使用 Coil（网络 Fetcher 同样接入 Cronet），简繁转换使用 opencc4j，书架与阅读进度用 Room、设置用 DataStore 持久化。
 
 ## 声明
 

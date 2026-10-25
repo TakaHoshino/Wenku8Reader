@@ -12,11 +12,8 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.log.AppLogger
 import com.hoshino.wenku8reader.data.log.LogSanitizer
 import java.io.File
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,20 +32,11 @@ data class ReleaseInfo(
  * 并用 FileProvider 拉起系统安装器。
  */
 class UpdateChecker(
+    /** 生产装配必传；纯逻辑单测可不构造网络栈。 */
+    private val http: CronetHttpClient? = null,
     /** 网络访问日志（可空：单测与工具脚本不需要日志）。 */
     private val logger: AppLogger? = null,
 ) {
-
-    /**
-     * 超时必须显式设置：默认配置下 `OkHttpClient` 无读/写超时，
-     * 弱网或对端挂起时协程会长期悬挂且没有取消点（更新检查与 APK 下载都会卡死）。
-     */
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(120, TimeUnit.SECONDS)
-        .build()
 
     companion object {
         private const val REPO = "TakaHoshino/Wenku8Reader"
@@ -91,36 +79,39 @@ class UpdateChecker(
     suspend fun fetchLatest(stable: Boolean): Result<ReleaseInfo?> = withContext(Dispatchers.IO) {
         runCatching {
             val url = if (stable) API_LATEST else API_LIST
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", UA)
-                .header("Accept", "application/vnd.github+json")
-                .build()
-            client.newCall(req).execute().use { resp ->
-                logger?.info("UPDATE", "GET $url -> ${resp.code}")
-                if (resp.code == 404) return@runCatching null
-                check(resp.isSuccessful) { "检查更新失败（HTTP ${resp.code}）" }
-                // 204/HEAD 等场景 body 可能为空，避免强制解包崩溃
-                val text = resp.body?.string() ?: return@runCatching null
-                val json = if (stable) {
-                    JSONObject(text)
-                } else {
-                    pickLatestReleaseWithApk(text) ?: return@runCatching null
-                }
-                val tag = json.optString("tag_name", "")
-                val apkUrl = apkUrlOf(json)
-                if (tag.isBlank() || apkUrl == null) null
-                else ReleaseInfo(
-                    tag = tag,
-                    versionName = tag.removePrefix("v"),
-                    apkDownloadUrl = apkUrl,
-                    releaseName = json.optString("name", ""),
-                    // 由发布描述首行 `versionCode: <N>` 解析（新发布均带；旧发布为 null → 回退 versionName 比较）
-                    versionCode = VERSION_CODE_IN_BODY
-                        .find(json.optString("body", ""))
-                        ?.groupValues?.get(1)?.toLongOrNull(),
+            val resp = requireNotNull(http) { "CronetHttpClient 未配置" }.execute(
+                CronetHttpClient.Request(
+                    url = url,
+                    headers = mapOf(
+                        "User-Agent" to UA,
+                        "Accept" to "application/vnd.github+json",
+                    ),
+                    timeoutMs = 30_000L,
                 )
+            ) ?: error("检查更新失败：网络不可用")
+            logger?.info("UPDATE", "GET $url -> ${resp.statusCode}")
+            if (resp.statusCode == 404) return@runCatching null
+            check(resp.isSuccessful) { "检查更新失败（HTTP ${resp.statusCode}）" }
+            val text = resp.body.toString(Charsets.UTF_8)
+            if (text.isBlank()) return@runCatching null
+            val json = if (stable) {
+                JSONObject(text)
+            } else {
+                pickLatestReleaseWithApk(text) ?: return@runCatching null
             }
+            val tag = json.optString("tag_name", "")
+            val apkUrl = apkUrlOf(json)
+            if (tag.isBlank() || apkUrl == null) null
+            else ReleaseInfo(
+                tag = tag,
+                versionName = tag.removePrefix("v"),
+                apkDownloadUrl = apkUrl,
+                releaseName = json.optString("name", ""),
+                // 由发布描述首行 `versionCode: <N>` 解析（新发布均带；旧发布为 null → 回退 versionName 比较）
+                versionCode = VERSION_CODE_IN_BODY
+                    .find(json.optString("body", ""))
+                    ?.groupValues?.get(1)?.toLongOrNull(),
+            )
         }.onFailure {
             logger?.warn("UPDATE", "检查更新失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}")
         }
@@ -137,31 +128,31 @@ class UpdateChecker(
         onProgress: (Float) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
-            val req = Request.Builder().url(url).header("User-Agent", UA).build()
             logger?.info("UPDATE", "下载 APK: ${LogSanitizer.sanitizeUrl(url)}")
-            client.newCall(req).execute().use { resp ->
-                check(resp.isSuccessful) { "下载失败（HTTP ${resp.code}）" }
-                // 统一用空安全访问：204/HEAD 等场景 body 为空
-                val body = resp.body ?: error("下载响应为空（HTTP ${resp.code}）")
-                val total = body.contentLength().takeIf { it > 0 } ?: -1L
-                dest.parentFile?.mkdirs()
-                body.byteStream().use { input ->
-                    dest.outputStream().use { output ->
-                        val buf = ByteArray(8192)
-                        var read = 0L
-                        while (true) {
-                            val n = input.read(buf)
-                            if (n <= 0) break
-                            output.write(buf, 0, n)
-                            read += n
-                            if (total > 0) onProgress((read.toFloat() / total).coerceIn(0f, 1f))
-                        }
+            dest.parentFile?.mkdirs()
+            var read = 0L
+            val resp = dest.outputStream().use { output ->
+                requireNotNull(http) { "CronetHttpClient 未配置" }.execute(
+                    CronetHttpClient.Request(
+                        url = url,
+                        headers = mapOf("User-Agent" to UA),
+                        timeoutMs = 120_000L,
+                    ),
+                    collectBody = false,
+                ) { chunk, contentLength ->
+                    output.write(chunk)
+                    read += chunk.size
+                    if (contentLength > 0) {
+                        onProgress((read.toFloat() / contentLength).coerceIn(0f, 1f))
                     }
                 }
             }
+            check(resp != null) { "下载失败：网络不可用" }
+            check(resp.isSuccessful) { "下载失败（HTTP ${resp.statusCode}）" }
             logger?.info("UPDATE", "下载完成: ${dest.name}（${dest.length()} bytes）")
             dest
         }.onFailure {
+            runCatching { dest.delete() }
             logger?.warn("UPDATE", "下载 APK 失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}")
         }
     }

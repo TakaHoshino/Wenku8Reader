@@ -356,6 +356,25 @@ object Parsers {
     }
 
     // ------------------------------------------------------------------ //
+
+    enum class BookcasePageKind {
+        BOOKSHELF,
+        LOGIN_REQUIRED,
+        OTHER,
+    }
+
+    /**
+     * 区分站方书架、登录页与其他页面。
+     *
+     * 正常书架（包括空书架）一定带 `checkform`；登录页没有该表单。
+     * 必须先判书架，避免页面里的退出登录链接被误认为会话失效。
+     */
+    fun classifyBookcasePage(html: String): BookcasePageKind = when {
+        html.contains("checkform") -> BookcasePageKind.BOOKSHELF
+        html.contains("login.php") -> BookcasePageKind.LOGIN_REQUIRED
+        else -> BookcasePageKind.OTHER
+    }
+
     fun parseBookcase(html: String): List<BookcaseItem> {
         class Row {
             var aid: Int = 0

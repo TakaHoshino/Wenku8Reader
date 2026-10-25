@@ -306,6 +306,26 @@ class ParsersTest {
     // ------------------------------------------------------------------ //
 
     @Test
+    fun classifyBookcasePage_distinguishesBookshelfFromLoginPage() {
+        assertEquals(
+            Parsers.BookcasePageKind.BOOKSHELF,
+            Parsers.classifyBookcasePage(
+                """<form name="checkform"></form><a href="login.php">退出登录</a>"""
+            ),
+        )
+        assertEquals(
+            Parsers.BookcasePageKind.LOGIN_REQUIRED,
+            Parsers.classifyBookcasePage(
+                """<form name="frmlogin" action="login.php"></form>"""
+            ),
+        )
+        assertEquals(
+            Parsers.BookcasePageKind.OTHER,
+            Parsers.classifyBookcasePage("<h1>403 Forbidden</h1>"),
+        )
+    }
+
+    @Test
     fun parseBookcase_readsAidBidNameAndLatestChapter() {
         // 书链接与"最新章"链接指向同一个 bid：站点每本书给两行链接（书名、最新章节），
         // 解析要合并成一条，而不是两条。

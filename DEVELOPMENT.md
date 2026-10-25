@@ -29,7 +29,7 @@
 | 语言 | Kotlin（JVM target 17） |
 | UI | Jetpack Compose（BOM 2026.05.01，ui/foundation 1.11.2）+ **Material 3 Expressive**（material3 1.5.0-alpha18）+ material-icons-extended |
 | 架构 | 单 Activity + Navigation-Compose + ViewModel（手写 DI 容器，无 Hilt） |
-| 网络 | OkHttp 4.12 + Cronet（chromium net）+ WebView 兜底；Coil 2.7 加载图片 |
+| 网络 | 统一 Cronet（chromium net）；WebView 仅作 JS 反爬兜底；Coil 2.7 负责图片解码与缓存 |
 | 依赖注入 | 手写 `AppContainer`（`di/AppContainer.kt`） |
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
@@ -87,7 +87,8 @@ Wenku8Reader/
     │       ├── di/AppContainer.kt         # 手写 DI（client / repository / 各 store / engine / scope）
     │       ├── data/
     │       │   ├── Models.kt              # SearchResult/BookInfo/Chapter/Volume/ChapterContent/BookcaseItem/FlatChapter/HomeBook/HomeSection
-    │       │   ├── Wenku8Client.kt        # 全部 wenku8 网络接口（限速/重试/多镜像/WebView+Cronet+OkHttp/站点书架增删）
+    │       │   ├── CronetHttpClient.kt    # 应用唯一 HTTP 出口（Cronet、Cookie、重定向、超时、流式下载）
+    │       │   ├── Wenku8Client.kt        # 全部 wenku8 接口（限速/重试/多镜像/Cronet+WebView/站点书架增删）
     │       │   ├── Wenku8Hosts.kt         # 镜像与图片域名（https 升级、Referer 常量）
     │       │   ├── Parsers.kt / AppParsers.kt   # 网页正则解析 / 官方 App API 协议解析
     │       │   ├── CoverUrls.kt           # 由书 id 推导封面地址（零请求）
@@ -130,6 +131,7 @@ Wenku8Reader/
 
 ### 4.2 网络客户端（`Wenku8Client.kt`）
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
+- **统一 Cronet 网络栈**：`CronetHttpClient` 是应用唯一的 HTTP 出口，wenku8 页面 / 登录 / 搜索 / 书架 / TXT 下载、GitHub 更新检查与 APK 下载，以及 Coil 封面 / 插图均经它请求。它统一处理 Cookie、逐跳重定向、主站 HTTPS 升级、超时、取消和流式下载回调；源码中不再创建 `OkHttpClient` 或 `HttpURLConnection`。OkHttp 依赖仅保留 `Cookie` / `HttpUrl` / `Headers` 等兼容类型。
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
 - **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`，UA 统一用 `UserAgent.build()` 生成的**设备 UA**（真实 `Build.VERSION.RELEASE` + `Build.MODEL`，WebKit/Safari 固定 `537.36`、Chrome 主版本固定，进程内只算一次）。
   > ⚠️ **不要改回"每次请求随机 UA"**：随机机型/系统组合、`Chrome/140.0.12.3`、`Safari/537.118` 这类不存在的值本身就是自动化特征；而 `cf_clearance` 与 UA 绑定，换 UA 还会让令牌复用失效。参考 LightNovelReader 2026-10-02 的 `fix(web): 修正UA生成器`（同样是改成真实 Build + 固定版本 + 缓存）。
@@ -139,22 +141,22 @@ Wenku8Reader/
   它已从清单移除；**老用户设置里残留的该值会在读取时回落到默认主站**（`ReaderSettings.toState()`），
   `Wenku8Client.mirrors` 还有一层 `isValidMirror` 兜底。图片 / 下载 / 官方 App API 用的是
   `img.wenku8.com` / `dl.wenku8.com` / `app.wenku8.com`，不受此条影响。
-- **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 OkHttp/Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
+- **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
 - **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（首页/tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
 - **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
-- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：**Cronet（TLS 指纹过 CF）→ WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ OkHttp（设备 UA）**，逐镜像尝试；**三层共用同一个 UA**，挑战令牌才能复用。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
+- **两级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页/书架）：**Cronet（TLS 指纹过 CF）→ WebView（真浏览器跑 CF JS 挑战，读回 DOM）**，逐镜像尝试；两层共用同一个 UA，挑战令牌才能复用。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到两级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
   > 主站部分入口仍会返回 `Location: http://www.wenku8.*`（未登录首页 → 登录页）。应用禁止明文流量，直接跟随会得到 `ERR_CLEARTEXT_NOT_PERMITTED`。Cronet 与 WebView 均通过 `Wenku8Hosts.secureMainSiteUrl()` 只把两个主站镜像的 scheme 升级为 HTTPS，保留原 path/query 编码；第三方地址不改写。
   > ⚠️ **Cronet 必须排在 WebView 前面**（2026-10 调整）：WebView 请求是串行的（`webViewMutex`），而探索页一次要加载几十个标签预览。2026-10-18 的设备日志里，50 个标签并发时 **202 次 WebView 超时**（大量是排队等锁的 15s），同一批请求换 Cronet 后 **92 次全部 200、每次约 0.5s**。
 - **详情 / 目录 / 正文的兜底**：这三类同样是 GET + HTML，直连失败后**先走 `fetchWithBypass`（Cronet）**，再退到官方 App API。
   ⚠️ 只靠 App API 是不够的：2026-10 起官方 App API 已失效（返回 200 但内容不可解析），而部分网络下直连会被 Cloudflare 全线 403——设备日志里 `/book/{id}.htm` 每次重试 4 次仍 403，详情页因此报"书籍信息获取失败"。
-- **登录去重（`loginMutex` + 双检）**：启动静默登录、首页、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。登录请求先走 Cronet POST，再以 OkHttp 兜底；成功判据始终是拿到 `jieqiUserInfo`，不是最终页面状态码。
+- **登录去重（`loginMutex` + 双检）**：启动静默登录、首页、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。登录请求走 Cronet POST；成功判据始终是拿到 `jieqiUserInfo`，不是最终页面状态码。
 - **隐藏 WebView 的生命周期与并发**：`webViewGet()` 用 `webViewMutex` 串行化（同一时刻只有一个 WebView 解挑战：多开会在主线程同时跑 JS、放大内存与风控样本，而串行化后第二个请求通常直接复用刚拿到的 cf_clearance 走快路径）；`cont.invokeOnCancellation` 保证协程被取消（离开页面/超时/VModel 销毁）时也会销毁 WebView，统一走 `destroyWebView()`（stopLoading → about:blank → clearHistory → removeAllViews → 换掉 WebViewClient → destroy，每步 runCatching）。超时分两层：单次解挑战 15s，等待锁 + 执行整体 25s。
-- **Cronet 挂起等待与重定向**：`cronetGet()` 不再用 `CountDownLatch.await(8s)`（每个请求独占一个 IO 线程空等，取消也要等超时才释放），改为 `suspendCancellableCoroutine` + `withTimeoutOrNull`，线程在等待期间释放，取消直接传播到 `UrlRequest.cancel()`。重定向由 Kotlin 层逐跳跟随（上限 6 次、整体 20s）：保存每个 3xx 响应的 `Set-Cookie`，把主站明文 Location 升级为 HTTPS，并按 301/302/303 → GET、307/308 保留方法与正文处理。登录会话 Cookie 通常就在 302 响应上，不能只保存最终页的 Cookie。
+- **Cronet 挂起等待与重定向**：`CronetHttpClient` 使用 `suspendCancellableCoroutine` + `withTimeoutOrNull`，等待期间释放线程，取消直接传播到 `UrlRequest.cancel()`。重定向由 Kotlin 层逐跳跟随（上限 6 次、整体默认 20s）：保存每个 3xx 响应的 `Set-Cookie`，把主站明文 Location 升级为 HTTPS，并按 301/302/303 → GET、307/308 保留方法与正文处理。登录会话 Cookie 通常就在 302 响应上，不能只保存最终页的 Cookie。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
 - **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。三者均带 **LRU 容量上限**（info 128 / toc 32 / chapter 64 条）：只有 TTL 时，长读一本书会让章节正文无限累积在内存里。
 - **本地磁盘缓存**（`data/local/HtmlDiskCache.kt`）：抓取内容按 URL 落盘到 `filesDir/html_cache`（卸载前持久），命中且未过期直接返回、避免二次加载；仅缓存非 CF 挑战/非登录页。TTL：首页 1h、详情/目录 7d、章节正文 30d、标签书单 1d；总量超 30MB 时按最旧优先清理。内存缓存（快）→ 磁盘缓存（持久）→ 网络，三级取数。
 - **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；**429 / 5xx** 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。
-  ⚠️ **403 不重试**（`HttpRetryPolicy`）：Cloudflare 对非浏览器直连是硬拦截，重试只会白等约 4.5s 并继续打站点——2026-10-18 日志里一天 433 次 403，而紧接着的 Cronet 一次就 200。403 现在立刻失败、交给三级绕过栈；搜索额外 5s 最小间隔，命中站点限流错误页时仍有界重试（最多 3 次、每次等 5s）。
+  ⚠️ **403 不重试**（`HttpRetryPolicy`）：Cloudflare 对非浏览器直连是硬拦截，重试只会白等约 4.5s 并继续打站点——2026-10-18 日志里一天 433 次 403，而紧接着的 Cronet 一次就 200。403 现在立刻失败、交给两级绕过栈；搜索额外 5s 最小间隔，命中站点限流错误页时仍有界重试（最多 3 次、每次等 5s）。
 - **取消语义**：所有 `runCatching` 均改为「不吞 `CancellationException`」的封装（`Wenku8Client` / `Wenku8Repository`），否则页面被取消会被误判成"直连失败"，继续走 WebView/Cronet 绕过栈。
 - **搜索**：按成功率三层——
   ① **Cronet POST `/so.php`**（带会话 Cookie 的 GBK 表单）：站点只接受 POST，而直连 POST 会被 CF 403，Cronet 的 TLS 指纹是唯一可靠通道；精确命中会 302 到 `/book/{id}.htm`，按最终 URL 解析；
@@ -177,7 +179,7 @@ Wenku8Reader/
   > 注：`parseTags` 已删除——标签来源改为内置清单 `BUILT_IN_TAGS`，不再抓取页面。
 
 ### 4.4 Cookie（`CookieStore.kt`）
-实现 `okhttp3.CookieJar`，登录成功后 `persist()` 落盘；`cronetGet`/`webViewGet` 手动拼 `Cookie` 头。
+实现 `okhttp3.CookieJar` 兼容类型，登录成功后 `persist()` 落盘；Cronet 与 WebView 共用同一份 Cookie。
 
 ### 4.5 下载（`DownloadEngine` / `FileSaver` / `EpubBuilder`）
 - `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 先取全本 TXT 用 `splitFullTxt` 切章（成功率 <60% 回退逐章），再 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml；章节 id/文件名统一 `%04d`；uid 取书名+作者 SHA-256 前 8 字节，避免中文书名退化成同一个 uid；`dcterms:modified` 用构建时刻）。
@@ -255,7 +257,7 @@ Wenku8Reader/
 - **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表里**按 `published_at` 排序后**最新的一条带 APK 的发布（**不能相信接口返回的顺序**，见下）。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准「`2_030_000_000` + 分钟偏移」，见 VERSIONING.md §2），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。
   **启动检查频率 = 每次启动一次**（2026-10 起）：不再有 24h 节流，由 `StartupCheckGate` 保证同一进程内只请求一次（Activity 重建 / 多入口不会重复打 GitHub）；失败只在**手动**检查时提示，自动检查静默。「跳过该版本」仍只影响自动检查。
   > ⚠️ **GitHub 的 releases 列表顺序不可靠**（2026-09-25 实测）：`v0.8.0-dev.100` 的 `id`/`created_at` 都是最新，却被排在 `dev.94` 之后（位置第 5）；新建的探针 release 同样落不到首位，带随机参数绕过缓存后顺序不变。所以"取第一条带 APK 的"会把旧包当成最新——测试版通道会一直提示已经过期好几个版本的 dev 包。实现改为显式按 `published_at` 排序（单测 `UpdateCheckerPickLatestTest` 用真实顺序当夹具）。这条**无法用 CI 侧绕过**：重新发布不会置顶，缩减保留数量也治不了。
-- **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；`OkHttpClient` **显式设置连接/读写/整体超时**（默认无超时会长期挂起且无取消点）。
+- **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；APK 通过共享 Cronet 按数据块流式写入文件，默认整体超时 120s，进度按 `Content-Length` 更新。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
 - **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。
 
@@ -314,6 +316,7 @@ Wenku8Reader/
 - **网站书架（「Wenku8书架」）**：`data/Wenku8Shelf.kt`（容器级单例，**不落库**——它本来就是远端镜像，
   持久化只会带来"本地副本与站点不一致"）。展示条件 = 账户开关 + 多书架开关 + 用户账户已登录。
   刷新是容器级互斥的（`refreshMutex`），手动刷新与"增删后的确认刷新"不会互相覆盖，也不会产生突发请求。
+  读取与增删固定使用当前已登录镜像并优先走 Cronet；不会跨镜像轮换，因为 Cookie 不共享。
 - **它与本地书架同等地位**（不要给它加"另一种卡片/另一条排序"这类特判）：同一条书架切换条
   （Material 侧同一个 `FilterChip`、MIUIX 侧同一枚胶囊）、同一套卡片、「管理书架」页里也有它的一行
   （只是不给改名 / 删除入口）、排序走同一条 `applySort()` 路径。真正特殊的只有两条：
@@ -380,8 +383,8 @@ Wenku8Reader/
 
   | 标签 | 内容 |
   |---|---|
-  | `NET` | 每个 OkHttp 请求：方法 + 脱敏 URL + 状态码 + 耗时 + 第几次尝试；429/5xx 的退避与最终放弃；IOException 类型与消息 |
-  | `BYPASS` | Cloudflare 三级栈：WebView / Cronet / OkHttp 各自的成败与耗时、最终命中哪一层、全部失败 |
+| `NET` | 每个 Cronet 请求：方法 + 脱敏 URL + 状态码 + 耗时 + 第几次尝试；429/5xx 的退避与最终放弃；网络错误类型与消息 |
+| `BYPASS` | Cloudflare 两级栈：Cronet / WebView 各自的成败与耗时、最终命中哪一层、全部失败 |
   | `AUTH` | 登录成功 / 失败（**不记用户名**）、会话缺失回落内置账号 |
   | `SHELF` | 站方书架条目数、加入 / 移出、会话失效 |
   | `UPDATE` | GitHub Releases 检查与 APK 下载（开始 / 完成 / 失败） |
@@ -611,7 +614,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 ### 7.3 近期针对阅读器的修复记录
 1. **状态指示器遮挡正文** → 下边距最小 80dp（`maxOf(80.dp, …)`），指示器（40dp）不再压字。
 2. **纯字数分页裁切** → 改为「charsPerLine/linesPerPage + 逐行模拟」分页，段落残行计入，不裁切。
-3. 网络层已跟进 `wenku8-bypass-analysis.md` 的清单：GB18030 解码、`Sec-Fetch-*` 头、多镜像域名、稳定的设备 UA（见 §4.2）、WebView/Cronet/OkHttp 三级兜底、自适应限速 + 429 退避。
+3. 网络层已跟进 `wenku8-bypass-analysis.md` 的清单：GB18030 解码、`Sec-Fetch-*` 头、多镜像域名、稳定的设备 UA（见 §4.2）、Cronet/WebView 两级兜底、自适应限速 + 429 退避。
 
 ### 7.4 性能优化（2026-08，卡顿 + 高刷新率）
 - **阅读器整屏重组修复**：电池/时间状态原提升在 ReaderScreen 顶层，每 15s 触发整个阅读器重组；已下沉到 `IndicatorBar` 内部（30s 更新），重组范围缩到指示器本身。
@@ -741,8 +744,9 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
    一律**以刷新后的结果为准**（见 §4.11）。
 18. **不改无关代码**：内置账号与 Cookie 相关实现（`DefaultAccount` / `CookieStore` / `Wenku8Client` 的登录内部流程）
    除非任务明确要求，不要动；凭据值**不得**出现在日志、文档、测试夹具与注释里，也不保存用户密码。
-19. **日志**：网络打点统一放在 `Wenku8Client.execute()`（所有 OkHttp 请求的唯一漏斗）与
-    `cronetGet` / `webViewGet` / `fetchWithBypass`；**新增网络路径必须经过这些函数**，否则不会进日志。
+19. **日志与网络出口**：HTTP 打点集中在 `CronetHttpClient.execute()`，wenku8 层的重试 / 兜底打点放在
+    `Wenku8Client.executeCronet()`、`cronetGet`、`webViewGet` 与 `fetchWithBypass`。**新增网络路径必须经过
+    `CronetHttpClient`**；不要重新创建 OkHttpClient 或 HttpURLConnection。
     传给 `AppLogger` 的地址必须先过 `LogSanitizer.sanitizeUrl`，且**不得**传 Cookie、密码、请求体、
     页面 HTML 或章节正文；日志量按"每个请求一条"控制，不要按字节 / 按页打点。
     新增存储目录时同步更新 `backup_rules.xml` / `data_extraction_rules.xml`（见 §4.12）。

@@ -34,7 +34,11 @@ fun coverImageRequest(
     heightPx: Int,
     crossfade: Boolean = false,
 ): ImageRequest = ImageRequest.Builder(context)
-    .data(url?.let(Wenku8Hosts::normalizeImageUrl))
+    .data(
+        url?.let(Wenku8Hosts::normalizeImageUrl)?.let {
+            CronetImageRequest(it, Wenku8Hosts.IMAGE_REFERER)
+        }
+    )
     .size(widthPx, heightPx)
     .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
     .apply { if (crossfade) crossfade(true) }

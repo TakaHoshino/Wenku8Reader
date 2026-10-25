@@ -42,6 +42,7 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.Wenku8Application
 import com.hoshino.wenku8reader.data.FileSaver
 import com.hoshino.wenku8reader.data.Wenku8Hosts
+import com.hoshino.wenku8reader.ui.common.CronetImageRequest
 import com.hoshino.wenku8reader.di.AppContainer
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import kotlin.math.abs
@@ -84,7 +85,7 @@ fun ReaderImagePreview(
     val scope = rememberCoroutineScope()
     val request = remember(url) {
         ImageRequest.Builder(context)
-            .data(Wenku8Hosts.normalizeImageUrl(url))
+            .data(CronetImageRequest(Wenku8Hosts.normalizeImageUrl(url), Wenku8Hosts.IMAGE_REFERER))
             .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
             .build()
     }
