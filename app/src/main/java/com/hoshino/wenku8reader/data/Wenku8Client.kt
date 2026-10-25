@@ -766,8 +766,16 @@ class Wenku8Client(
 
         when (Parsers.classifyBookcasePage(html)) {
             Parsers.BookcasePageKind.LOGIN_REQUIRED -> markBookcaseSessionExpired()
-            Parsers.BookcasePageKind.OTHER ->
+            Parsers.BookcasePageKind.OTHER -> {
+                logger?.warn(
+                    TAG_SHELF,
+                    "书架页面无法识别（len=${html.length}, " +
+                        "checkform=${html.contains("checkform")}, " +
+                        "readbookcase=${html.contains("readbookcase.php")}, " +
+                        "login=${html.contains(LOGIN_PATH)}）",
+                )
                 throw IOException("Wenku8 书架返回了无法识别的页面")
+            }
             Parsers.BookcasePageKind.BOOKSHELF -> Unit
         }
         Parsers.parseBookcase(html).also {

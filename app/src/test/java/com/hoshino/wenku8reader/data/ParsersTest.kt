@@ -314,6 +314,12 @@ class ParsersTest {
             ),
         )
         assertEquals(
+            Parsers.BookcasePageKind.BOOKSHELF,
+            Parsers.classifyBookcasePage(
+                """<a href="/modules/article/readbookcase.php?aid=1&bid=2">书名</a>"""
+            ),
+        )
+        assertEquals(
             Parsers.BookcasePageKind.LOGIN_REQUIRED,
             Parsers.classifyBookcasePage(
                 """<form name="frmlogin" action="login.php"></form>"""
