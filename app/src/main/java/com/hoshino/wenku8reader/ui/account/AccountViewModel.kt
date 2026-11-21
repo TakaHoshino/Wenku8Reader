@@ -27,8 +27,6 @@ data class AccountUiState(
     val lastUsername: String = "",
     /** 是否持有会话（含内置账号的会话）。 */
     val sessionPresent: Boolean = false,
-    /** 登录请求进行中。 */
-    val loggingIn: Boolean = false,
     val error: UiText? = null,
     val notice: UiText? = null,
 ) {
@@ -38,8 +36,8 @@ data class AccountUiState(
 /**
  * 账户登录页（Material 与 MIUIX 共用）。
  *
- * 密码**只在内存里**：登录请求失败就丢弃，成功也不需要保存——站点会话 Cookie 有效期很长
- * （登录时带 `usecookie`），之后靠 Cookie 维持登录态，重启应用不必重输密码。
+ * 登录在应用内 WebView 的真实站点页面完成；本 ViewModel 只接收登录成功后回填的 Cookie，
+ * 从不读取、保存或传递用户名密码。
  */
 class AccountViewModel(
     private val client: Wenku8Client,
@@ -68,37 +66,36 @@ class AccountViewModel(
         }
     }
 
-    fun login(username: String, password: String) {
-        val user = username.trim()
-        if (user.isEmpty() || password.isEmpty()) {
-            _ui.update { it.copy(error = UiText.StringResource(R.string.account_error_input)) }
-            return
-        }
+    /** 打开网站登录页时使用当前主镜像的登录地址。 */
+    fun websiteLoginUrl(): String = client.websiteLoginUrl()
+
+    /**
+     * 网站登录 Activity 已把 Cookie 写入共享 CookieStore。
+     * 这里再次校验会话，并记录“当前使用的是用户账户”这一应用侧标记。
+     */
+    fun completeWebsiteLogin(username: String?) {
         viewModelScope.launch {
-            _ui.update { it.copy(loggingIn = true, error = null, notice = null) }
-            // login() 内部以"是否拿到 jieqiUserInfo 会话 Cookie"判定成败
-            val ok = runCatching { client.login(user, password) }.getOrDefault(false)
-            if (ok) {
-                // 先记预填、再置激活标记：标记存在就意味着"当前会话属于这个用户账户"
-                accountStore.setLast(user)
-                accountStore.setActive(user)
+            val session = withContext(Dispatchers.IO) { client.isLoggedIn() }
+            if (!session) {
                 _ui.update {
                     it.copy(
-                        loggingIn = false,
-                        activeUsername = user,
-                        lastUsername = user,
-                        sessionPresent = true,
-                        error = null,
-                        notice = UiText.StringResource(R.string.account_login_ok, user),
-                    )
-                }
-            } else {
-                _ui.update {
-                    it.copy(
-                        loggingIn = false,
                         error = UiText.StringResource(R.string.account_error_failed),
                     )
                 }
+                return@launch
+            }
+            val detected = username?.trim()?.takeIf { it.isNotEmpty() }
+            val displayName = detected ?: "网站账户"
+            if (detected != null) accountStore.setLast(detected)
+            accountStore.setActive(displayName)
+            _ui.update {
+                it.copy(
+                    activeUsername = displayName,
+                    lastUsername = detected ?: it.lastUsername,
+                    sessionPresent = true,
+                    error = null,
+                    notice = UiText.StringResource(R.string.account_login_ok, displayName),
+                )
             }
         }
     }

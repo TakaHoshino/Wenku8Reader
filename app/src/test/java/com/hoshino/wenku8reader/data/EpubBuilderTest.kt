@@ -5,6 +5,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -112,5 +113,40 @@ class EpubBuilderTest {
         val entries = readEntries(EpubBuilder.build("书名", null, null, emptyList()))
         assertNotNull(parseXml(entries.first { it.first.name == "META-INF/container.xml" }.second))
         assertNotNull(parseXml(entries.first { it.first.name == "OEBPS/content.opf" }.second))
+    }
+
+    @Test
+    fun `插图写入 manifest 与章节 xhtml`() {
+        val image = EpubBuilder.EpubImage(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47), "image/png")
+        val bytes = EpubBuilder.build(
+            "书名",
+            "作者",
+            null,
+            chapters("插图章" to "正文"),
+            listOf(listOf(image)),
+        )
+        val entries = readEntries(bytes)
+        val names = entries.map { it.first.name }
+        assertTrue(
+            "插图应以章节内相对路径写入 EPUB",
+            "OEBPS/images/chapter_0001_0001.png" in names,
+        )
+
+        val chapter = String(entries.first { it.first.name == "OEBPS/chapter_0001.xhtml" }.second)
+        assertTrue(chapter.contains("src=\"images/chapter_0001_0001.png\""))
+
+        val opf = String(entries.first { it.first.name == "OEBPS/content.opf" }.second)
+        assertTrue(opf.contains("href=\"images/chapter_0001_0001.png\" media-type=\"image/png\""))
+    }
+
+    @Test
+    fun `nav 仅作为导航资源不进入正文 spine`() {
+        val bytes = EpubBuilder.build("书名", null, null, chapters("第一章" to "正文"))
+        val opf = String(readEntries(bytes).first { it.first.name == "OEBPS/content.opf" }.second)
+        val spine = Regex("<spine[^>]*>(.*?)</spine>", RegexOption.DOT_MATCHES_ALL)
+            .find(opf)?.groupValues?.get(1)
+        assertNotNull(spine)
+        assertFalse(spine!!.contains("idref=\"nav\""))
+        assertTrue(opf.contains("href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\""))
     }
 }

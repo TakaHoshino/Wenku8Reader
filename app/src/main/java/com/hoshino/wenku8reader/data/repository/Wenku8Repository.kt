@@ -56,6 +56,9 @@ class Wenku8Repository(private val client: Wenku8Client) {
     suspend fun downloadFullTxt(id: Int, type: String): Result<ByteArray> =
         runCatchingNotCancelling { client.downloadFullTxt(id, type) }
 
+    suspend fun imageBytes(url: String): Result<ByteArray> =
+        runCatchingNotCancelling { client.imageBytes(url) }
+
     /** The `gid` required by /novel/ URLs. Falls back to id/1000 when the detail page omits it. */
     fun groupIdOf(info: BookInfo): Int = bookGroupId(info)
 }

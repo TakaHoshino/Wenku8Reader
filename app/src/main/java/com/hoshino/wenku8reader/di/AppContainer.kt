@@ -81,7 +81,7 @@ class AppContainer(context: Context) {
     val accountStore: AccountStore = AccountStore(context)
 
     /** 全部 HTTP 请求共用的 Cookie 存储与 Cronet 引擎。 */
-    private val cookieStore: CookieStore = CookieStore(context)
+    val cookieStore: CookieStore = CookieStore(context)
     val cronetHttp: CronetHttpClient = CronetHttpClient(context, cookieStore, logger)
 
     /** Coil 的网络层也使用 [cronetHttp]；解码与图片缓存仍由 Coil 管理。 */

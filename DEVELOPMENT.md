@@ -29,7 +29,7 @@
 | 语言 | Kotlin（JVM target 17） |
 | UI | Jetpack Compose（BOM 2026.05.01，ui/foundation 1.11.2）+ **Material 3 Expressive**（material3 1.5.0-alpha18）+ material-icons-extended |
 | 架构 | 单 Activity + Navigation-Compose + ViewModel（手写 DI 容器，无 Hilt） |
-| 网络 | 统一 Cronet（chromium net）；WebView 仅作 JS 反爬兜底；Coil 2.7 负责图片解码与缓存 |
+| 网络 | 数据请求统一 Cronet（chromium net）；WebView 仅承载网站登录与 JS 反爬兜底；Coil 2.7 负责图片解码与缓存 |
 | 依赖注入 | 手写 `AppContainer`（`di/AppContainer.kt`） |
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
@@ -131,7 +131,7 @@ Wenku8Reader/
 
 ### 4.2 网络客户端（`Wenku8Client.kt`）
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
-- **统一 Cronet 网络栈**：`CronetHttpClient` 是应用唯一的 HTTP 出口，wenku8 页面 / 登录 / 搜索 / 书架 / TXT 下载、GitHub 更新检查与 APK 下载，以及 Coil 封面 / 插图均经它请求。它统一处理 Cookie、逐跳重定向、主站 HTTPS 升级、超时、取消和流式下载回调；源码中不再创建 `OkHttpClient` 或 `HttpURLConnection`。OkHttp 依赖仅保留 `Cookie` / `HttpUrl` / `Headers` 等兼容类型。
+- **统一 Cronet 网络栈**：`CronetHttpClient` 是应用数据请求的唯一 HTTP 出口，wenku8 页面 / 搜索 / 书架 / TXT 下载、GitHub 更新检查与 APK 下载，以及 Coil 封面 / 插图均经它请求。它统一处理 Cookie、逐跳重定向、主站 HTTPS 升级、超时、取消和流式下载回调；源码中不再创建 `OkHttpClient` 或 `HttpURLConnection`。例外仅限 `WebsiteLoginActivity`（必须运行站点登录表单）与 Cloudflare JS 挑战。
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
 - **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`，UA 统一用 `UserAgent.build()` 生成的**设备 UA**（真实 `Build.VERSION.RELEASE` + `Build.MODEL`，WebKit/Safari 固定 `537.36`、Chrome 主版本固定，进程内只算一次）。
   > ⚠️ **不要改回"每次请求随机 UA"**：随机机型/系统组合、`Chrome/140.0.12.3`、`Safari/537.118` 这类不存在的值本身就是自动化特征；而 `cf_clearance` 与 UA 绑定，换 UA 还会让令牌复用失效。参考 LightNovelReader 2026-10-02 的 `fix(web): 修正UA生成器`（同样是改成真实 Build + 固定版本 + 缓存）。
@@ -172,7 +172,7 @@ Wenku8Reader/
 ### 4.3 解析（`Parsers.kt`）
 纯正则（`java.util.regex.Pattern`）。注意：
 - `parseChapter`：用 `indexOf("<div id=\"content\">")` 到 `indexOf("<div id=\"footlink\"")` 截取正文（**不用正则**，防嵌套 div）；剥离 `<ul id="contentdp">` 水印；`<br>/</p>` → `\n`；去标签；实体解码；`\u3000` → 两个半角；按行 trim、合并连续空行。
-- `splitFullTxt(txt, volumes)`：用目录树生成期望章节头（`卷名 章节名`），在 TXT 行里**一次遍历、按行号游标线性定位**并切分章节，用于 EPUB 生成（相比"每行 trim 两次 + 文本→行号全量 map"，8MB/1000 章实测 53ms→38ms、55MB→43MB）。
+- `splitFullTxt(txt, volumes)`：用目录树生成期望章节头（`卷名 章节名`），在 TXT 行里**一次遍历、按行号游标线性定位**并切分章节。该工具保留并有单测，但 EPUB 已不再走 TXT 快捷路径——TXT 不携带插图 URL。
 - `parseBookcase`：按 `bid` 分组，无 `cid` 链接为书名、有 `cid` 为最新章节；解析前先对 href 做**反转义**
   （站点可能把分隔符写成 `&amp;`，不解码会拆出 `amp;bid` 这种键，整页书架被**静默**解析成空列表）。
 - `parseHomepage` / `parseBookList`：首页 `<div class="block">` 切块、书籍列表（两者共用 `homeBookAt` 解析条目；封面统一经 `absolutizeCover` 补全域名）。
@@ -182,7 +182,7 @@ Wenku8Reader/
 实现 `okhttp3.CookieJar` 兼容类型，登录成功后 `persist()` 落盘；Cronet 与 WebView 共用同一份 Cookie。
 
 ### 4.5 下载（`DownloadEngine` / `FileSaver` / `EpubBuilder`）
-- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 先取全本 TXT 用 `splitFullTxt` 切章（成功率 <60% 回退逐章），再 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml；章节 id/文件名统一 `%04d`；uid 取书名+作者 SHA-256 前 8 字节，避免中文书名退化成同一个 uid；`dcterms:modified` 用构建时刻）。
+- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 始终逐章抓取 HTML，以同时获得正文和插图 URL，再下载并内嵌插图，最后 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml + `OEBPS/images/`；章节 id/文件名统一 `%04d`；图片项写入 manifest 并由章节相对路径引用；`nav.xhtml` 标记 `properties="nav"` 且**不进入 spine**，避免被阅读器排在正文最后一页；uid 取书名+作者 SHA-256 前 8 字节；`dcterms:modified` 用构建时刻）。
 - `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。**重名即覆盖**：插入前先按 `RELATIVE_PATH` 查回本目录的文件并删掉同名/自动重命名副本（判定见 `isDuplicateDownloadName()`：标准形态 `书名 (1).txt` 与部分 ROM 的 `书名.txt(1)` 都算副本，另有单测覆盖），否则 MediaProvider 会把新文件改名成 `书名 (1).txt`，每重新下载一次就多一份副本；写入用 `IS_PENDING`，其他应用在写完前看不到半截文件。
 
 ### 4.6 本地存储
@@ -259,6 +259,7 @@ Wenku8Reader/
   > ⚠️ **GitHub 的 releases 列表顺序不可靠**（2026-09-25 实测）：`v0.8.0-dev.100` 的 `id`/`created_at` 都是最新，却被排在 `dev.94` 之后（位置第 5）；新建的探针 release 同样落不到首位，带随机参数绕过缓存后顺序不变。所以"取第一条带 APK 的"会把旧包当成最新——测试版通道会一直提示已经过期好几个版本的 dev 包。实现改为显式按 `published_at` 排序（单测 `UpdateCheckerPickLatestTest` 用真实顺序当夹具）。这条**无法用 CI 侧绕过**：重新发布不会置顶，缩减保留数量也治不了。
 - **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；APK 通过共享 Cronet 按数据块流式写入文件，默认整体超时 120s，进度按 `Content-Length` 更新。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
+- **安装器兼容**：Manifest 声明 `REQUEST_INSTALL_PACKAGES`；API 26+ 未授权时跳转 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`。FileProvider URI 同时放进 `data` 与 `ClipData`，保证部分 OEM 安装器能取得读取授权；`ACTION_VIEW` 失败后回退旧 `ACTION_INSTALL_PACKAGE`。
 - **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。
 
 ### 4.10 存储占用统计与清理（`AppStorageManager` / `ui/settings`）
@@ -298,8 +299,11 @@ Wenku8Reader/
 - **「用户已登录」的判据**：`activeUsername != null && client.hasSession()`。
   ⚠️ **不能只看 `hasSession()`**：内置账号登录后同样有会话 Cookie，只看 Cookie 会把"内置账号"误判成
   "用户已登录"，进而显示出别人的网站书架。
+- **网站登录**：账户页跳转应用内 `WebsiteLoginActivity`，用户在真实 wenku8 登录页完成密码、
+  验证码或风控校验；成功后从 WebView `CookieManager` 导出 `jieqiUserInfo` 等 Cookie 到共享
+  `CookieStore`。应用不接触用户名密码。进入页面前只清理旧 `jieqi*` 账号 Cookie，保留 cf_clearance。
   `data/local/AccountStore.kt`（DataStore 文件 `account`）只存两个用户名：`active_username`
-  （当前激活账户，缺失 = 内置账号）与 `last_username`（登录页预填），**不存密码**。
+  （当前激活账户，缺失 = 内置账号）与 `last_username`（登录后页面识别出的最近用户名），**不存密码**。
   它独立于 `ReaderSettings` 是刻意的：那是"设置"，这是"身份"——登出与会话失效都要清它，
   生命周期和设置不同，混在一起会让"关掉开关"顺手把登录态也带走了。
 - **登出语义 = 回落内置账号**：`AccountViewModel.logout()` 依次
@@ -439,7 +443,7 @@ Wenku8Reader/
 - `TocScreen/ViewModel`（路由 `toc/{id}`）：独立目录页——分卷可折叠（**默认全展开、全卷已读自动折叠**），已读章节灰显 + "已读"标记、当前章主题色加粗；点章节带 `cid` 进阅读器（见 §4.8）。
 - `AuthorBooksScreen/ViewModel`（路由 `author/{name}`）：某作者的全部作品（复用按作者搜索接口）。
 - `ShelfManageScreen`（`ui/shelf/`，路由 `shelf/manage`）：管理书架二级页——新建 / 重命名 / 删除，两套 UI 共用 `ShelfManageViewModel`；**「Wenku8书架」也在这里占一行**（只是没有改名 / 删除入口，见 §4.11）。
-- `AccountScreen/ViewModel` + `MirrorChangeDialog`（`ui/account/`，路由 `settings/account`，实验性）：账户二级页——用户名 / 密码登录、登录态展示、退出登录、切镜像确认；**密码只在登录瞬间内存持有，不落盘**（见 §4.11）。
+- `AccountScreen/ViewModel` + `WebsiteLoginActivity` + `MirrorChangeDialog`（`ui/account/`，路由 `settings/account`，实验性）：账户二级页——跳转站点登录、登录态展示、退出登录、切镜像确认；**应用不接触密码**（见 §4.11）。
 - `ReadingStatsScreen/ViewModel`（`ui/stats/`，路由 `stats`，书架顶栏日历图标进入）：阅读热力图 + 汇总卡 + 当日明细（见 §4.7）。
 - `UpdateDialogHost`（`ui/update/`）：应用内更新弹窗宿主（检查 / 下载 / 安装，见 §4.9）。
 - `ui/miuix/Miuix*Page.kt`：MIUIX 侧与上述页面**一一对应的独立实现**（`MiuixExplorePage` / `MiuixBookcasePage` / `MiuixDetailPage` / `MiuixTocPage` / `MiuixAccountPage` / `MiuixShelfManagePage` / `MiuixStatsPage` / `MiuixStoragePage` / `MiuixSettingsPage` / `MiuixCustomizationPage` / `MiuixDownloadsPage` / `MiuixAboutPage` 等，见 §5.6）。

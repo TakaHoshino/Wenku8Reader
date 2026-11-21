@@ -462,6 +462,10 @@ class Wenku8Client(
 
     suspend fun isLoggedIn(): Boolean = withContext(Dispatchers.IO) { hasSession() }
 
+    /** 网站登录页（使用当前主镜像；登录完成后由 WebView CookieManager 回填会话）。 */
+    fun websiteLoginUrl(): String =
+        "$base/login.php?jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}"
+
     /**
      * 确保已登录（供 tags/bookcase 等需登录接口调用）。
      *

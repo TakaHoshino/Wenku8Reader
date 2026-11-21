@@ -55,6 +55,9 @@
     <string name="update_none">暂无可用更新</string>
     <string name="update_check_failed">检查更新失败：%1$s</string>
     <string name="update_signature_mismatch">更新包签名校验未通过，已阻止安装（文件可能被第三方镜像篡改）</string>
+    <string name="update_install_permission_required">请允许本应用安装未知应用，返回后再次点击更新</string>
+    <string name="update_install_unavailable">未找到可用的系统安装器，请检查系统应用设置</string>
+    <string name="update_install_failed">无法拉起系统安装器，请检查“安装未知应用”权限后重试</string>
 
     <!-- 底部导航 -->
     <string name="tab_explore">探索</string>
@@ -216,6 +219,8 @@
     <!-- 账户二级页 + 设置页账户分区（仅账户开关打开时可见） -->
     <string name="account_tap_login">点击登录 wenku8 账户</string>
     <string name="account_logged_in">已登录：%1$s</string>
+    <string name="account_website_login_action">打开网站登录</string>
+    <string name="account_website_login_hint">将在应用内打开 wenku8 登录页。完成登录后自动保存站点 Cookie，不保存密码。</string>
     <string name="account_username">用户名</string>
     <string name="account_password">密码</string>
     <string name="account_login_action">登录</string>
@@ -229,6 +234,9 @@
     <string name="account_logout_ok">已退出登录，继续使用内置共享账号</string>
     <string name="account_mirror_confirm_title">切换主镜像</string>
     <string name="account_mirror_confirm_message">切换主镜像会退出当前登录的账户（Cookie 不跨域），需要在新的镜像重新登录。是否继续？</string>
+    <string name="website_login_title">登录 wenku8</string>
+    <string name="website_login_close">关闭</string>
+    <string name="website_login_load_failed">登录页加载失败，请检查网络后重试</string>
     <string name="shelf_manage_title">管理书架</string>
     <string name="shelf_new">新建书架</string>
     <string name="shelf_rename">重命名</string>

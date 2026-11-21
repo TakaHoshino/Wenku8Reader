@@ -1,11 +1,13 @@
 package com.hoshino.wenku8reader.data
 
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.hoshino.wenku8reader.R
@@ -26,6 +28,14 @@ data class ReleaseInfo(
     /** 由 Release 描述首行的 `versionCode: <N>` 解析而来（null = 旧发布无此字段）。 */
     val versionCode: Long? = null,
 )
+
+/** APK 安装器的启动结果；权限引导与失败原因需要反馈给更新弹窗。 */
+enum class ApkInstallResult {
+    LAUNCHED,
+    PERMISSION_REQUIRED,
+    INSTALLER_UNAVAILABLE,
+    SIGNATURE_MISMATCH,
+}
 
 /**
  * 更新检查：查询 GitHub Releases 最新版（`api.github.com`），下载 APK（直连或 gh-proxy 镜像），
@@ -212,7 +222,7 @@ class UpdateChecker(
      * 校签后用 FileProvider 拉起系统安装器（覆盖安装/更新包）。
      * 校签失败：删除可疑文件、提示用户、**不**安装（返回 false）。
      */
-    fun installApk(context: Context, file: File): Boolean {
+    fun installApk(context: Context, file: File): ApkInstallResult {
         if (!verifyApkSignature(context, file)) {
             runCatching { file.delete() }
             Toast.makeText(
@@ -220,18 +230,70 @@ class UpdateChecker(
                 R.string.update_signature_mismatch,
                 Toast.LENGTH_LONG,
             ).show()
-            return false
+            logger?.warn("UPDATE", "APK 签名校验失败，拒绝安装")
+            return ApkInstallResult.SIGNATURE_MISMATCH
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !context.packageManager.canRequestPackageInstalls()
+        ) {
+            val settingsIntent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${context.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val opened = runCatching { context.startActivity(settingsIntent) }.isSuccess
+            logger?.warn(
+                "UPDATE",
+                if (opened) {
+                    "安装未知应用权限未开启，已打开系统授权页"
+                } else {
+                    "安装未知应用权限未开启，且无法打开系统授权页"
+                },
+            )
+            Toast.makeText(
+                context,
+                R.string.update_install_permission_required,
+                Toast.LENGTH_LONG,
+            ).show()
+            return ApkInstallResult.PERMISSION_REQUIRED
+        }
+
         val uri: Uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             file,
         )
-        val intent = Intent(Intent.ACTION_VIEW).apply {
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // 部分 OEM 安装器只从 ClipData 读取 URI 授权，单独 FLAG 不足以放行。
+            clipData = ClipData.newRawUri("update-apk", uri)
         }
-        return runCatching { context.startActivity(intent) }.isSuccess
+
+        if (runCatching { context.startActivity(viewIntent) }.isSuccess) {
+            logger?.info("UPDATE", "已拉起系统安装器")
+            return ApkInstallResult.LAUNCHED
+        }
+
+        // 少数旧 ROM 仍只响应已废弃的 ACTION_INSTALL_PACKAGE；作为最后一次兼容尝试。
+        @Suppress("DEPRECATION")
+        val packageInstallerIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = uri
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newRawUri("update-apk", uri)
+        }
+        if (runCatching { context.startActivity(packageInstallerIntent) }.isSuccess) {
+            logger?.info("UPDATE", "已通过 ACTION_INSTALL_PACKAGE 拉起系统安装器")
+            return ApkInstallResult.LAUNCHED
+        }
+
+        logger?.warn("UPDATE", "无法拉起系统安装器")
+        Toast.makeText(
+            context,
+            R.string.update_install_unavailable,
+            Toast.LENGTH_LONG,
+        ).show()
+        return ApkInstallResult.INSTALLER_UNAVAILABLE
     }
 
     /** 解析版本号基础段：剥离 `v` 前缀与 prerelease 后缀（如 v0.3.0-dev.16 → [0,3,0]）。 */
