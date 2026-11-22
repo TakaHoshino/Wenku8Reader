@@ -152,6 +152,9 @@ Wenku8Reader/
 - **详情 / 目录 / 正文的兜底**：这三类同样是 GET + HTML，直连失败后**先走 `fetchWithBypass`（Cronet）**，再退到官方 App API。
   ⚠️ 只靠 App API 是不够的：2026-10 起官方 App API 已失效（返回 200 但内容不可解析），而部分网络下直连会被 Cloudflare 全线 403——设备日志里 `/book/{id}.htm` 每次重试 4 次仍 403，详情页因此报"书籍信息获取失败"。
 - **登录去重（`loginMutex` + 双检）**：启动静默登录、首页、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。登录请求走 Cronet POST；成功判据始终是拿到 `jieqiUserInfo`，不是最终页面状态码。
+  登录会按当前镜像列表逐个尝试，并以对应主机的 `jieqiUserInfo` 判定成功；Cookie 不跨主机共享，
+  所以搜索与站方书架会回到实际持有会话的镜像。这修复了 `www.wenku8.cc` 出现
+  `ERR_HTTP2_PROTOCOL_ERROR` 时只向主镜像重试、可用的 `www.wenku8.net` 永远收不到登录请求的问题。
 - **隐藏 WebView 的生命周期与并发**：`webViewGet()` 用 `webViewMutex` 串行化（同一时刻只有一个 WebView 解挑战：多开会在主线程同时跑 JS、放大内存与风控样本，而串行化后第二个请求通常直接复用刚拿到的 cf_clearance 走快路径）；`cont.invokeOnCancellation` 保证协程被取消（离开页面/超时/VModel 销毁）时也会销毁 WebView，统一走 `destroyWebView()`（stopLoading → about:blank → clearHistory → removeAllViews → 换掉 WebViewClient → destroy，每步 runCatching）。超时分两层：单次解挑战 15s，等待锁 + 执行整体 25s。
 - **Cronet 挂起等待与重定向**：`CronetHttpClient` 使用 `suspendCancellableCoroutine` + `withTimeoutOrNull`，等待期间释放线程，取消直接传播到 `UrlRequest.cancel()`。重定向由 Kotlin 层逐跳跟随（上限 6 次、整体默认 20s）：保存每个 3xx 响应的 `Set-Cookie`，把主站明文 Location 升级为 HTTPS，并按 301/302/303 → GET、307/308 保留方法与正文处理。登录会话 Cookie 通常就在 302 响应上，不能只保存最终页的 Cookie。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。

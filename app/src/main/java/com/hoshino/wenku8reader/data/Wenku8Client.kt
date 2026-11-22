@@ -213,6 +213,18 @@ class Wenku8Client(
     private val base: String get() = mirrors.first()
 
     /**
+     * 实际持有登录会话的镜像。
+     *
+     * 主镜像与可用于登录的镜像不一定相同：Cookie 按主机隔离，认证类请求必须回到
+     * 真正收到 `jieqiUserInfo` 的那个主机，不能盲目使用设置页选中的主镜像。
+     */
+    @Volatile
+    private var activeSessionBase: String? = null
+
+    private val authenticatedBase: String
+        get() = activeSessionBase ?: base
+
+    /**
      * WebView 解出 Cloudflare 挑战时使用的 UA（按主机记录）。
      * cf_clearance 令牌与该 UA 绑定，后续 Cronet 复用令牌时必须使用同一 UA。
      */
@@ -225,6 +237,7 @@ class Wenku8Client(
     /** 切换主镜像/清空会话时调用：清空全部 Cookie 与 UA 绑定。 */
     fun clearCookies() {
         challengeUa.clear()
+        activeSessionBase = null
         cookieStore.clear()
     }
 
@@ -439,26 +452,41 @@ class Wenku8Client(
     private suspend fun postForm(
         url: String,
         pairs: List<Pair<String, String>>,
-    ): CronetHttpClient.Response = executeCronet(
-        url = url,
-        method = "POST",
-        headers = browserHeaders("$base/login.php", sameOriginForm = true) + mapOf(
-            "Content-Type" to "application/x-www-form-urlencoded",
-            "Origin" to base,
-        ),
-        body = gbkFormBytes(pairs),
-        retries = 2,
-    )
+    ): CronetHttpClient.Response {
+        val target = url.toHttpUrl()
+        val origin = "${target.scheme}://${target.host}"
+        return executeCronet(
+            url = url,
+            method = "POST",
+            headers = browserHeaders(url.substringBefore('?'), sameOriginForm = true) + mapOf(
+                "Content-Type" to "application/x-www-form-urlencoded",
+                "Origin" to origin,
+            ),
+            body = gbkFormBytes(pairs),
+            retries = 2,
+        )
+    }
 
     // ------------------------------------------------------------------ //
     // account
     // ------------------------------------------------------------------ //
 
-    /** 是否持有有效会话：以 jieqiUserInfo 会话 Cookie 为准（旧版 frmlogin 标记已随页面改版失效）。 */
-    private fun hasSession(): Boolean =
-        cookieStore.loadForRequest(base.toHttpUrl()).any {
+    /** 指定镜像是否持有有效会话；Cookie 不跨主机共享，不能只检查主镜像。 */
+    private fun hasSessionFor(hostBase: String): Boolean =
+        cookieStore.loadForRequest(hostBase.toHttpUrl()).any {
             it.name == "jieqiUserInfo" && it.value.isNotBlank()
         }
+
+    /**
+     * 找到实际持有会话的镜像，并刷新 [activeSessionBase]。
+     *
+     * `www.wenku8.cc` 在部分网络下持续出现 HTTP/2 协议错误，而 `www.wenku8.net`
+     * 可以正常登录；会话只属于成功登录的那个主机，因此这里不能只看当前主镜像。
+     */
+    private fun findSessionBase(): String? =
+        mirrors.firstOrNull(::hasSessionFor)?.also { activeSessionBase = it }
+
+    private fun hasSession(): Boolean = findSessionBase() != null
 
     suspend fun isLoggedIn(): Boolean = withContext(Dispatchers.IO) { hasSession() }
 
@@ -500,21 +528,30 @@ class Wenku8Client(
                 "action" to "login",
                 "submit" to "\u00A0\u00A0\u767B\u00A0\u00A0\u5F55\u00A0",
             )
-            val loginUrl = "$base/login.php?do=submit" +
-                "&jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}"
-
-            // 普通 HTTP 栈的 TLS 指纹很容易被 Cloudflare 403；Cronet 是已经验证过的
-            // 通道。登录响应通常是 302，会话 Cookie 可能在重定向响应而非最终页上，
-            // cronetRequestRaw() 会逐跳保存 Set-Cookie，再按 HTTP 语义继续 GET。
-            val viaCronet = runCatchingNotCancelling {
-                cronetPost(loginUrl, gbkFormBytes(fields))
-            }.getOrNull()
-            if (viaCronet != null && hasSession()) {
-                cookieStore.persist()
-                logger?.info(TAG_AUTH, "登录成功（Cronet）")
-                return@withContext true
+            // 主镜像的 HTTP/2 可能在当前网络下不可用。登录必须逐镜像尝试，并用每个镜像
+            // 自己的 Cookie 域验证结果；只向 base 提交会让可用的备用镜像永远收不到请求。
+            for (hostBase in mirrors) {
+                val loginUrl = "$hostBase/login.php?do=submit" +
+                    "&jumpurl=${URLEncoder.encode("$hostBase/index.php", "UTF-8")}"
+                val viaCronet = runCatchingNotCancelling {
+                    cronetPost(loginUrl, gbkFormBytes(fields))
+                }.getOrNull()
+                if (viaCronet != null && hasSessionFor(hostBase)) {
+                    activeSessionBase = hostBase
+                    cookieStore.persist()
+                    logger?.info(
+                        TAG_AUTH,
+                        "登录成功（Cronet, ${LogSanitizer.sanitizeUrl(hostBase)}）",
+                    )
+                    return@withContext true
+                }
+                logger?.warn(
+                    TAG_AUTH,
+                    "镜像登录失败（${LogSanitizer.sanitizeUrl(hostBase)}）",
+                )
             }
 
+            activeSessionBase = null
             // 只记成败，不记用户名（账户名属于用户隐私）
             logger?.info(TAG_AUTH, "登录失败")
             false
@@ -545,7 +582,7 @@ class Wenku8Client(
             )
             pacer.paceSearch()
             val viaCronet = runCatchingNotCancelling {
-                cronetPost("$base/so.php", gbkFormBytes(fields))
+                cronetPost("$authenticatedBase/so.php", gbkFormBytes(fields))
             }.getOrNull()
             if (viaCronet != null) {
                 val (finalUrl, html) = viaCronet
@@ -593,7 +630,7 @@ class Wenku8Client(
             repeat(SEARCH_MAX_ATTEMPTS) { attempt ->
                 pacer.paceSearch()
                 val resp = postForm(
-                    "$base/so.php",
+                    "$authenticatedBase/so.php",
                     listOf(
                         "searchtype" to type,
                         "searchkey" to keyword,
@@ -837,7 +874,7 @@ class Wenku8Client(
         urlFor: (String) -> String,
     ): String? = fetchWithBypass(
         urlFor = urlFor,
-        candidateHosts = listOf(base),
+        candidateHosts = listOf(authenticatedBase),
         parse = { html ->
             if (isBlockedPage(html)) {
                 null
@@ -872,6 +909,8 @@ class Wenku8Client(
 
     private suspend fun markBookcaseSessionExpired(): Nothing {
         logger?.warn(TAG_SHELF, "站方书架会话失效（被重定向到登录页）")
+        activeSessionBase = null
+        cookieStore.clearSessionCookies()
         onUserSessionLost()
         throw SessionExpiredException()
     }
@@ -1081,13 +1120,15 @@ class Wenku8Client(
      */
     private suspend fun cronetPost(url: String, formBytes: ByteArray): Pair<String, String>? {
         val startedAt = System.currentTimeMillis()
+        val target = url.toHttpUrl()
+        val origin = "${target.scheme}://${target.host}"
         val response = cronetHttp.execute(
             CronetHttpClient.Request(
                 url = url,
                 method = "POST",
                 headers = browserHeaders(url.substringBefore('?'), sameOriginForm = true) + mapOf(
                     "Content-Type" to "application/x-www-form-urlencoded",
-                    "Origin" to base,
+                    "Origin" to origin,
                 ),
                 body = formBytes,
                 useCookies = true,
