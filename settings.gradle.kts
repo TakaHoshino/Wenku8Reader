@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Wenku8Reader"
 include(":app")
+include(":wenku8-api-core")

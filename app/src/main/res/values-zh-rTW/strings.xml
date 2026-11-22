@@ -42,7 +42,7 @@
     <string name="settings_update_source">更新來源</string>
     <string name="settings_update_source_summary">下載更新套件的網路來源</string>
     <string name="settings_update_source_github">GitHub 直連</string>
-    <string name="settings_update_source_ghproxy">鏡像來源（gh-proxy）</string>
+    <string name="settings_update_source_ghproxy">鏡像來源（ghfast）</string>
     <string name="settings_check_update">檢查更新</string>
     <string name="update_title">發現新版本 v%1$s</string>
     <string name="update_message">偵測到新版本 v%1$s（目前 v%2$s），是否立即更新？</string>

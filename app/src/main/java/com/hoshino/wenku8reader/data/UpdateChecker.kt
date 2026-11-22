@@ -38,7 +38,7 @@ enum class ApkInstallResult {
 }
 
 /**
- * 更新检查：查询 GitHub Releases 最新版（`api.github.com`），下载 APK（直连或 gh-proxy 镜像），
+ * 更新检查：查询 GitHub Releases 最新版（`api.github.com`），下载 APK（直连或 ghfast 镜像），
  * 并用 FileProvider 拉起系统安装器。
  */
 class UpdateChecker(
@@ -53,8 +53,8 @@ class UpdateChecker(
         private const val API_LATEST = "https://api.github.com/repos/$REPO/releases/latest"
         private const val API_LIST = "https://api.github.com/repos/$REPO/releases?per_page=20"
         private const val UA = "Wenku8Reader-Android"
-        /** gh-proxy 镜像前缀（更新源选择用），后接原始下载地址。 */
-        const val GH_PROXY_PREFIX = "https://gh-proxy.com/"
+        /** ghfast 镜像前缀（更新源选择用），后接原始下载地址。 */
+        const val GHFAST_PREFIX = "https://ghfast.top/"
 
         /** 从 Release 描述首行解析 `versionCode: <N>`。 */
         private val VERSION_CODE_IN_BODY = Regex("versionCode:\\s*(\\d+)")
@@ -127,9 +127,10 @@ class UpdateChecker(
         }
     }
 
-    /** 按更新源拼 APK 下载地址（github 直连 / gh-proxy 镜像前缀）。 */
+    /** 按更新源拼 APK 下载地址（github 直连 / ghfast 镜像前缀）。 */
     fun apkUrl(release: ReleaseInfo, source: String): String =
-        if (source == "gh_proxy") GH_PROXY_PREFIX + release.apkDownloadUrl else release.apkDownloadUrl
+        // `gh_proxy` 是持久化设置值；继续保留该键名以兼容老用户配置，实际镜像改用 ghfast。
+        if (source == "gh_proxy") GHFAST_PREFIX + release.apkDownloadUrl else release.apkDownloadUrl
 
     /** 下载 APK 到 [dest]，进度回调 [onProgress](0..1)。 */
     suspend fun downloadApk(
@@ -170,7 +171,7 @@ class UpdateChecker(
     /**
      * 校验下载到的 APK 与当前已安装应用的签名证书是否一致。
      *
-     * 为什么必须校验：更新链路允许经 `gh-proxy.com` 第三方镜像前缀下载 APK，
+     * 为什么必须校验：更新链路允许经 `ghfast.top` 第三方镜像前缀下载 APK，
      * 下载完成后直接拉起系统安装器。若不比对签名，中间人或被接管的镜像可下发
      * 任意 APK 诱导用户安装——这是本次评估中唯一具备「可被远程利用」性质的缺陷。
      * 签名不一致一律拒绝安装。

@@ -39,8 +39,9 @@
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
 | 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
 
-关键 build 文件：`app/build.gradle.kts`（模块配置）+ `gradle/libs.versions.toml`（**版本目录**，
-所有依赖与插件版本集中在此）+ 根 `build.gradle.kts`（AGP/Compose 插件声明与 KGP classpath 覆盖）。
+关键 build 文件：`app/build.gradle.kts`（应用模块配置）+ `wenku8-api-core/build.gradle.kts`
+（纯 JVM v2 API 核心模块）+ `gradle/libs.versions.toml`（**版本目录**，所有依赖与插件版本集中在此）
++ 根 `build.gradle.kts`（AGP/Compose/JVM 插件声明与 KGP classpath 覆盖）。
 用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
 
 > **加依赖请走版本目录**：在 `gradle/libs.versions.toml` 的 `[versions]`/`[libraries]` 里登记，
@@ -74,6 +75,7 @@ Wenku8Reader/
 ├── README.md（对外功能）/ DEVELOPMENT.md（本文）/ CHANGELOG.md / VERSIONING.md / CONTRIBUTING.md / NOTICE
 ├── local.properties          # sdk.dir=...
 ├── 技术性文档(只读勿动)/     # 参考文档，勿修改（wenku8-api.md 等，见 §8）
+├── wenku8-api-core/src/       # v2 Action 构造、封包接口、HTTP 状态机（纯 JVM）
 └── app/src/
     ├── main/
     │   ├── AndroidManifest.xml
@@ -153,6 +155,10 @@ Wenku8Reader/
 - **隐藏 WebView 的生命周期与并发**：`webViewGet()` 用 `webViewMutex` 串行化（同一时刻只有一个 WebView 解挑战：多开会在主线程同时跑 JS、放大内存与风控样本，而串行化后第二个请求通常直接复用刚拿到的 cf_clearance 走快路径）；`cont.invokeOnCancellation` 保证协程被取消（离开页面/超时/VModel 销毁）时也会销毁 WebView，统一走 `destroyWebView()`（stopLoading → about:blank → clearHistory → removeAllViews → 换掉 WebViewClient → destroy，每步 runCatching）。超时分两层：单次解挑战 15s，等待锁 + 执行整体 25s。
 - **Cronet 挂起等待与重定向**：`CronetHttpClient` 使用 `suspendCancellableCoroutine` + `withTimeoutOrNull`，等待期间释放线程，取消直接传播到 `UrlRequest.cancel()`。重定向由 Kotlin 层逐跳跟随（上限 6 次、整体默认 20s）：保存每个 3xx 响应的 `Set-Cookie`，把主站明文 Location 升级为 HTTPS，并按 301/302/303 → GET、307/308 保留方法与正文处理。登录会话 Cookie 通常就在 302 响应上，不能只保存最终页的 Cookie。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
+- **v2 API 核心（`wenku8-api-core`）**：纯 JVM 模块负责 `action=...` 构造、`WK8-RNE-1`
+  封包接口、`POST /v2/api` 请求语义、`PHPSESSID`、gzip 与 `401/403/426/429` 分类；原生封包器
+  通过 `WenkuEnvelopeSigner` 注入，未配置时明确返回 `NotConfigured`。核心模块**不创建 HTTP 客户端**，
+  应用侧 `CronetWenkuHttpExecutor` 适配器仍统一经过 `CronetHttpClient`。当前尚未接入业务主路径。
 - **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。三者均带 **LRU 容量上限**（info 128 / toc 32 / chapter 64 条）：只有 TTL 时，长读一本书会让章节正文无限累积在内存里。
 - **本地磁盘缓存**（`data/local/HtmlDiskCache.kt`）：抓取内容按 URL 落盘到 `filesDir/html_cache`（卸载前持久），命中且未过期直接返回、避免二次加载；仅缓存非 CF 挑战/非登录页。TTL：首页 1h、详情/目录 7d、章节正文 30d、标签书单 1d；总量超 30MB 时按最旧优先清理。内存缓存（快）→ 磁盘缓存（持久）→ 网络，三级取数。
 - **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；**429 / 5xx** 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。
@@ -257,7 +263,7 @@ Wenku8Reader/
 - **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表里**按 `published_at` 排序后**最新的一条带 APK 的发布（**不能相信接口返回的顺序**，见下）。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准「`2_030_000_000` + 分钟偏移」，见 VERSIONING.md §2），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。
   **启动检查频率 = 每次启动一次**（2026-10 起）：不再有 24h 节流，由 `StartupCheckGate` 保证同一进程内只请求一次（Activity 重建 / 多入口不会重复打 GitHub）；失败只在**手动**检查时提示，自动检查静默。「跳过该版本」仍只影响自动检查。
   > ⚠️ **GitHub 的 releases 列表顺序不可靠**（2026-09-25 实测）：`v0.8.0-dev.100` 的 `id`/`created_at` 都是最新，却被排在 `dev.94` 之后（位置第 5）；新建的探针 release 同样落不到首位，带随机参数绕过缓存后顺序不变。所以"取第一条带 APK 的"会把旧包当成最新——测试版通道会一直提示已经过期好几个版本的 dev 包。实现改为显式按 `published_at` 排序（单测 `UpdateCheckerPickLatestTest` 用真实顺序当夹具）。这条**无法用 CI 侧绕过**：重新发布不会置顶，缩减保留数量也治不了。
-- **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；APK 通过共享 Cronet 按数据块流式写入文件，默认整体超时 120s，进度按 `Content-Length` 更新。
+- **下载**：支持 GitHub 直连或 `ghfast.top` 镜像前缀；APK 通过共享 Cronet 按数据块流式写入文件，默认整体超时 120s，进度按 `Content-Length` 更新。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
 - **安装器兼容**：Manifest 声明 `REQUEST_INSTALL_PACKAGES`；API 26+ 未授权时跳转 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`。FileProvider URI 同时放进 `data` 与 `ClipData`，保证部分 OEM 安装器能取得读取授权；`ACTION_VIEW` 失败后回退旧 `ACTION_INSTALL_PACKAGE`。
 - **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。
@@ -697,6 +703,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
 .\gradlew.bat :app:assembleDebug        # 产物 app/build/outputs/apk/debug/app-debug.apk
 .\gradlew.bat :app:testDebugUnitTest    # 纯 JVM 单测（CI 每次推送都会先跑这个）
+.\gradlew.bat :wenku8-api-core:test     # v2 核心模块的 Action/状态机单测
 ```
 
 ⚠️ **命令行构建注意**：

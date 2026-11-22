@@ -121,6 +121,9 @@ kotlin {
 }
 
 dependencies {
+    // 干净的 WK8 v2 业务/传输核心；原生封包器通过接口后期接入。
+    implementation(project(":wenku8-api-core"))
+
     // Compose BOM 统一 ui/foundation/material 系列版本；material3 单列覆盖到 Expressive 版本
     // （BOM 内的 material3 是 1.4.0，其 MaterialExpressiveTheme 仍为 internal，不可用）
     implementation(platform(libs.compose.bom))
