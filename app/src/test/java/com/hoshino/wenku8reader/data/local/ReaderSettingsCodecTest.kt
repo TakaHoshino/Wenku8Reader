@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -20,6 +21,24 @@ import org.junit.Test
  * 注意：新增字段时请同步更新下面「全字段往返」用例里的取值，否则新字段的遗漏不会被发现。
  */
 class ReaderSettingsCodecTest {
+
+    @Test
+    fun `experimental master does not gate ui style or multi shelf`() {
+        val state = ReaderSettingsState(
+            experimentalEnabled = false,
+            uiStyle = "miuix",
+            multiShelfEnabled = true,
+            accountLoginEnabled = true,
+            floatingBottomBar = true,
+            bottomBarGlass = true,
+        )
+
+        assertEquals("miuix", state.effectiveUiStyle)
+        assertTrue(state.effectiveMultiShelfEnabled)
+        assertFalse(state.effectiveAccountLoginEnabled)
+        assertFalse(state.effectiveFloatingBottomBar)
+        assertFalse(state.effectiveBottomBarGlass)
+    }
 
     @Test
     fun `空存储读出全套默认值`() {
@@ -70,6 +89,7 @@ class ReaderSettingsCodecTest {
             appLanguage = "zh-TW",
             cacheMaxMb = 256,
             expressiveMotion = false,
+            experimentalEnabled = true,
             uiStyle = "miuix",
             floatingBottomBar = false,
             bottomBarGlass = false,

@@ -1,5 +1,8 @@
 package com.hoshino.wenku8reader.ui.miuix
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -24,6 +27,8 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,11 +37,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,12 +56,17 @@ import com.hoshino.wenku8reader.ui.bookcase.BookcaseEntry
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseSortType
 import com.hoshino.wenku8reader.ui.bookcase.BookcaseViewModel
 import com.hoshino.wenku8reader.ui.common.CoverImage
+import com.hoshino.wenku8reader.ui.common.readTextFromUri
+import com.hoshino.wenku8reader.ui.common.saveTextToUri
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 /**
  * MIUIX 书架页（主 Tab）——与 Material 版（`ui/bookcase/BookcaseScreen.kt`）完全独立。
@@ -73,6 +85,40 @@ fun MiuixBookcasePage(
     vm: BookcaseViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingImportText by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val saved = saveTextToUri(context, vm.exportShelfConfig(), uri)
+            Toast.makeText(
+                context,
+                context.getString(
+                    if (saved) R.string.bookcase_export_success
+                    else R.string.bookcase_export_failed,
+                ),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = readTextFromUri(context, uri)
+        if (text == null) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.bookcase_import_read_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
+        } else {
+            pendingImportText = text
+        }
+    }
     LaunchedEffect(Unit) { vm.load() }
 
     var movingEntry by remember { mutableStateOf<BookcaseEntry?>(null) }
@@ -82,6 +128,24 @@ fun MiuixBookcasePage(
     MiuixPage(
         title = stringResource(R.string.bookcase_title),
         actions = {
+            MiuixIconButton(
+                icon = Icons.Filled.IosShare,
+                contentDescription = stringResource(R.string.bookcase_export_shelves),
+                onClick = {
+                    val stamp = LocalDateTime.now()
+                        .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+                    exportLauncher.launch("wenku8-shelf-$stamp.json")
+                },
+            )
+            MiuixIconButton(
+                icon = Icons.Filled.FileOpen,
+                contentDescription = stringResource(R.string.bookcase_import_shelves),
+                onClick = {
+                    importLauncher.launch(
+                        arrayOf("application/json", "text/plain", "application/octet-stream"),
+                    )
+                },
+            )
             // 管理书架只属于多书架模式：关闭时顶栏与本功能上线前一致
             if (ui.multiShelfEnabled) {
                 MiuixIconButton(

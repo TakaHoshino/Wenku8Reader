@@ -55,6 +55,10 @@ class CookieStore(context: Context) : CookieJar {
     override fun loadForRequest(url: HttpUrl): List<Cookie> =
         cookies[url.host]?.toList() ?: emptyList()
 
+    /** 按参考项目的手工 Cookie 头方式快照当前会话。 */
+    @Synchronized
+    fun snapshotHeader(url: HttpUrl): String = buildCookieHeader(loadForRequest(url))
+
     @Synchronized
     fun persist() {
         val arr = JSONArray()
@@ -105,5 +109,23 @@ class CookieStore(context: Context) : CookieJar {
     fun clear() {
         cookies.clear()
         prefs.edit().remove("data").apply()
+    }
+
+    /**
+     * 清除站点认证会话，但保留 `cf_clearance` / `__cf_bm` 等反爬 Cookie。
+     *
+     * 服务端已判定会话失效时，只清激活账户标记还不够：旧 `jieqiUserInfo` 仍在内存里，
+     * `hasSession()` 会继续误判为已登录，导致后续请求一直拿到登录页。这里只移除
+     * `PHPSESSID` 与 `jieqi*`，避免无谓地丢弃已经解出的 Cloudflare 令牌。
+     */
+    @Synchronized
+    fun clearSessionCookies() {
+        var changed = false
+        cookies.values.forEach { list ->
+            changed = list.removeAll { cookie ->
+                cookie.name == "PHPSESSID" || cookie.name.startsWith("jieqi")
+            } || changed
+        }
+        if (changed) persist()
     }
 }

@@ -10,11 +10,14 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,6 +71,8 @@ import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.fontFamilyFor
 import com.hoshino.wenku8reader.ui.miuix.MiuixChapterSheet
 import com.hoshino.wenku8reader.ui.miuix.MiuixReaderSettingsSheet
+import com.hoshino.wenku8reader.ui.navigation.readerColumnCount
+import com.hoshino.wenku8reader.ui.navigation.readerHorizontalGutter
 import com.hoshino.wenku8reader.ui.theme.isMiuixStyle
 import java.io.File
 import java.util.Date
@@ -266,26 +271,38 @@ fun ReaderScreen(
                 )
             }
 
+            // Pad 横屏使用双栏跨页：分页器按单栏宽度切页，Pager 每次展开两栏。
+            // 手机或窄窗口继续使用单栏及居中的最大正文宽度。
+            val columnCount = readerColumnCount(maxWidth)
+            val columnGap = if (columnCount > 1) 32.dp else 0.dp
+            val horizontalGutter = if (columnCount > 1) {
+                32.dp
+            } else {
+                readerHorizontalGutter(maxWidth)
+            }
             val contentPadding = if (rs.autoPadding) {
                 // 固定边距，与是否沉浸无关，保证分页与阅读位置稳定。
                 PaddingValues(
                     top = CONTENT_TOP_INSET,
                     bottom = CONTENT_BOTTOM_INSET,
-                    start = 16.dp,
-                    end = 16.dp,
+                    start = horizontalGutter + 16.dp,
+                    end = horizontalGutter + 16.dp,
                 )
             } else {
                 // 手动边距也不得小于顶栏/底栏与状态指示器占位，避免遮住文字。
                 PaddingValues(
                     top = maxOf(CONTENT_TOP_INSET, rs.topPadding.dp),
                     bottom = maxOf(CONTENT_BOTTOM_INSET, rs.bottomPadding.dp),
-                    start = rs.leftPadding.dp,
-                    end = rs.rightPadding.dp,
+                    start = horizontalGutter + rs.leftPadding.dp,
+                    end = horizontalGutter + rs.rightPadding.dp,
                 )
             }
             val contentWidthPx = with(density) {
-                (maxWidth - contentPadding.calculateLeftPadding(layoutDirection) -
-                    contentPadding.calculateRightPadding(layoutDirection)).roundToPx()
+                val availableWidth =
+                    maxWidth - contentPadding.calculateLeftPadding(layoutDirection) -
+                        contentPadding.calculateRightPadding(layoutDirection) -
+                        columnGap * (columnCount - 1)
+                (availableWidth / columnCount).coerceAtLeast(1.dp).roundToPx()
             }
             val contentHeightPx = with(density) {
                 (maxHeight - contentPadding.calculateTopPadding() -
@@ -317,7 +334,8 @@ fun ReaderScreen(
                     pagedChapters = emptyList()
                 }
             }
-            val pagerState = rememberPagerState { pagedChapters.size }
+            val spreadCount = (pagedChapters.size + columnCount - 1) / columnCount
+            val pagerState = rememberPagerState { spreadCount }
             LaunchedEffect(chapter) {
                 suppressImmersiveUntil = System.currentTimeMillis() + 500
                 listState.scrollToItem(0)
@@ -334,13 +352,13 @@ fun ReaderScreen(
                     .distinctUntilChanged()
                     .collect { scrollRatioForRestore = it }
             }
-            LaunchedEffect(pageMode, pagedChapters.size) {
+            LaunchedEffect(pageMode, spreadCount) {
                 val ratio = scrollRatioForRestore
-                if (!pageMode || pagedChapters.isEmpty() || ratio <= 0f) return@LaunchedEffect
+                if (!pageMode || spreadCount == 0 || ratio <= 0f) return@LaunchedEffect
                 // 用后立即清零：后续改字号等触发重新分页时不得再跳回旧位置
                 scrollRatioForRestore = 0f
                 pagerState.scrollToPage(
-                    (ratio * pagedChapters.size).toInt().coerceIn(0, pagedChapters.lastIndex),
+                    (ratio * spreadCount).toInt().coerceIn(0, spreadCount - 1),
                 )
             }
 
@@ -348,10 +366,10 @@ fun ReaderScreen(
             val turnPage: (Int) -> Unit = { delta ->
                 scope.launch {
                     if (pageMode && chapter != null) {
-                        if (pagedChapters.isEmpty()) return@launch
+                        if (spreadCount == 0) return@launch
                         val target = pagerState.currentPage + delta
                         when {
-                            target in 0 until pagedChapters.size ->
+                            target in 0 until spreadCount ->
                                 pagerState.animateScrollToPage(target)
 
                             delta > 0 ->
@@ -387,11 +405,11 @@ fun ReaderScreen(
             }
 
             // ---- auto page turn ----
-            LaunchedEffect(autoTurn, rs.autoTurnInterval, pagedChapters.size, next?.cid) {
-                if (!autoTurn || !pageMode || pagedChapters.isEmpty()) return@LaunchedEffect
+            LaunchedEffect(autoTurn, rs.autoTurnInterval, spreadCount, next?.cid) {
+                if (!autoTurn || !pageMode || spreadCount == 0) return@LaunchedEffect
                 while (true) {
                     delay(rs.autoTurnInterval * 1000L)
-                    if (pagerState.currentPage < pagedChapters.lastIndex) {
+                    if (pagerState.currentPage < spreadCount - 1) {
                         pagerState.animateScrollToPage(pagerState.currentPage + 1)
                     } else if (rs.autoNextChapter) {
                         val nxt = next
@@ -476,38 +494,52 @@ fun ReaderScreen(
                                 HorizontalPager(
                                     state = pagerState,
                                     modifier = Modifier.fillMaxSize(),
-                                ) { index ->
-                                    when (val page = pagedChapters.getOrNull(index)) {
-                                        is ReaderPage.Text -> Box(
-                                            Modifier
-                                                .fillMaxSize()
-                                                .padding(contentPadding),
-                                        ) {
-                                            // 文本选择：长按选词、拖动句柄；选区工具栏由系统提供
-                                            SelectionContainer {
-                                                Text(
-                                                    page.text,
-                                                    color = textColor,
-                                                    fontFamily = fontFamilyFor(rs.fontFamily),
-                                                    fontSize = rs.fontSize.sp,
-                                                    fontWeight = FontWeight(rs.fontWeight),
-                                                    lineHeight = (rs.fontSize * rs.lineSpacing).sp,
-                                                )
+                                ) { spreadIndex ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(contentPadding),
+                                        horizontalArrangement = Arrangement.spacedBy(columnGap),
+                                    ) {
+                                        repeat(columnCount) { column ->
+                                            val page = pagedChapters.getOrNull(
+                                                spreadIndex * columnCount + column,
+                                            )
+                                            val pageModifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                            when (page) {
+                                                is ReaderPage.Text -> Box(pageModifier) {
+                                                    // 文本选择：长按选词、拖动句柄；选区工具栏由系统提供
+                                                    SelectionContainer {
+                                                        Text(
+                                                            page.text,
+                                                            color = textColor,
+                                                            fontFamily = fontFamilyFor(rs.fontFamily),
+                                                            fontSize = rs.fontSize.sp,
+                                                            fontWeight = FontWeight(rs.fontWeight),
+                                                            lineHeight = (rs.fontSize * rs.lineSpacing).sp,
+                                                        )
+                                                    }
+                                                }
+                                                is ReaderPage.Image ->
+                                                    // 插图组件化：长按进入全屏预览（可缩放/保存）
+                                                    ReaderIllustration(
+                                                        url = page.url,
+                                                        modifier = pageModifier,
+                                                        // 分页模式：整页只放一张图，按 Fit 保证不裁切
+                                                        contentScale = ContentScale.Fit,
+                                                        onClick = { immersive = !immersive },
+                                                        onLongPress = {
+                                                            previewTarget = ReaderPreviewTarget(
+                                                                page.url,
+                                                                spreadIndex * columnCount + column,
+                                                            )
+                                                        },
+                                                    )
+                                                null -> Spacer(pageModifier)
                                             }
                                         }
-                                        is ReaderPage.Image ->
-                                            // 插图组件化：长按进入全屏预览（可缩放/保存）
-                                            ReaderIllustration(
-                                                url = page.url,
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(contentPadding),
-                                                // 分页模式：整页只放一张图，按 Fit 保证不裁切
-                                                contentScale = ContentScale.Fit,
-                                                onClick = { immersive = !immersive },
-                                                onLongPress = { previewTarget = ReaderPreviewTarget(page.url, index) },
-                                            )
-                                        null -> {}
                                     }
                                 }
                             }
@@ -554,7 +586,7 @@ fun ReaderScreen(
                         readingPercentOf(
                             pageMode = pageMode,
                             currentPage = pagerState.currentPage,
-                            pageCount = pagedChapters.size,
+                            pageCount = spreadCount,
                             scrollFraction = listState.scrollFraction(),
                         ) >= PROGRESS_COMPLETE_PERCENT
                     }
@@ -572,7 +604,7 @@ fun ReaderScreen(
                     val progressPercent = readingPercentOf(
                         pageMode = pageMode,
                         currentPage = pagerState.currentPage,
-                        pageCount = pagedChapters.size,
+                        pageCount = spreadCount,
                         scrollFraction = listState.scrollFraction(),
                     )
                     IndicatorBar(
@@ -594,7 +626,7 @@ fun ReaderScreen(
                     val chapterProgress = readingFractionOf(
                         pageMode = pageMode,
                         currentPage = pagerState.currentPage,
-                        pageCount = pagedChapters.size,
+                        pageCount = spreadCount,
                         scrollFraction = listState.scrollFraction(),
                     )
                     Surface(
@@ -610,11 +642,11 @@ fun ReaderScreen(
                             onValueChange = { progress ->
                                 suppressImmersiveUntil = System.currentTimeMillis() + 800
                                 scope.launch {
-                                    if (pageMode && pagedChapters.isNotEmpty()) {
+                                    if (pageMode && spreadCount > 0) {
                                         // 侧滑翻页：按页跳转
                                         pagerState.scrollToPage(
-                                            (progress * (pagedChapters.size - 1)).roundToInt()
-                                                .coerceIn(0, pagedChapters.lastIndex)
+                                            (progress * (spreadCount - 1)).roundToInt()
+                                                .coerceIn(0, spreadCount - 1)
                                         )
                                     } else {
                                         val itemCount = listState.layoutInfo.totalItemsCount
@@ -627,8 +659,8 @@ fun ReaderScreen(
                                     }
                                 }
                             },
-                            steps = if (pageMode && pagedChapters.size > 1) {
-                                (pagedChapters.size - 1).coerceIn(1, 60)
+                            steps = if (pageMode && spreadCount > 1) {
+                                (spreadCount - 1).coerceIn(1, 60)
                             } else {
                                 0
                             },

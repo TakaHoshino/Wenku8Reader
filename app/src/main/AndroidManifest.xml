@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 8+ 安装更新 APK；仍由系统“安装未知应用”开关逐应用授权。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <!--
@@ -34,6 +36,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 用户网站登录：接收站点写下的会话 Cookie，不保存用户名密码。 -->
+        <activity
+            android:name=".ui.account.WebsiteLoginActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- 更新安装：向系统安装器暴露缓存目录里的 APK -->
         <provider

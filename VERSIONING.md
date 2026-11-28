@@ -43,7 +43,7 @@
 
 ## 3. 自动化版本管理（已部署，推荐）
 
-由 `.github/workflows/release.yml` 在**推送 main**（或手动触发）时自动完成，无需手工改版本号：
+由 `.github/workflows/release.yml` 在**手动触发**后自动完成，无需手工改版本号：
 
 1. **语义解析**：读取最近 `vX.Y.Z` 标签之后的提交，按 Conventional Commits 决定升级——
    `feat:` → 次版本 +1；`fix:` / `perf:` → 修订号 +1；`BREAKING CHANGE` / `!` → 主版本 +1；无相关提交则跳过发布。
@@ -147,7 +147,7 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 
 **④ 验证**
 
-- 手动触发：**Actions** → 左侧 **Release** → **Run workflow**（或推送一个 `feat:`/`fix:` 提交）
+- 手动触发：**Actions** → 左侧 **Release** → **Run workflow**
 - 查看运行日志：「校验签名密钥已配置」与「还原签名密钥」步骤正常执行、「校验 APK 签名并生成校验和」输出的指纹与 keystore 一致
 - 下载 Release 里的 APK 安装验证；Release 同时附带 `SHA256SUMS`，可用 `sha256sum -c SHA256SUMS` 校验，或用 `apksigner verify --print-certs app-release.apk` 核对证书
 
@@ -164,11 +164,11 @@ keytool -genkeypair -v -keystore %USERPROFILE%\wenku8reader-release.keystore ^
 
 **场景**：dev 分支的开发包需要可安装验证；**versionName 与 master 保持一致**（同一套语义版本系统），只发测试版 Pre-release，不打正式 tag、不占用正式版本号。
 
-**已部署**：`.github/workflows/dev.yml`（push 到 `dev` 分支或手动触发），版本解析用与 release 工作流相同的内联脚本（解析最近 tag 之后的 Conventional Commits）。
+**已部署**：`.github/workflows/dev.yml`（仅手动触发），版本解析用与 release 工作流相同的内联脚本（解析最近 tag 之后的 Conventional Commits）。
 
 | 项 | 行为 |
 |---|---|
-| 触发 | push `dev` 分支 / 手动 `workflow_dispatch` |
+| 触发 | 仅手动 `workflow_dispatch` |
 | versionName | **与 master 同一套语义系统**：解析最近 tag 之后的 Conventional Commits（feat→minor / fix→patch / BREAKING→major），两边规则与结果一致 |
 | versionCode | **递增**：`2_030_000_000 + 自 2026-01-01 UTC 起的分钟数`（如 `2030385350`），必然大于任何历史已装版本、覆盖安装不降级，且同一小时内多次构建也能区分先后 |
 | 发布 | 同时产出 **Actions Artifact** 与 **GitHub Pre-release**（`v<版本>-dev.<N>`，标记为 prerelease；测试版通道靠 Release 资产才能匿名下载） |

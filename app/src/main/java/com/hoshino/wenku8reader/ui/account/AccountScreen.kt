@@ -1,5 +1,8 @@
 package com.hoshino.wenku8reader.ui.account
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,22 +25,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -54,7 +53,7 @@ import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
  * 只在「实验性 → 账户登录」开启时可达（设置页账户分区才会变成可点击）。与 MIUIX 版
  * （`ui/miuix/MiuixAccountPage.kt`）零复用，共用同一个 [AccountViewModel]。
  *
- * 密码只存在于本页的局部状态里：登录请求发出后即不再需要，页面销毁即丢弃（不落盘）。
+ * 登录通过应用内网站登录页完成：应用不接触用户名/密码，只接收站点写入的 Cookie。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +65,15 @@ fun AccountScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = rememberExpressiveScrollBehavior()
+    val websiteLoginLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            vm.completeWebsiteLogin(
+                result.data?.getStringExtra(WebsiteLoginActivity.EXTRA_USERNAME),
+            )
+        }
+    }
 
     LaunchedEffect(Unit) { vm.refresh() }
     LaunchedEffect(ui.notice) {
@@ -110,11 +118,13 @@ fun AccountScreen(
             if (ui.userLoggedIn) {
                 LoggedInCard(username = ui.activeUsername.orEmpty(), onLogout = vm::logout)
             } else {
-                LoginCard(
-                    initialUsername = ui.lastUsername,
-                    loggingIn = ui.loggingIn,
+                WebsiteLoginCard(
                     errorText = ui.error?.asString(context),
-                    onLogin = vm::login,
+                    onLogin = {
+                        websiteLoginLauncher.launch(
+                            WebsiteLoginActivity.createIntent(context, vm.websiteLoginUrl())
+                        )
+                    },
                 )
             }
             Spacer(Modifier.height(24.dp))
@@ -122,17 +132,12 @@ fun AccountScreen(
     }
 }
 
-/** 未登录：用户名 + 密码 + 登录。 */
+/** 未登录：跳转真实网站完成登录，返回后只保存 Cookie。 */
 @Composable
-private fun LoginCard(
-    initialUsername: String,
-    loggingIn: Boolean,
+private fun WebsiteLoginCard(
     errorText: String?,
-    onLogin: (String, String) -> Unit,
+    onLogin: () -> Unit,
 ) {
-    var username by remember(initialUsername) { mutableStateOf(initialUsername) }
-    var password by remember { mutableStateOf("") }
-
     TonalCard {
         Column(Modifier.padding(16.dp)) {
             Text(
@@ -140,24 +145,7 @@ private fun LoginCard(
                 style = MaterialTheme.typography.titleMedium,
             )
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text(stringResource(R.string.account_username)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text(stringResource(R.string.account_password)) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
             if (errorText != null) {
-                Spacer(Modifier.height(8.dp))
                 Text(
                     text = errorText,
                     color = MaterialTheme.colorScheme.error,
@@ -166,13 +154,12 @@ private fun LoginCard(
             }
             Spacer(Modifier.height(12.dp))
             Button(
-                onClick = { onLogin(username, password) },
-                enabled = !loggingIn,
+                onClick = onLogin,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.account_login_action)) }
+            ) { Text(stringResource(R.string.account_website_login_action)) }
             Spacer(Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.account_privacy_hint),
+                text = stringResource(R.string.account_website_login_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

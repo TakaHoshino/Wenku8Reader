@@ -55,6 +55,9 @@
     <string name="update_none">暫無可用更新</string>
     <string name="update_check_failed">檢查更新失敗：%1$s</string>
     <string name="update_signature_mismatch">更新包簽章驗證未通過，已阻止安裝（檔案可能被第三方鏡像篡改）</string>
+    <string name="update_install_permission_required">請允許本應用程式安裝未知應用程式，返回後再次點擊更新</string>
+    <string name="update_install_unavailable">找不到可用的系統安裝程式，請檢查系統應用程式設定</string>
+    <string name="update_install_failed">無法拉起系統安裝程式，請檢查「安裝未知應用程式」權限後重試</string>
 
     <!-- 底部導覽 -->
     <string name="tab_explore">探索</string>
@@ -194,8 +197,14 @@
     <string name="settings_category_network_summary">主站鏡像與存取方式</string>
     <string name="settings_category_update_summary">更新通道、更新來源與檢查頻率</string>
     <string name="settings_category_storage_summary">快取佔用與清理</string>
-    <string name="settings_category_experimental_summary">UI 風格、多書架、帳戶登入、懸浮底欄與液態玻璃</string>
+    <string name="settings_category_experimental_summary">帳戶登入、懸浮底欄與液態玻璃</string>
     <string name="settings_category_about_summary">版本、開源倉庫與回饋管道</string>
+    <string name="settings_experimental_master">實驗性功能總開關</string>
+    <string name="settings_experimental_master_summary">開啟後才可使用帳戶登入、懸浮底欄與液態玻璃</string>
+    <string name="settings_experimental_confirm_title">開啟實驗性功能？</string>
+    <string name="settings_experimental_confirm_message">實驗性功能可能不穩定，並可能在後續版本中調整。請等待倒數結束後確認開啟。</string>
+    <string name="settings_experimental_confirm_wait">請等待 %1$d 秒</string>
+    <string name="settings_experimental_confirm_action">確認開啟</string>
     <string name="settings_ui_style">UI 風格</string>
     <string name="settings_ui_style_summary">切換 Material 3 Expressive 與 MIUIX（HyperOS）；實驗性功能，介面可能隨版本調整</string>
     <string name="settings_ui_style_material3">Material 3 Expressive</string>
@@ -216,6 +225,8 @@
     <!-- 帳戶二級頁 + 設定頁帳戶分區（僅帳戶開關打開時可見） -->
     <string name="account_tap_login">點擊登入 wenku8 帳戶</string>
     <string name="account_logged_in">已登入：%1$s</string>
+    <string name="account_website_login_action">開啟網站登入</string>
+    <string name="account_website_login_hint">將在應用程式內開啟 wenku8 登入頁。完成登入後自動儲存網站 Cookie，不儲存密碼。</string>
     <string name="account_username">使用者名稱</string>
     <string name="account_password">密碼</string>
     <string name="account_login_action">登入</string>
@@ -229,6 +240,9 @@
     <string name="account_logout_ok">已登出，繼續使用內建共享帳號</string>
     <string name="account_mirror_confirm_title">切換主鏡像</string>
     <string name="account_mirror_confirm_message">切換主鏡像會登出目前登入的帳戶（Cookie 不跨網域），需要在新的鏡像重新登入。是否繼續？</string>
+    <string name="website_login_title">登入 wenku8</string>
+    <string name="website_login_close">關閉</string>
+    <string name="website_login_load_failed">登入頁載入失敗，請檢查網路後重試</string>
     <string name="shelf_manage_title">管理書架</string>
     <string name="shelf_new">新增書架</string>
     <string name="shelf_rename">重新命名</string>
@@ -254,6 +268,15 @@
     <string name="detail_site_shelf_failed">操作失敗，請檢查登入狀態或網路</string>
     <string name="bookcase_shelf_empty">該書架暫無書籍</string>
     <string name="bookcase_manage_shelves">管理書架</string>
+    <string name="bookcase_export_shelves">匯出書架</string>
+    <string name="bookcase_import_shelves">匯入書架</string>
+    <string name="bookcase_import_confirm_title">匯入書架設定？</string>
+    <string name="bookcase_import_confirm_message">匯入會合併書架設定：新增書架和書籍不會覆蓋或刪除現有內容。</string>
+    <string name="bookcase_import_success">已匯入 %1$d 個書架、%2$d 本新書，合併 %3$d 本現有書籍</string>
+    <string name="bookcase_import_invalid">無法識別該書架設定檔</string>
+    <string name="bookcase_import_read_failed">讀取書架設定檔失敗</string>
+    <string name="bookcase_export_success">書架設定已匯出</string>
+    <string name="bookcase_export_failed">匯出書架設定失敗</string>
     <string name="detail_fav_local_done_shelf">已收藏至「%1$s」</string>
     <string name="settings_storage">儲存設定</string>
     <string name="settings_storage_desc">快取管理、快取上限與過期紀錄清理</string>
@@ -317,8 +340,14 @@
     <string name="settings_logs">日誌</string>
     <string name="settings_logs_export">匯出日誌</string>
     <string name="settings_logs_export_summary">封裝最近日誌（不含密碼與 Cookie），便於回報問題</string>
-    <string name="settings_logs_share_subject">Wenku8Reader 日誌</string>
     <string name="settings_logs_export_failed">日誌匯出失敗，請稍後重試</string>
+    <string name="settings_logs_saved">日誌已儲存</string>
+    <string name="settings_logs_clear">清理日誌</string>
+    <string name="settings_logs_clear_summary">刪除已記錄的診斷日誌與已匯出的日誌封裝</string>
+    <string name="settings_logs_clear_done">已清理日誌 %1$s</string>
+    <string name="settings_logs_clear_nothing">沒有可清理的日誌</string>
+    <string name="settings_logs_confirm_clear_title">清理診斷日誌？</string>
+    <string name="settings_logs_confirm_clear_message">將刪除目前日誌與已匯出的日誌壓縮檔，此操作無法復原。</string>
     <string name="action_confirm">確定</string>
     <string name="action_cancel">取消</string>
 

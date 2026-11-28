@@ -33,7 +33,6 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CacheCategory
-import com.hoshino.wenku8reader.ui.common.shareFile
 import com.hoshino.wenku8reader.ui.common.formatByteSize
 import com.hoshino.wenku8reader.ui.settings.CacheActionResult
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
@@ -58,6 +57,7 @@ fun MiuixStoragePage(
     val context = LocalContext.current
     var confirmClearAll by remember { mutableStateOf(false) }
     var confirmCleanupHistory by remember { mutableStateOf(false) }
+    var confirmClearLogs by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.cacheResults.collect { result ->
@@ -69,6 +69,13 @@ fun MiuixStoragePage(
                         context.getString(R.string.settings_cache_reading_nothing)
                     }
 
+                CacheActionResult.Kind.LOGS ->
+                    if (result.freedSomething) {
+                        context.getString(R.string.settings_logs_clear_done, formatByteSize(result.freedBytes))
+                    } else {
+                        context.getString(R.string.settings_logs_clear_nothing)
+                    }
+
                 else ->
                     if (result.freedSomething) {
                         context.getString(R.string.settings_cache_freed, formatByteSize(result.freedBytes))
@@ -77,26 +84,6 @@ fun MiuixStoragePage(
                     }
             }
             android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-    // 日志导出：zip 已生成 → 拉起系统分享面板；失败只提示
-    LaunchedEffect(Unit) {
-        vm.logExport.collect { result ->
-            result.onSuccess { file ->
-                shareFile(
-                    context = context,
-                    file = file,
-                    mimeType = "application/zip",
-                    subject = context.getString(R.string.settings_logs_share_subject),
-                    chooserTitle = context.getString(R.string.settings_logs_export),
-                )
-            }.onFailure {
-                android.widget.Toast.makeText(
-                    context,
-                    R.string.settings_logs_export_failed,
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
         }
     }
     LaunchedEffect(Unit) { vm.refreshStorageStats() }
@@ -227,17 +214,17 @@ fun MiuixStoragePage(
                 )
             }
 
-            // 日志导出（排查网络问题时发给开发者）
+            // 日志清理；导出入口已移到关于页
             MiuixSection(
                 title = stringResource(R.string.settings_logs),
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
             ) {
                 MiuixArrowRow(
-                    title = stringResource(R.string.settings_logs_export),
+                    title = stringResource(R.string.settings_logs_clear),
                     summary = formatByteSize(stats.logs) + " · " +
-                        stringResource(R.string.settings_logs_export_summary),
+                        stringResource(R.string.settings_logs_clear_summary),
                     icon = Icons.Filled.Description,
-                    onClick = vm::exportLogs,
+                    onClick = { confirmClearLogs = true },
                 )
             }
             Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
@@ -260,6 +247,25 @@ fun MiuixStoragePage(
                     vm.clearAllCaches()
                 },
                 onDismiss = { confirmClearAll = false },
+            )
+        }
+    }
+
+    if (confirmClearLogs) {
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.settings_logs_confirm_clear_title),
+            summary = stringResource(R.string.settings_logs_confirm_clear_message),
+            onDismissRequest = { confirmClearLogs = false },
+        ) {
+            MiuixDialogButtons(
+                confirmText = stringResource(R.string.action_confirm),
+                dismissText = stringResource(R.string.action_cancel),
+                onConfirm = {
+                    confirmClearLogs = false
+                    vm.clearLogs()
+                },
+                onDismiss = { confirmClearLogs = false },
             )
         }
     }

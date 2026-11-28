@@ -1,6 +1,7 @@
 package com.hoshino.wenku8reader
 
 import android.app.Application
+import coil.Coil
 import com.hoshino.wenku8reader.di.AppContainer
 import kotlinx.coroutines.launch
 
@@ -12,6 +13,7 @@ class Wenku8Application : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        Coil.setImageLoader(container.imageLoader)
         // 放在 container 之后：静态引用一旦非空，container 必然已可用
         instance = this
         container.logger.info("APP", "应用启动（${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}）")

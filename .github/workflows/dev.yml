@@ -1,5 +1,5 @@
 # 开发分支（dev）构建工作流
-# - 触发：push 到 dev 分支，或手动 workflow_dispatch；纯文档/图标改动不触发
+# - 触发：仅手动 workflow_dispatch（推送到 dev 不再自动构建或发布）
 # - 行为：构建 Release APK（正式签名）并作为 Actions Artifact + GitHub Prerelease 产出
 #   · versionName = 与 master 同一套语义版本系统 + `-dev.<run_number>` 后缀
 #   · versionCode = 2_030_000_000 + 自 2026-01-01 UTC 起的分钟数
@@ -17,13 +17,6 @@
 name: Dev Build
 
 on:
-  push:
-    branches: [dev]
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - 'app_icon*.png'
   workflow_dispatch:
 
 # 顶层最小权限：写权限只授予 publish job
@@ -163,6 +156,8 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          WENKU8_JIEQI_USER_INFO: ${{ secrets.WENKU8_JIEQI_USER_INFO }}
+          WENKU8_JIEQI_VISIT_INFO: ${{ secrets.WENKU8_JIEQI_VISIT_INFO }}
         run: |
           echo "构建版本 → name=${APP_VERSION_NAME:-<空>} code=${APP_VERSION_CODE:-<空>}"
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
@@ -247,7 +242,7 @@ jobs:
           body: |
             versionCode: ${{ needs.build.outputs.version_code }}
 
-            自动构建的测试版（Actions）。
+            手动触发的测试版（Actions）。
             请在应用「设置 → 更新 → 更新通道」选择「测试版」后检查更新。
           prerelease: true
           files: |
@@ -255,7 +250,7 @@ jobs:
             dist/SHA256SUMS
 
       # ---- 旧测试版清理：只保留最近 10 个 ----
-      # 每次 push 到 dev 都会产出一个 Prerelease，不清理就会无限堆积
+      # 每次手动运行 Dev Build 都会产出一个 Prerelease，不清理就会无限堆积
       #（2026-09-25 实测已积到 48 个），Releases 列表与 Actions 页面都会被刷屏。
       #
       # 安全边界：只匹配 "vX.Y.Z-dev.N" 形式的预发布。正式版（vX.Y.Z）的 release

@@ -157,10 +157,21 @@ class UpdateCenter(
             }
             result.fold(
                 onSuccess = { file ->
-                    _state.update {
-                        it.copy(downloading = false, latest = null, downloadProgress = 0f)
+                    when (checker.installApk(context, file)) {
+                        ApkInstallResult.LAUNCHED -> _state.update {
+                            it.copy(downloading = false, latest = null, downloadProgress = 0f)
+                        }
+
+                        ApkInstallResult.PERMISSION_REQUIRED,
+                        ApkInstallResult.INSTALLER_UNAVAILABLE,
+                        ApkInstallResult.SIGNATURE_MISMATCH -> _state.update {
+                            it.copy(
+                                downloading = false,
+                                downloadProgress = 0f,
+                                downloadError = context.getString(R.string.update_install_failed),
+                            )
+                        }
                     }
-                    checker.installApk(context, file)
                 },
                 onFailure = { e ->
                     _state.update {

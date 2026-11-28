@@ -1,5 +1,6 @@
 package com.hoshino.wenku8reader.data
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,5 +56,30 @@ class UpdateCheckerTest {
         assertTrue(checker.isNewer("v0.3.0-dev.22", "0.3.0-dev.21", allowEqual = true))
         // 正式版通道（默认）：不得因此误报
         assertFalse(checker.isNewer("v0.3.0-dev.22", "0.3.0-dev.21"))
+    }
+
+    @Test
+    fun ghProxySettingUsesGhProxyPrefix() {
+        val release = ReleaseInfo(
+            tag = "v1.0.0",
+            versionName = "1.0.0",
+            apkDownloadUrl = "https://github.com/owner/repo/releases/download/v1.0.0/app.apk",
+        )
+
+        assertEquals(
+            "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0.0/app.apk",
+            checker.apkUrl(release, "gh_proxy"),
+        )
+    }
+
+    @Test
+    fun githubSourceKeepsOriginalUrl() {
+        val release = ReleaseInfo(
+            tag = "v1.0.0",
+            versionName = "1.0.0",
+            apkDownloadUrl = "https://github.com/owner/repo/releases/download/v1.0.0/app.apk",
+        )
+
+        assertEquals(release.apkDownloadUrl, checker.apkUrl(release, "github"))
     }
 }

@@ -67,7 +67,7 @@ fun MiuixSettingsPage(
             Spacer(Modifier.height(4.dp))
             MiuixSection(title = stringResource(R.string.settings_section_account)) {
                 // 账户开关关闭（默认）时与引入本功能之前完全一致：只读说明行、不可点击
-                if (!rs.accountLoginEnabled) {
+                if (!rs.effectiveAccountLoginEnabled) {
                     MiuixRow(
                         title = stringResource(R.string.settings_builtin_account),
                         summary = stringResource(R.string.settings_account_builtin_desc),

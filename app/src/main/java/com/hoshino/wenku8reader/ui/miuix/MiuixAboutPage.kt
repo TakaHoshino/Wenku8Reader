@@ -1,5 +1,7 @@
 package com.hoshino.wenku8reader.ui.miuix
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -17,11 +19,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +43,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.common.saveFileToUri
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -50,9 +60,30 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun MiuixAboutPage(
     onBack: () -> Unit,
+    vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pendingLogFile = remember { mutableStateOf<java.io.File?>(null) }
+    val saveLogLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        val file = pendingLogFile.value
+        pendingLogFile.value = null
+        if (uri != null && file != null) {
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    saveFileToUri(context, file, uri)
+                }
+                android.widget.Toast.makeText(
+                    context,
+                    if (saved) R.string.settings_logs_saved else R.string.settings_logs_export_failed,
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
     val iconBackgroundColor = remember {
         Color(context.getColor(R.color.ic_launcher_background))
     }
@@ -64,6 +95,21 @@ fun MiuixAboutPage(
     val repoUrl = stringResource(R.string.about_repo_url)
     val qqGroupUrl = stringResource(R.string.about_qq_group_url)
     val supportUrl = stringResource(R.string.about_support_url)
+
+    LaunchedEffect(Unit) {
+        vm.logExport.collect { result ->
+            result.onSuccess { file ->
+                pendingLogFile.value = file
+                saveLogLauncher.launch(file.name)
+            }.onFailure {
+                android.widget.Toast.makeText(
+                    context,
+                    R.string.settings_logs_export_failed,
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
 
     MiuixSubPage(title = stringResource(R.string.about_title), onBack = onBack) { inner ->
         Column(
@@ -135,6 +181,18 @@ fun MiuixAboutPage(
                     summary = stringResource(R.string.about_support_desc),
                     icon = Icons.Filled.Coffee,
                     onClick = { runCatching { uriHandler.openUri(supportUrl) } },
+                )
+            }
+            // 诊断日志导出
+            MiuixSection(
+                title = stringResource(R.string.settings_logs),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
+            ) {
+                MiuixArrowRow(
+                    title = stringResource(R.string.settings_logs_export),
+                    summary = stringResource(R.string.settings_logs_export_summary),
+                    icon = Icons.Filled.Description,
+                    onClick = vm::exportLogs,
                 )
             }
             // 应用介绍

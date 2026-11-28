@@ -100,6 +100,11 @@ object Parsers {
     private val BOOKCASE_LINK = Pattern.compile(
         "<a[^>]+href=\"([^\"]*readbookcase\\.php[^\"]*)\"[^>]*>([^<]+?)</a>", Pattern.DOTALL
     )
+    /** 新版书架若改用普通详情链接，仍至少能展示书 id 与书名。 */
+    private val GENERIC_BOOK_LINK = Pattern.compile(
+        "<a[^>]+href=\"[^\"]*?/book/(\\d+)\\.htm\"[^>]*>([^<]+?)</a>",
+        Pattern.DOTALL or Pattern.CASE_INSENSITIVE,
+    )
 
     internal fun unescape(s: String): String = s
         .replace("&nbsp;", " ")
@@ -356,6 +361,30 @@ object Parsers {
     }
 
     // ------------------------------------------------------------------ //
+
+    enum class BookcasePageKind {
+        BOOKSHELF,
+        LOGIN_REQUIRED,
+        OTHER,
+    }
+
+    /**
+     * 区分站方书架、登录页与其他页面。
+     *
+     * 旧模板用 `checkform` 标记书架；新版页面即使不再输出该名称，仍会包含
+     * `readbookcase.php` / `addbookcase.php` 操作链接。两者都接受，避免把真实
+     * 书架误判成“其他页面”。必须先判书架，再判登录页。
+     */
+    fun classifyBookcasePage(html: String): BookcasePageKind = when {
+        html.contains("checkform") ||
+            html.contains("readbookcase.php") ||
+            html.contains("addbookcase.php") ||
+            html.contains("您的书架") ||
+            html.contains("我的书架") -> BookcasePageKind.BOOKSHELF
+        html.contains("login.php") -> BookcasePageKind.LOGIN_REQUIRED
+        else -> BookcasePageKind.OTHER
+    }
+
     fun parseBookcase(html: String): List<BookcaseItem> {
         class Row {
             var aid: Int = 0
@@ -392,7 +421,20 @@ object Parsers {
                 row.name = text
             }
         }
-        return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid, it.bid) }
+        if (rows.isNotEmpty()) {
+            return rows.values.map { BookcaseItem(it.aid, it.name, it.latest, it.latestCid, it.bid) }
+        }
+
+        // 新版模板兜底：仅展示普通详情链接；拿不到书架记录 id 时 bid=0，移出操作会失败，
+        // 但书架内容不再因为模板改名而整体不可见。旧 readbookcase 模板仍走上面的完整路径。
+        val genericRows = linkedMapOf<Int, String>()
+        val gm = GENERIC_BOOK_LINK.matcher(html)
+        while (gm.find()) {
+            val id = gm.groupOrEmpty(1).toIntOrNull() ?: continue
+            val name = clean(gm.groupOrEmpty(2))
+            if (id > 0 && name.isNotEmpty()) genericRows.putIfAbsent(id, name)
+        }
+        return genericRows.map { (id, name) -> BookcaseItem(id, name, null, null, 0) }
     }
 
     // ------------------------------------------------------------------ //

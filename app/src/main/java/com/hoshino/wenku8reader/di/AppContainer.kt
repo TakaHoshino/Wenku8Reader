@@ -1,6 +1,9 @@
 package com.hoshino.wenku8reader.di
 
 import android.content.Context
+import coil.ImageLoader
+import com.hoshino.wenku8reader.data.CookieStore
+import com.hoshino.wenku8reader.data.CronetHttpClient
 import com.hoshino.wenku8reader.data.DownloadEngine
 import com.hoshino.wenku8reader.data.UpdateCenter
 import com.hoshino.wenku8reader.data.UpdateChecker
@@ -9,6 +12,7 @@ import com.hoshino.wenku8reader.data.Wenku8Shelf
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
+import com.hoshino.wenku8reader.data.local.BuiltInSessionCookies
 import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.LibraryStore
 import com.hoshino.wenku8reader.data.local.LocalDataMigration
@@ -18,7 +22,11 @@ import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.db.AppDatabase
 import com.hoshino.wenku8reader.data.log.AppLogger
+import com.hoshino.wenku8reader.data.remote.Wenku8ClientDataSource
+import com.hoshino.wenku8reader.data.remote.Wenku8DataSourceProvider
+import com.hoshino.wenku8reader.data.remote.Wenku8SourceDispatcher
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
+import com.hoshino.wenku8reader.ui.common.CronetImageFetcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,12 +84,29 @@ class AppContainer(context: Context) {
      */
     val accountStore: AccountStore = AccountStore(context)
 
+    /** 全部 HTTP 请求共用的 Cookie 存储与 Cronet 引擎。 */
+    val cookieStore: CookieStore = CookieStore(context)
+    init {
+        BuiltInSessionCookies.seed(cookieStore)
+    }
+    val cronetHttp: CronetHttpClient = CronetHttpClient(context, cookieStore, logger)
+
+    /** Coil 的网络层也使用 [cronetHttp]；解码与图片缓存仍由 Coil 管理。 */
+    val imageLoader: ImageLoader = ImageLoader.Builder(context)
+        .components {
+            add(CronetImageFetcher.Keyer())
+            add(CronetImageFetcher.Factory(cronetHttp))
+        }
+        .build()
+
     /** 主镜像随设置可切换（见 ReaderSettings.primaryMirror）；注入内置账号供静默登录。 */
     val client: Wenku8Client = Wenku8Client(
         context,
-        { readerSettings.flow.value.primaryMirror },
-        { DefaultAccount.USERNAME to DefaultAccount.PASSWORD },
-        { readerSettings.flow.value.cacheMaxMb },
+        cookieStore = cookieStore,
+        cronetHttp = cronetHttp,
+        primaryMirrorProvider = { readerSettings.flow.value.primaryMirror },
+        defaultCredentials = { DefaultAccount.USERNAME to DefaultAccount.PASSWORD },
+        cacheMaxMbProvider = { readerSettings.flow.value.cacheMaxMb },
         // 回落到内置账号 ⇒ 用户账户的"激活标记"随之失效。
         // 必须这么做：内置账号登录后同样有会话，"有没有会话"区分不出账户归属。
         onUserSessionLost = {
@@ -90,7 +115,19 @@ class AppContainer(context: Context) {
         logger = logger,
     )
 
-    val repository: Wenku8Repository = Wenku8Repository(client)
+    /**
+     * Wenku8 网络访问层。
+     *
+     * 当前先注册成熟的页面数据源；后续 API Core、备用站点或插件源只需加入 dispatcher，
+     * 仓库和 UI 无需改动。高/默认/低优先级由 provider 统一控制。
+     */
+    private val networkSource = Wenku8SourceDispatcher(
+        sources = listOf(Wenku8ClientDataSource(client)),
+        logger = logger,
+    )
+    val network: Wenku8DataSourceProvider = Wenku8DataSourceProvider(networkSource)
+
+    val repository: Wenku8Repository = Wenku8Repository(network)
 
     /**
      * 站方书架（Wenku8 账户的书架）的应用内状态：远端镜像、不落库。
@@ -134,7 +171,7 @@ class AppContainer(context: Context) {
     val readingStats: ReadingStatsStore = ReadingStatsStore(context)
 
     /** 更新检查与安装（GitHub Releases 源）。 */
-    val updateChecker: UpdateChecker = UpdateChecker(logger)
+    val updateChecker: UpdateChecker = UpdateChecker(cronetHttp, logger)
     val updateCenter: UpdateCenter =
         UpdateCenter(context, updateChecker, preferences, readerSettings, applicationScope)
 

@@ -99,6 +99,7 @@ object AppParsers {
                 textParts.add(Parsers.unescape(s))
             }
         }
+        if (textParts.isEmpty() && images.isEmpty()) return null
         return ChapterContent(
             title = title,
             text = textParts.joinToString("\n"),

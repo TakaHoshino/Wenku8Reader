@@ -8,17 +8,17 @@
 ## 1. 项目概述
 
 轻小说文库（wenku8.net，jieqi CMS）的 Android 客户端，**Kotlin + Jetpack Compose** 实现，界面有
-**Material 3 Expressive**（默认）与 **MIUIX / HyperOS**（实验性）两套**完全独立**的实现（见 §5.6）。
+**Material 3 Expressive**（默认）与 **MIUIX / HyperOS**（正式功能）两套**完全独立**的实现（见 §5.6）。
 
 功能现状：探索（首页栏目 / 搜索 / 标签分页）、书籍详情（作者与 Tag 跳转、独立目录页）、书架（已读进度）、
 **沉浸式在线阅读器**（滚动/侧滑双模式、自动边距、章节进度、状态指示器、自动翻页、音量键翻页、
-插图章节、简繁转换）、阅读统计热力图、TXT/EPUB 离线下载（保存至 `Downloads/Wenku8/`）、
+插图章节、简繁转换）、阅读统计热力图、书架配置 JSON 导入/导出、TXT/EPUB 离线下载（保存至 `Downloads/Wenku8/`）、
 应用内更新（正式 / 测试双通道 + 安装前签名校验）、存储占用统计与清理。
 站点侧仍使用**内置账号**静默登录（用户无需操作）。
 
-> **实验性功能**（设置 → 实验性，**默认关闭**；关闭时用户可见行为与正式版完全一致）：
-> MIUIX 界面风格、悬浮底栏与液态玻璃、**多书架分组**（§4.6.1）、**账户登录与网站书架**（§4.11）。
-> 其中**单书架是正式行为**；"实验性 ≠ 不能进 master"，判定标准见 §4.6.1 开头的三条。
+> **实验性功能总开关**（设置 → 实验性，**默认关闭**，开启需等待 5 秒确认）：
+> 总开关只约束仍处于实验性的悬浮底栏、液态玻璃与**账户登录 / 网站书架**（§4.11）。
+> MIUIX 界面风格与**多书架分组**（§4.6.1）已是正式功能，分别在外观页和通用设置中提供独立开关。
 
 ---
 
@@ -29,7 +29,7 @@
 | 语言 | Kotlin（JVM target 17） |
 | UI | Jetpack Compose（BOM 2026.05.01，ui/foundation 1.11.2）+ **Material 3 Expressive**（material3 1.5.0-alpha18）+ material-icons-extended |
 | 架构 | 单 Activity + Navigation-Compose + ViewModel（手写 DI 容器，无 Hilt） |
-| 网络 | OkHttp 4.12 + Cronet（chromium net）+ WebView 兜底；Coil 2.7 加载图片 |
+| 网络 | 数据请求统一 Cronet（chromium net）；WebView 仅承载网站登录与 JS 反爬兜底；Coil 2.7 负责图片解码与缓存 |
 | 依赖注入 | 手写 `AppContainer`（`di/AppContainer.kt`） |
 | 异步 | Kotlin Coroutines + StateFlow |
 | 简繁 | opencc4j（`com.github.houbb:opencc4j`） |
@@ -37,10 +37,11 @@
 | 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；30 个测试类 / 205 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
-| 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
+| 正式 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，设置→外观切换，见 §5.6） |
 
-关键 build 文件：`app/build.gradle.kts`（模块配置）+ `gradle/libs.versions.toml`（**版本目录**，
-所有依赖与插件版本集中在此）+ 根 `build.gradle.kts`（AGP/Compose 插件声明与 KGP classpath 覆盖）。
+关键 build 文件：`app/build.gradle.kts`（应用模块配置）+ `wenku8-api-core/build.gradle.kts`
+（纯 JVM v2 API 核心模块）+ `gradle/libs.versions.toml`（**版本目录**，所有依赖与插件版本集中在此）
++ 根 `build.gradle.kts`（AGP/Compose/JVM 插件声明与 KGP classpath 覆盖）。
 用仓库自带的 wrapper 构建即可：`./gradlew :app:assembleDebug`。
 
 > **加依赖请走版本目录**：在 `gradle/libs.versions.toml` 的 `[versions]`/`[libraries]` 里登记，
@@ -74,6 +75,7 @@ Wenku8Reader/
 ├── README.md（对外功能）/ DEVELOPMENT.md（本文）/ CHANGELOG.md / VERSIONING.md / CONTRIBUTING.md / NOTICE
 ├── local.properties          # sdk.dir=...
 ├── 技术性文档(只读勿动)/     # 参考文档，勿修改（wenku8-api.md 等，见 §8）
+├── wenku8-api-core/src/       # v2 Action 构造、封包接口、HTTP 状态机（纯 JVM）
 └── app/src/
     ├── main/
     │   ├── AndroidManifest.xml
@@ -87,7 +89,13 @@ Wenku8Reader/
     │       ├── di/AppContainer.kt         # 手写 DI（client / repository / 各 store / engine / scope）
     │       ├── data/
     │       │   ├── Models.kt              # SearchResult/BookInfo/Chapter/Volume/ChapterContent/BookcaseItem/FlatChapter/HomeBook/HomeSection
-    │       │   ├── Wenku8Client.kt        # 全部 wenku8 网络接口（限速/重试/多镜像/WebView+Cronet+OkHttp/站点书架增删）
+    │       │   ├── CronetHttpClient.kt    # 应用唯一 HTTP 出口（Cronet、Cookie、重定向、超时、流式下载）
+    │       │   ├── Wenku8Client.kt        # 全部 wenku8 接口（限速/重试/多镜像/Cronet+WebView/站点书架增删）
+    │       │   ├── remote/                # 参考 LightNovelReader 重建的数据源/调度/优先级网络层
+    │       │   │   ├── Wenku8BookDataSource.kt    # 数据源契约
+    │       │   │   ├── Wenku8ClientDataSource.kt  # 当前 Cronet+WebView 实现适配器
+    │       │   │   ├── Wenku8SourceDispatcher.kt  # 多源轮换与空结果回退
+    │       │   │   └── Wenku8DataSourceProvider.kt # 高/默认/低优先级并发入口
     │       │   ├── Wenku8Hosts.kt         # 镜像与图片域名（https 升级、Referer 常量）
     │       │   ├── Parsers.kt / AppParsers.kt   # 网页正则解析 / 官方 App API 协议解析
     │       │   ├── CoverUrls.kt           # 由书 id 推导封面地址（零请求）
@@ -130,37 +138,52 @@ Wenku8Reader/
 
 ### 4.2 网络客户端（`Wenku8Client.kt`）
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
+- **网络访问分层（2026-11，参考 LightNovelReader）**：仓库只依赖
+  `Wenku8DataSourceProvider` 的高/默认/低优先级入口；底层由 `Wenku8BookDataSource`
+  提供数据，当前 `Wenku8ClientDataSource` 适配现有 Cronet+WebView 实现，
+  `Wenku8SourceDispatcher` 负责多源轮换。阅读器/详情走 high，普通浏览走 default，
+  下载与图片走 low，共享同一优先级并发闸门；后续 API Core 或其他站点源可直接加入
+  dispatcher，不需要改 UI 或仓库。新增网络读取入口必须经过该层。
+- **统一 Cronet 网络栈**：`CronetHttpClient` 是应用数据请求的唯一 HTTP 出口，wenku8 页面 / 搜索 / 书架 / TXT 下载、GitHub 更新检查与 APK 下载，以及 Coil 封面 / 插图均经它请求。它统一处理 Cookie、逐跳重定向、主站 HTTPS 升级、超时、取消和流式下载回调；源码中不再创建 `OkHttpClient` 或 `HttpURLConnection`。例外仅限 `WebsiteLoginActivity`（必须运行站点登录表单）与 Cloudflare JS 挑战。
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
 - **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`，UA 统一用 `UserAgent.build()` 生成的**设备 UA**（真实 `Build.VERSION.RELEASE` + `Build.MODEL`，WebKit/Safari 固定 `537.36`、Chrome 主版本固定，进程内只算一次）。
   > ⚠️ **不要改回"每次请求随机 UA"**：随机机型/系统组合、`Chrome/140.0.12.3`、`Safari/537.118` 这类不存在的值本身就是自动化特征；而 `cf_clearance` 与 UA 绑定，换 UA 还会让令牌复用失效。参考 LightNovelReader 2026-10-02 的 `fix(web): 修正UA生成器`（同样是改成真实 Build + 固定版本 + 缓存）。
-- **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
+- **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net, wenku8.cc, wenku8.net]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底，再进入 Cronet/WebView/App API 链；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
   ⚠️ `www.wenku8.com` 已于 **2026-10 下线**：实测（PC 与 Android 17 设备一致）解析到 47.243.247.59，
   TLS 证书是 `s1.n9z.net`（SAN 只有该域名），主机名校验必然失败，每次冷启动白等约 4.6s。
   它已从清单移除；**老用户设置里残留的该值会在读取时回落到默认主站**（`ReaderSettings.toState()`），
   `Wenku8Client.mirrors` 还有一层 `isValidMirror` 兜底。图片 / 下载 / 官方 App API 用的是
   `img.wenku8.com` / `dl.wenku8.com` / `app.wenku8.com`，不受此条影响。
-- **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 OkHttp/Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
+- **cf_clearance 持久化复用**（参考 `LightNovelReader`）：WebView 解出 CF 挑战后，把 WebView 写入的 Cookie（含 `cf_clearance`/`__cf_bm`）经 `CookieStore.saveRaw` 持久化，并记录该主机挑战时使用的 UA（`challengeUa`，cf_clearance 与该 UA 绑定）；后续 Cronet 请求用 `uaFor()` 复用同一 UA 直接带令牌通过，无需每次重跑 WebView。切换主镜像时 `clearCookies()` 清空全部 Cookie 与 UA 绑定并自动用内置账号重登。
 - **登录判据**：以 `jieqiUserInfo` 会话 Cookie 为准（`hasSession()`）。⚠️ 旧版用 `index.php` 是否含 `frmlogin` 判定，而首页公开且无登录表单，**永远误判为已登录** → 静默登录从未执行 → 需登录的接口（tags/bookcase）拿到登录页重定向。现已改为 Cookie 判据 + `ensureLoggedIn()`（首页/tags/tagBooks 内先确保登录）+ 启动静默登录重试 3 次。
 - **内置分类清单**：`BUILT_IN_TAGS`（50 个标准分类，参考 LightNovelReader 内置 tagList）作为「标签」页分类的**直接来源**——`tags()` 秒回、无需登录/网络；每分类书籍仍在线抓取（`tagBooks(tag, page)`，需登录；**分页**：`tags.php?t=xxx&v=1&page=N`，TagBooksScreen 逐页追加、按 bookId 去重、空页或下一页无新书时停止）。`isLoggedIn()` 已简化为会话 Cookie 判据（去掉无意义的 `index.php` 联网检查）。
-- **三级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页）：**Cronet（TLS 指纹过 CF）→ WebView（真浏览器跑 CF JS 挑战，读回 DOM）→ OkHttp（设备 UA）**，逐镜像尝试；**三层共用同一个 UA**，挑战令牌才能复用。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到三级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
+- **两级抓取栈**（`fetchWithBypass`，用于 tags/tagBooks/首页/书架）：**Cronet（TLS 指纹过 CF）→ WebView（真浏览器跑 CF JS 挑战，读回 DOM）**，逐镜像尝试；两层共用同一个 UA，挑战令牌才能复用。**首页/标签/标签书单均先走 `tryDirect` 快路径**（cookie-first，参考 LightNovelReader：已有 cf_clearance 时用绑定 UA 直连一次通过，跳过 WebView），仅失败/解析为空时升级到两级栈。其余接口（bookInfo/chapters/chapterContent）先网页直连，失败后走 App API 兜底。
   > 主站部分入口仍会返回 `Location: http://www.wenku8.*`（未登录首页 → 登录页）。应用禁止明文流量，直接跟随会得到 `ERR_CLEARTEXT_NOT_PERMITTED`。Cronet 与 WebView 均通过 `Wenku8Hosts.secureMainSiteUrl()` 只把两个主站镜像的 scheme 升级为 HTTPS，保留原 path/query 编码；第三方地址不改写。
   > ⚠️ **Cronet 必须排在 WebView 前面**（2026-10 调整）：WebView 请求是串行的（`webViewMutex`），而探索页一次要加载几十个标签预览。2026-10-18 的设备日志里，50 个标签并发时 **202 次 WebView 超时**（大量是排队等锁的 15s），同一批请求换 Cronet 后 **92 次全部 200、每次约 0.5s**。
 - **详情 / 目录 / 正文的兜底**：这三类同样是 GET + HTML，直连失败后**先走 `fetchWithBypass`（Cronet）**，再退到官方 App API。
   ⚠️ 只靠 App API 是不够的：2026-10 起官方 App API 已失效（返回 200 但内容不可解析），而部分网络下直连会被 Cloudflare 全线 403——设备日志里 `/book/{id}.htm` 每次重试 4 次仍 403，详情页因此报"书籍信息获取失败"。
-- **登录去重（`loginMutex` + 双检）**：启动静默登录、首页、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。登录请求先走 Cronet POST，再以 OkHttp 兜底；成功判据始终是拿到 `jieqiUserInfo`，不是最终页面状态码。
+- **登录去重（`loginMutex` + 双检）**：启动静默登录、首页、探索页 `tags()`、书架 `bookcase()` 可能在启动瞬间同时发现"未登录"并各发一次登录请求。`ensureLoggedIn()` 与 `login()` 共用同一把 `Mutex`，进入锁后**再次检查**登录态（排队的协程直接复用已完成的登录）。入口路径都收敛到 `loginInternal()`，不存在绕过锁的调用点。登录请求走 Cronet POST；成功判据始终是拿到 `jieqiUserInfo`，不是最终页面状态码。
+  登录会按当前镜像列表逐个尝试，并以对应主机的 `jieqiUserInfo` 判定成功；Cookie 不跨主机共享，
+  所以搜索与站方书架会回到实际持有会话的镜像。这修复了 `www.wenku8.cc` 出现
+  `ERR_HTTP2_PROTOCOL_ERROR` 时只向主镜像重试、可用的 `www.wenku8.net` 永远收不到登录请求的问题。
 - **隐藏 WebView 的生命周期与并发**：`webViewGet()` 用 `webViewMutex` 串行化（同一时刻只有一个 WebView 解挑战：多开会在主线程同时跑 JS、放大内存与风控样本，而串行化后第二个请求通常直接复用刚拿到的 cf_clearance 走快路径）；`cont.invokeOnCancellation` 保证协程被取消（离开页面/超时/VModel 销毁）时也会销毁 WebView，统一走 `destroyWebView()`（stopLoading → about:blank → clearHistory → removeAllViews → 换掉 WebViewClient → destroy，每步 runCatching）。超时分两层：单次解挑战 15s，等待锁 + 执行整体 25s。
-- **Cronet 挂起等待与重定向**：`cronetGet()` 不再用 `CountDownLatch.await(8s)`（每个请求独占一个 IO 线程空等，取消也要等超时才释放），改为 `suspendCancellableCoroutine` + `withTimeoutOrNull`，线程在等待期间释放，取消直接传播到 `UrlRequest.cancel()`。重定向由 Kotlin 层逐跳跟随（上限 6 次、整体 20s）：保存每个 3xx 响应的 `Set-Cookie`，把主站明文 Location 升级为 HTTPS，并按 301/302/303 → GET、307/308 保留方法与正文处理。登录会话 Cookie 通常就在 302 响应上，不能只保存最终页的 Cookie。
+- **Cronet 挂起等待与重定向**：`CronetHttpClient` 使用 `suspendCancellableCoroutine` + `withTimeoutOrNull`，等待期间释放线程，取消直接传播到 `UrlRequest.cancel()`。重定向由 Kotlin 层逐跳跟随（上限 6 次、整体默认 20s）：保存每个 3xx 响应的 `Set-Cookie`，把主站明文 Location 升级为 HTTPS，并按 301/302/303 → GET、307/308 保留方法与正文处理。登录会话 Cookie 通常就在 302 响应上，不能只保存最终页的 Cookie。
 - **App API 兜底**（参考 LightNovelReader 的 `Wenku8AppDataSource`）：`bookInfo/chapters/chapterContent` 在网页失败后走官方 App API（`http://app.wenku8.com/android.php`，POST `request`(base64)/`timetoken`/`appver` + Dalvik UA，社区中继 `https://wenku8-relay.mewx.org` 兜底），串行限流 + 请求间随机 1.5~2s 延迟。**2026-08 实测两个端点均已失效**（官方回 "Welcome"、中继 400），保留为无害兜底：失败极快，不影响网页主路径。
+- **v2 API 核心（`wenku8-api-core`）**：纯 JVM 模块负责 `action=...` 构造、`WK8-RNE-1`
+  封包接口、`POST /v2/api` 请求语义、`PHPSESSID`、gzip 与 `401/403/426/429` 分类；原生封包器
+  通过 `WenkuEnvelopeSigner` 注入，未配置时明确返回 `NotConfigured`。核心模块**不创建 HTTP 客户端**，
+  应用侧 `CronetWenkuHttpExecutor` 适配器仍统一经过 `CronetHttpClient`。当前尚未接入业务主路径。
 - **内存缓存**（参考 LightNovelReader 的 2h Cache）：`bookInfo`/目录缓存 2h、章节缓存 30min，仅缓存成功结果，减少重复请求与被拦概率。三者均带 **LRU 容量上限**（info 128 / toc 32 / chapter 64 条）：只有 TTL 时，长读一本书会让章节正文无限累积在内存里。
 - **本地磁盘缓存**（`data/local/HtmlDiskCache.kt`）：抓取内容按 URL 落盘到 `filesDir/html_cache`（卸载前持久），命中且未过期直接返回、避免二次加载；仅缓存非 CF 挑战/非登录页。TTL：首页 1h、详情/目录 7d、章节正文 30d、标签书单 1d；总量超 30MB 时按最旧优先清理。内存缓存（快）→ 磁盘缓存（持久）→ 网络，三级取数。
 - **自适应限速**：全局 `lastRequest` 间隔基数 600ms × `rate`（成功 ×0.85 回落、失败 ×2 放大，上限 ×8）；**429 / 5xx** 触发指数退避重试（1.5s→3s→…上限 30s，3 次）。
-  ⚠️ **403 不重试**（`HttpRetryPolicy`）：Cloudflare 对非浏览器直连是硬拦截，重试只会白等约 4.5s 并继续打站点——2026-10-18 日志里一天 433 次 403，而紧接着的 Cronet 一次就 200。403 现在立刻失败、交给三级绕过栈；搜索额外 5s 最小间隔，命中站点限流错误页时仍有界重试（最多 3 次、每次等 5s）。
+  ⚠️ **403 不重试**（`HttpRetryPolicy`）：Cloudflare 对非浏览器直连是硬拦截，重试只会白等约 4.5s 并继续打站点——2026-10-18 日志里一天 433 次 403，而紧接着的 Cronet 一次就 200。403 现在立刻失败、交给两级绕过栈；搜索额外 5s 最小间隔，命中站点限流错误页时仍有界重试（最多 3 次、每次等 5s）。
 - **取消语义**：所有 `runCatching` 均改为「不吞 `CancellationException`」的封装（`Wenku8Client` / `Wenku8Repository`），否则页面被取消会被误判成"直连失败"，继续走 WebView/Cronet 绕过栈。
 - **搜索**：按成功率三层——
   ① **Cronet POST `/so.php`**（带会话 Cookie 的 GBK 表单）：站点只接受 POST，而直连 POST 会被 CF 403，Cronet 的 TLS 指纹是唯一可靠通道；精确命中会 302 到 `/book/{id}.htm`，按最终 URL 解析；
   ② **绕过栈 GET `/modules/article/search.php?searchtype=…&searchkey=…`**（POST 的 302 目标，关键词 GBK 百分号编码）；
   ③ 原直连 POST（能直连的网络里最快）。
   结果页含 `<caption>`/`id="centerm"` 时解析（0 条也算成功），登录页/挑战页/限流页则继续下一层；保留 5 秒最小间隔与限流页有界重试。
+  > **2026-11 修复**：Cronet POST/GET 都会先校验状态码与错误页特征；绕过栈保留**最终 URL**，精确命中 302 到详情页时直接按单本书解析。此前 `.cc` 的 403 正文会被误当成“0 条结果”，搜索因此始终不可用。
   > ⚠️ Cronet POST 的上传体必须用官方 `UploadDataProviders.create(bytes)`：自实现 `UploadDataProvider`
   > 在 cronet 119 上会直接报 `CallbackExceptionImpl: Exception received from UploadDataProvider`
   > （2026-10-18 实测），POST 还没发出去就失败。该类虽已 deprecated，但仍是当前版本唯一可用的实现，
@@ -170,17 +193,27 @@ Wenku8Reader/
 ### 4.3 解析（`Parsers.kt`）
 纯正则（`java.util.regex.Pattern`）。注意：
 - `parseChapter`：用 `indexOf("<div id=\"content\">")` 到 `indexOf("<div id=\"footlink\"")` 截取正文（**不用正则**，防嵌套 div）；剥离 `<ul id="contentdp">` 水印；`<br>/</p>` → `\n`；去标签；实体解码；`\u3000` → 两个半角；按行 trim、合并连续空行。
-- `splitFullTxt(txt, volumes)`：用目录树生成期望章节头（`卷名 章节名`），在 TXT 行里**一次遍历、按行号游标线性定位**并切分章节，用于 EPUB 生成（相比"每行 trim 两次 + 文本→行号全量 map"，8MB/1000 章实测 53ms→38ms、55MB→43MB）。
+- `splitFullTxt(txt, volumes)`：用目录树生成期望章节头（`卷名 章节名`），在 TXT 行里**一次遍历、按行号游标线性定位**并切分章节。该工具保留并有单测，但 EPUB 已不再走 TXT 快捷路径——TXT 不携带插图 URL。
 - `parseBookcase`：按 `bid` 分组，无 `cid` 链接为书名、有 `cid` 为最新章节；解析前先对 href 做**反转义**
   （站点可能把分隔符写成 `&amp;`，不解码会拆出 `amp;bid` 这种键，整页书架被**静默**解析成空列表）。
 - `parseHomepage` / `parseBookList`：首页 `<div class="block">` 切块、书籍列表（两者共用 `homeBookAt` 解析条目；封面统一经 `absolutizeCover` 补全域名）。
   > 注：`parseTags` 已删除——标签来源改为内置清单 `BUILT_IN_TAGS`，不再抓取页面。
 
 ### 4.4 Cookie（`CookieStore.kt`）
-实现 `okhttp3.CookieJar`，登录成功后 `persist()` 落盘；`cronetGet`/`webViewGet` 手动拼 `Cookie` 头。
+实现 `okhttp3.CookieJar` 兼容类型，登录成功后 `persist()` 落盘；Cronet 与 WebView 共用同一份 Cookie。
+请求侧参考 LightNovelReader 显式生成单个 `Cookie` 头（固定 `PHPSESSID` / `jieqi*` /
+`cf_clearance` 顺序），但值来自动态 CookieStore，不硬编码参考项目中的过期会话。
+
+- **构建期身份会话**：`app/build.gradle.kts` 将 `WENKU8_JIEQI_USER_INFO` / `WENKU8_JIEQI_VISIT_INFO`
+  写入 `BuildConfig`；优先读取同名环境变量，再回退未入库的 `local.properties`。
+  `AppContainer` 在创建网络客户端前由 `BuiltInSessionCookies` 种入全部镜像。
+- **CI Secrets**：`dev.yml` 与 `release.yml` 的构建步骤分别注入两个同名 Actions Secrets。
+  仓库需配置 `WENKU8_JIEQI_USER_INFO` 和 `WENKU8_JIEQI_VISIT_INFO`；值必须是已经 URL 编码的完整 Cookie 值，
+  不带 Cookie 名、分号或引号。Secret、日志、文档和测试夹具中都不得出现真实值。
+- **安全边界**：BuildConfig 数据仍可被逆向，因此本地/CI APK 都不应公开分发；账号失效时应更新 Secret 后重新构建。
 
 ### 4.5 下载（`DownloadEngine` / `FileSaver` / `EpubBuilder`）
-- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 先取全本 TXT 用 `splitFullTxt` 切章（成功率 <60% 回退逐章），再 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml；章节 id/文件名统一 `%04d`；uid 取书名+作者 SHA-256 前 8 字节，避免中文书名退化成同一个 uid；`dcterms:modified` 用构建时刻）。
+- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`，`node=1` 失败自动尝试 `node=2`），再失败回退逐章抓取；EPUB 始终逐章抓取 HTML，以同时获得正文和插图 URL，再下载并内嵌插图，最后 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml + `OEBPS/images/`；章节 id/文件名统一 `%04d`；图片项写入 manifest 并由章节相对路径引用；`nav.xhtml` 标记 `properties="nav"` 且**不进入 spine**，避免被阅读器排在正文最后一页；uid 取书名+作者 SHA-256 前 8 字节；`dcterms:modified` 用构建时刻）。
 - `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。**重名即覆盖**：插入前先按 `RELATIVE_PATH` 查回本目录的文件并删掉同名/自动重命名副本（判定见 `isDuplicateDownloadName()`：标准形态 `书名 (1).txt` 与部分 ROM 的 `书名.txt(1)` 都算副本，另有单测覆盖），否则 MediaProvider 会把新文件改名成 `书名 (1).txt`，每重新下载一次就多一份副本；写入用 `IS_PENDING`，其他应用在写完前看不到半截文件。
 
 ### 4.6 本地存储
@@ -194,15 +227,12 @@ Wenku8Reader/
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
 - `DefaultAccount`：**内置共享账号**，未登录用户全程用它访问站点（首启静默登录，任何"回落"都回到它）。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录），**不保存任何用户密码**。账户登录（实验性，见 §4.11）开启后用户可以登录自己的 wenku8 账户；"用户已登录"的判据是**激活账户标记 + 会话 Cookie**两者同时成立，登出即回落内置账号。
 
-### 4.6.1 多书架（实验性，2026-09）
+### 4.6.1 多书架（正式功能，2026-09）
 
-- **定位**：**单书架是对外承诺的正式行为，多书架是实验性功能**。开关
+- **定位**：单书架与多书架都是正式行为。开关
   `ReaderSettingsState.multiShelfEnabled`（DataStore 键 `multi_shelf_enabled`，**默认 false**）
-  位于设置 → 实验性，Material 与 MIUIX 各一个。关闭时书架页与收藏路径与单书架版本逐像素一致
+  位于设置 → 外观 → 通用，Material 与 MIUIX 各一个。关闭时书架页与收藏路径与单书架版本逐像素一致
   （连弹窗都不出现，收藏/取消收藏仍是点一下即刻生效），且**不删任何数据**，重新开启即恢复。
-  > **实验性 ≠ 不能进 master**：多书架可以随正式版一起发布，作为"设置 → 实验性"里的开关存在。
-  > 衡量它能不能进正式版的是这三条，而不是"功能新不新"：
-  > ① 默认关闭；② 关闭时的行为与单书架正式版完全一致；③ 入口明确归在"实验性"分类下。
   > 注意"行为一致"指的是**用户可见行为**：开关关闭后存储里的归属仍是 JSON 数组（内部表示），
   > 旧版本应用从来不读这一列，所以不影响降级兼容。
 - **数据**：书的归属复用 `BookEntity.shelf` 列（迁移时就已带上，老用户零迁移），
@@ -255,8 +285,9 @@ Wenku8Reader/
 - **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表里**按 `published_at` 排序后**最新的一条带 APK 的发布（**不能相信接口返回的顺序**，见下）。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准「`2_030_000_000` + 分钟偏移」，见 VERSIONING.md §2），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。
   **启动检查频率 = 每次启动一次**（2026-10 起）：不再有 24h 节流，由 `StartupCheckGate` 保证同一进程内只请求一次（Activity 重建 / 多入口不会重复打 GitHub）；失败只在**手动**检查时提示，自动检查静默。「跳过该版本」仍只影响自动检查。
   > ⚠️ **GitHub 的 releases 列表顺序不可靠**（2026-09-25 实测）：`v0.8.0-dev.100` 的 `id`/`created_at` 都是最新，却被排在 `dev.94` 之后（位置第 5）；新建的探针 release 同样落不到首位，带随机参数绕过缓存后顺序不变。所以"取第一条带 APK 的"会把旧包当成最新——测试版通道会一直提示已经过期好几个版本的 dev 包。实现改为显式按 `published_at` 排序（单测 `UpdateCheckerPickLatestTest` 用真实顺序当夹具）。这条**无法用 CI 侧绕过**：重新发布不会置顶，缩减保留数量也治不了。
-- **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；`OkHttpClient` **显式设置连接/读写/整体超时**（默认无超时会长期挂起且无取消点）。
+- **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；APK 通过共享 Cronet 按数据块流式写入文件，默认整体超时 120s，进度按 `Content-Length` 更新。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
+- **安装器兼容**：Manifest 声明 `REQUEST_INSTALL_PACKAGES`；API 26+ 未授权时跳转 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`。FileProvider URI 同时放进 `data` 与 `ClipData`，保证部分 OEM 安装器能取得读取授权；`ACTION_VIEW` 失败后回退旧 `ACTION_INSTALL_PACKAGE`。
 - **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。
 
 ### 4.10 存储占用统计与清理（`AppStorageManager` / `ui/settings`）
@@ -296,8 +327,11 @@ Wenku8Reader/
 - **「用户已登录」的判据**：`activeUsername != null && client.hasSession()`。
   ⚠️ **不能只看 `hasSession()`**：内置账号登录后同样有会话 Cookie，只看 Cookie 会把"内置账号"误判成
   "用户已登录"，进而显示出别人的网站书架。
+- **网站登录**：账户页跳转应用内 `WebsiteLoginActivity`，用户在真实 wenku8 登录页完成密码、
+  验证码或风控校验；成功后从 WebView `CookieManager` 导出 `jieqiUserInfo` 等 Cookie 到共享
+  `CookieStore`。应用不接触用户名密码。进入页面前只清理旧 `jieqi*` 账号 Cookie，保留 cf_clearance。
   `data/local/AccountStore.kt`（DataStore 文件 `account`）只存两个用户名：`active_username`
-  （当前激活账户，缺失 = 内置账号）与 `last_username`（登录页预填），**不存密码**。
+  （当前激活账户，缺失 = 内置账号）与 `last_username`（登录后页面识别出的最近用户名），**不存密码**。
   它独立于 `ReaderSettings` 是刻意的：那是"设置"，这是"身份"——登出与会话失效都要清它，
   生命周期和设置不同，混在一起会让"关掉开关"顺手把登录态也带走了。
 - **登出语义 = 回落内置账号**：`AccountViewModel.logout()` 依次
@@ -314,6 +348,7 @@ Wenku8Reader/
 - **网站书架（「Wenku8书架」）**：`data/Wenku8Shelf.kt`（容器级单例，**不落库**——它本来就是远端镜像，
   持久化只会带来"本地副本与站点不一致"）。展示条件 = 账户开关 + 多书架开关 + 用户账户已登录。
   刷新是容器级互斥的（`refreshMutex`），手动刷新与"增删后的确认刷新"不会互相覆盖，也不会产生突发请求。
+  读取与增删固定使用当前已登录镜像并优先走 Cronet；不会跨镜像轮换，因为 Cookie 不共享。
 - **它与本地书架同等地位**（不要给它加"另一种卡片/另一条排序"这类特判）：同一条书架切换条
   （Material 侧同一个 `FilterChip`、MIUIX 侧同一枚胶囊）、同一套卡片、「管理书架」页里也有它的一行
   （只是不给改名 / 删除入口）、排序走同一条 `applySort()` 路径。真正特殊的只有两条：
@@ -380,8 +415,8 @@ Wenku8Reader/
 
   | 标签 | 内容 |
   |---|---|
-  | `NET` | 每个 OkHttp 请求：方法 + 脱敏 URL + 状态码 + 耗时 + 第几次尝试；429/5xx 的退避与最终放弃；IOException 类型与消息 |
-  | `BYPASS` | Cloudflare 三级栈：WebView / Cronet / OkHttp 各自的成败与耗时、最终命中哪一层、全部失败 |
+| `NET` | 每个 Cronet 请求：方法 + 脱敏 URL + 状态码 + 耗时 + 第几次尝试；429/5xx 的退避与最终放弃；网络错误类型与消息 |
+| `BYPASS` | Cloudflare 两级栈：Cronet / WebView 各自的成败与耗时、最终命中哪一层、全部失败 |
   | `AUTH` | 登录成功 / 失败（**不记用户名**）、会话缺失回落内置账号 |
   | `SHELF` | 站方书架条目数、加入 / 移出、会话失效 |
   | `UPDATE` | GitHub Releases 检查与 APK 下载（开始 / 完成 / 失败） |
@@ -391,11 +426,13 @@ Wenku8Reader/
   URL 先经 `LogSanitizer.sanitizeUrl`：`user:pass@` → `***@`、敏感查询参数
   （`password` / `token` / `session` / `cookie` / `key` / `ticket` …）的值 → `***`、丢弃 fragment、超长截断；
   消息单行化并限长。上述规则由 `LogSanitizerTest` 钉住。
-- **导出**（设置 → 存储 → 日志）：`AppLogger.exportZip()` 把现有日志（旧 → 新）+
+- **导出**（关于页 → 日志）：`AppLogger.exportZip()` 把现有日志（旧 → 新）+
   `device-info.txt`（版本 / Android / 机型 / 语言 / 当前镜像 / UI 风格 / 实验开关 / 更新通道）
-  打成 `cacheDir/log_exports/wenku8reader-logs-yyyyMMdd-HHmmss.zip`；UI 用
-  `ui/common/FileSharing.kt` 的 `shareFile()` 经 `FileProvider` 拉起系统分享面板
-  （不需要存储权限，也不会在 Downloads 留第二份；旧包在下次导出时清掉）。
+  打成 `cacheDir/log_exports/wenku8reader-logs-yyyyMMdd-HHmmss.zip`；关于页再用
+  `ActivityResultContracts.CreateDocument` 打开系统文件选择器，由
+  `ui/common/FileSharing.kt` 的 `saveFileToUri()` 写入用户选择的路径。
+- **清理**（设置 → 存储 → 日志）：确认后删除滚动日志与 `cacheDir/log_exports/`
+  中的旧导出包，不影响之后的请求继续生成新日志。
 - **备份**：`backup_rules.xml` / `data_extraction_rules.xml` 都排除 `logs/`
   （云备份与设备迁移），日志只有用户主动导出时才会离开设备。
 - **为什么不用第三方日志库**：需求是"几行文本 + 一个 zip"，引框架只会多一个依赖与一套初始化；
@@ -421,14 +458,15 @@ Wenku8Reader/
 - **返回键**：非首个 Tab 时 `BackHandler` 先回首页 Tab，再回退导航栈。
 - 子页路由（`detail/{id}`、`reader/{id}?cid=`、`tag/{tag}`、`author/{name}`、`toc/{id}`、`search?keyword=&byAuthor=`、`stats`、`downloads`、`settings/custom`、`settings/storage`、`settings/*` 分类页、`settings/account`（账户登录，实验性）、`shelf/manage`（多书架管理）、`about`）走 NavHost（淡入 + 侧滑过渡），自带顶栏、无底栏；阅读器自绘 chrome。
 - 每个 Tab 页自带 `ExpressiveScaffold` + 顶栏（主 Tab 用静态 64dp `ExpressiveTopAppBar`，已去掉折叠大顶栏以消除滚动逐帧布局级联；子页统一用 Expressive Flexible 版 `ExpressiveLargeTopAppBar`，可带副标题并在滚动时收起），顶栏右侧下载图标进 `downloads`。
+- **Pad / 大窗口适配**：断点按应用当前窗口宽度判断（`<600dp` Compact、`600–839dp` Medium、`≥840dp` Expanded），因此平板分屏也跟随可用宽度而不是物理设备类型。Medium/Expanded 在左侧显示导航栏（Material 用 `NavigationRail`、MIUIX 用独立 `MiuixMainNavigationRail`），手机仍用底部导航；阅读器独占整屏时不显示侧栏。主内容最大 1200dp 并居中；阅读器在 Expanded 窗口使用连续双页跨栏，窄窗口则单栏并将正文限制为 760dp，防止过长的阅读行。书籍详情页在 Expanded 窗口同样改为双栏：信息与阅读/目录操作在左，完整简介与离线下载在右。
 
 ### 5.3 各页面（统一 M3 Expressive：surfaceContainer 背景 + surfaceBright 卡片 + 大圆角/弹性动效）
 - `ExplorePage/ViewModel`：静态顶栏「轻小说文库」+ 圆角搜索条（surfaceContainerHigh 药丸形）+ **Expressive 按钮组**（`ExpressiveToggleGroup`，按下项变宽/相邻项压缩）切换推荐 / 标签；首页栏目封面轮播、文字榜单（surfaceBright 卡片）、标签入口。**标签页按需加载**：标签清单来自内置常量（秒回），每个标签的书籍预览在行进入可见区域时才请求（`TagsBody` 的 `LaunchedEffect(tag, generation)` → `loadTagPreview`），刷新用 `tagsGeneration` 重新触发可见行。
 - `TagBooksScreen/ViewModel`：某标签下书籍列表（SegmentedColumn 卡片行）+ Flexible 大顶栏，**分页加载全部**（底部「加载更多」逐页追加）。
 - `DetailScreen/ViewModel`：Flexible 大顶栏（副标题=作者）+ 封面信息卡（标签用 StatusTag 药丸）+ 56dp 高强调阅读主按钮 + tonal 目录按钮 + 离线下载卡（TXT/EPUB + 波浪进度）+ 简介卡。
-- `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计与下载入口。
+- `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计、下载及书架配置导入/导出入口；配置使用版本化 JSON，导入按书架名和书籍归属做安全合并。
 - `DownloadsScreen/ViewModel`：Flexible 大顶栏 + 下载任务卡列表（进行中用 `ActiveProgressBar` 波浪进度、完成/失败为文本），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号（账户登录开启后：摘要随登录态变化、可点击进 `settings/account`；关闭时是引入前的只读说明行，见 §4.11）/ **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **实验性**（UI 风格：Material 3 Expressive ↔ MIUIX（§5.6）、多书架（§4.6.1）、账户登录（§4.11））/ **网络**（主站域名镜像切换；切域会退出用户账户并回落内置账号）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号（账户登录开启后：摘要随登录态变化、可点击进 `settings/account`；关闭时是引入前的只读说明行，见 §4.11）/ **外观**（UI 风格 Material 3 Expressive ↔ MIUIX（§5.6）、深色模式、纯黑模式、动态取色、表达性动效、手动种子色；通用分组含多书架开关（§4.6.1）与触觉反馈）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **实验性**（5 秒确认总开关、账户登录（§4.11））/ **网络**（主站域名镜像切换；切域会退出用户账户并回落内置账号）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
 - `StorageSettingsPage`（`ui/settings/StorageSettingsScreen.kt`，路由 `settings/storage`）：存储设置二级页——占用合计（与系统设置同口径）/ 按类型清理（图片、更新包、WebView 与临时文件）/ 网页缓存分类明细 / 过期阅读记录清理 / 缓存上限；清理结果以 Toast 回报（`CacheActionResult`）。主设置页因此不再被十余行缓存明细撑长，且这是低频操作。
 - `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
@@ -436,7 +474,7 @@ Wenku8Reader/
 - `TocScreen/ViewModel`（路由 `toc/{id}`）：独立目录页——分卷可折叠（**默认全展开、全卷已读自动折叠**），已读章节灰显 + "已读"标记、当前章主题色加粗；点章节带 `cid` 进阅读器（见 §4.8）。
 - `AuthorBooksScreen/ViewModel`（路由 `author/{name}`）：某作者的全部作品（复用按作者搜索接口）。
 - `ShelfManageScreen`（`ui/shelf/`，路由 `shelf/manage`）：管理书架二级页——新建 / 重命名 / 删除，两套 UI 共用 `ShelfManageViewModel`；**「Wenku8书架」也在这里占一行**（只是没有改名 / 删除入口，见 §4.11）。
-- `AccountScreen/ViewModel` + `MirrorChangeDialog`（`ui/account/`，路由 `settings/account`，实验性）：账户二级页——用户名 / 密码登录、登录态展示、退出登录、切镜像确认；**密码只在登录瞬间内存持有，不落盘**（见 §4.11）。
+- `AccountScreen/ViewModel` + `WebsiteLoginActivity` + `MirrorChangeDialog`（`ui/account/`，路由 `settings/account`，实验性）：账户二级页——跳转站点登录、登录态展示、退出登录、切镜像确认；**应用不接触密码**（见 §4.11）。
 - `ReadingStatsScreen/ViewModel`（`ui/stats/`，路由 `stats`，书架顶栏日历图标进入）：阅读热力图 + 汇总卡 + 当日明细（见 §4.7）。
 - `UpdateDialogHost`（`ui/update/`）：应用内更新弹窗宿主（检查 / 下载 / 安装，见 §4.9）。
 - `ui/miuix/Miuix*Page.kt`：MIUIX 侧与上述页面**一一对应的独立实现**（`MiuixExplorePage` / `MiuixBookcasePage` / `MiuixDetailPage` / `MiuixTocPage` / `MiuixAccountPage` / `MiuixShelfManagePage` / `MiuixStatsPage` / `MiuixStoragePage` / `MiuixSettingsPage` / `MiuixCustomizationPage` / `MiuixDownloadsPage` / `MiuixAboutPage` 等，见 §5.6）。
@@ -458,9 +496,9 @@ Wenku8Reader/
 - **动效**：页面切换（`MainScaffold` NavHost 过渡）、Tab 分页弹簧（`PagerNavigation`）、按压缩放（`Anim.pressClickable`）、折叠展开（详情下载区 / 目录分卷）统一取自 `MaterialTheme.motionScheme`，不再写死 `tween`/`spring` 参数。
 - **版本约束**：`MaterialExpressiveTheme` 在 material3 **1.4.0 仍是 internal**，Expressive 组件（`MaterialShapes`/`LoadingIndicator`/`ButtonGroup`/`SplitButton`/`FloatingToolbar`）也只出现在 1.5.0-alpha；因此 `app/build.gradle.kts` 显式把 material3 钉在 `1.5.0-alpha18`（BOM 2026.05.01 之外的单点覆盖）。升级 material3 时必须同时满足 `minCompileSdk`（当前 35，取 36）与 `minAndroidGradlePluginVersion`，并复核 `@ExperimentalMaterial3ExpressiveApi` 的 opt-in（见 `app/build.gradle.kts` 的 `compilerOptions.optIn`）。
 
-### 5.6 MIUIX 备用风格与双风格切换（2026-09，实验性）
+### 5.6 MIUIX 风格与双风格切换（2026-09，正式功能）
 
-**目标**：Material 3 Expressive 与 MIUIX（HyperOS 设计语言）**两套界面各自独立**，用户在**设置 → 实验性 → UI 风格**里切换，无需重启。
+**目标**：Material 3 Expressive 与 MIUIX（HyperOS 设计语言）**两套界面各自独立**，用户在**设置 → 外观 → UI 风格**里切换，无需重启。
 
 ⚠️ **重要约定（2026-09 起）**：MIUIX 模式**不再复用 Material 版的界面代码**。Material 版在 `ui/<模块>/`（`ui/components/Expressive.kt` 那套门面），MIUIX 版在 **`ui/miuix/`**，两边只共享 ViewModel 与数据层，UI 层零复用；路由处按风格二选一（见 `MainScaffold`）。`ui/components/Expressive.kt` 里的 `isMiuixStyle()` 分支只服务于**尚未迁移**的旧页面，迁移完成后会逐步移除。
 
@@ -468,7 +506,7 @@ Wenku8Reader/
 |---|---|
 | `ui/miuix/MiuixComponents.kt` | MIUIX 基础件：`MiuixPage`/`MiuixSubPage`（miuix Scaffold + 大标题/小标题顶栏）、`MiuixSection`（分组卡片）、`MiuixRow`/`MiuixArrowRow`/`MiuixSwitchRow`/`MiuixDropdownRow`/`MiuixSliderRow`、`MiuixRowDivider`、`MiuixLoading`、`MiuixEmptyState`。**只用 miuix 组件**，颜色/字号只取 `MiuixTheme`（图标仍用 material-icons：miuix-icons 图标集太小） |
 | `ui/miuix/MiuixSettingsPage.kt` | MIUIX 设置主 Tab（账号/外观/通用/存储入口/实验性/网络/更新/阅读/关于），逻辑复用 `SettingsViewModel` |
-| `ui/miuix/MiuixSettingsCategories.kt` | MIUIX 设置分类二级页（外观 / 网络 / 更新 / 实验性），`MiuixExperimentalPage` 里是多书架、账户登录与 UI 风格三个开关 |
+| `ui/miuix/MiuixSettingsCategories.kt` | MIUIX 设置分类二级页（外观 / 网络 / 更新 / 实验性）；UI 风格与多书架分别在外观/通用，实验性只保留总开关、账户登录和底栏效果 |
 | `ui/miuix/MiuixStoragePage.kt` | MIUIX 存储二级页（占用合计、按类型清理、网页缓存明细、上限、过期记录），确认弹窗用 miuix `WindowDialog` |
 | `ui/miuix/MiuixBookcasePage.kt` / `MiuixDetailPage.kt` / `MiuixTocPage.kt` / `MiuixExplorePage.kt` / `MiuixExploreBodies.kt` / `MiuixBookLists.kt` | 书架 / 详情 / 目录 / 探索 等主页面（各自独立实现，零复用 Material 侧） |
 | `ui/miuix/MiuixShelfPicker.kt` / `MiuixShelfManagePage.kt` | 归属勾选弹窗（含站方书架那一项）/ 管理书架页（多书架，§4.6.1 / §4.11） |
@@ -491,12 +529,12 @@ Wenku8Reader/
 | 排版适配 | MIUIX `TextStyles` → Material `Typography` 槽位映射，**所有既有 `MaterialTheme.typography.*` 调用点自动变成 HyperOS 字号** | `ui/theme/Theme.kt`（`miuixTypography`） |
 | 底部导航 | MIUIX `NavigationBar`（固定）或 `FloatingNavigationBar`（悬浮，HyperOS 胶囊底栏）+ `FloatingNavigationBarItem` | `ui/MainScaffold.kt` |
 | 液态玻璃 | `miuix-blur`：`rememberLayerBackdrop` + `Modifier.layerBackdrop`（页面内容作模糊源）+ `drawBackdrop { blur() }`；运行时门控 `isMiuixGlassSupported`（API ≥ 32） | `ui/miuix/LiquidGlass.kt` + `ui/miuix/liquid/`（效果）/ `ui/components/MiuixGlass.kt`（门控）/ `ui/miuix/MiuixLiquidBottomBar.kt`（悬浮底栏） |
-| 入口 | 设置 → 实验性 → UI 风格（`ExperimentalSection`，同处还有多书架 / 账户登录两个开关） | `ui/settings/SettingsSections.kt` + 页面壳 `ui/settings/SettingsScreen.kt` |
+| 入口 | 设置 → 外观 → UI 风格（多书架位于同一页的通用分组） | `ui/settings/SettingsSections.kt` + 页面壳 `ui/settings/SettingsScreen.kt` |
 
 - **为什么内嵌 Material 主题**：页面里仍有大量 Material 组件（`Text`、`Slider`、`DropdownMenu`、`AlertDialog`、阅读器的 `ModalBottomSheet`）。它们在 MIUIX 模式下若拿不到 M3 的 `LocalContentColor`，会退回默认黑色、深色下不可读；映射一层色板后两套组件的配色保持一致。
 - **哪些是真正的 miuix 组件**：`Scaffold`、`SmallTopAppBar`/`TopAppBar`（大标题 + 副标题）、`Card`、`Switch`、`SwitchPreference`（开关行）、`WindowDropdownPreference`（下拉行，HyperOS 圆角弹层）、`Slider`、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`、`NavigationBar`/`FloatingNavigationBar`。只有"行内容任意 composable"的普通列表行仍按 MIUIX 取值自绘（miuix 的行组件要求 `String` 标题，而封面/色点/Slider 这类内容无法字符串化）。
 - **两套风格不追求一致**：MIUIX 模式以 HyperOS 观感为准（大标题顶栏、胶囊底栏、分组卡片 + 缩进分隔线、miuix 滑块/下拉），不刻意与 M3 对齐；`Expressive*` 门面只负责"同一调用点分派到哪套实现"。为此顶栏门面签名从 `@Composable` 标题改为 `String` 标题 + `String?` 副标题（miuix 顶栏要求字符串），13 个调用点已同步。
-- **三种实验性外观开关**（设置 → 实验性）：UI 风格（Material 3 Expressive ↔ MIUIX）、悬浮底栏、底栏液态玻璃（后两者仅 MIUIX 生效；玻璃还要求 Android 12L+，低版本自动退化为半透明纯色）。
+- **正式 UI 风格开关**：设置 → 外观 → UI 风格（Material 3 Expressive ↔ MIUIX）。悬浮底栏与底栏液态玻璃仍是实验功能，受实验性总开关约束；玻璃还要求 Android 12L+，低版本自动退化为半透明纯色。
 - **工具链（本次一并升级）**：compileSdk **37** + **AGP 9.4.1** + **Gradle 9.7.1**，CI 的 JDK 由 17 提到 **21**。三个坑与对策：
   1. **AGP 9 内置 Kotlin**，不能再应用 `org.jetbrains.kotlin.android`（会直接报 "not compatible"）；内置默认 KGP 2.2.10 读不了 miuix 的 2.3.20 元数据 → 在根 `build.gradle.kts` 用 `buildscript { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21") }` 提升 KGP（官方文档做法）。
   2. **cronet-embedded / cronet-api / cronet-common 共用 `org.chromium.net` namespace**，AGP 9 将其从警告升级为错误；三者的类缺一不可，故用 `android.uniquePackageNames=false` 放行。
@@ -570,8 +608,9 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
          pageTurnDirection(true，向左) / autoTurnInterval(10s) / clickTurnPage(true) /
          autoPadding(true) / topPadding(24) / bottomPadding(16) / leftPadding(20) / rightPadding(20)
 触觉:     hapticsEnabled(true) / hapticsStrength(50)
-实验性:   uiStyle(material3|miuix) / floatingBottomBar(true，仅 MIUIX) / bottomBarGlass(true，仅 MIUIX) /
-         multiShelfEnabled(false，§4.6.1) / accountLoginEnabled(false，§4.11)
+界面:     uiStyle(material3|miuix) / multiShelfEnabled(false，§4.6.1)
+实验性:   experimentalEnabled(false，5 秒确认) / floatingBottomBar(true，仅 MIUIX) /
+         bottomBarGlass(true，仅 MIUIX) / accountLoginEnabled(false，§4.11)
 ```
 
 - ⚠️ **新增一个字段要动 6 处**（漏一处就会表现为"设置不生效 / 重启丢失 / 老用户迁移不到"）：
@@ -611,7 +650,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 ### 7.3 近期针对阅读器的修复记录
 1. **状态指示器遮挡正文** → 下边距最小 80dp（`maxOf(80.dp, …)`），指示器（40dp）不再压字。
 2. **纯字数分页裁切** → 改为「charsPerLine/linesPerPage + 逐行模拟」分页，段落残行计入，不裁切。
-3. 网络层已跟进 `wenku8-bypass-analysis.md` 的清单：GB18030 解码、`Sec-Fetch-*` 头、多镜像域名、稳定的设备 UA（见 §4.2）、WebView/Cronet/OkHttp 三级兜底、自适应限速 + 429 退避。
+3. 网络层已跟进 `wenku8-bypass-analysis.md` 的清单：GB18030 解码、`Sec-Fetch-*` 头、多镜像域名、稳定的设备 UA（见 §4.2）、Cronet/WebView 两级兜底、自适应限速 + 429 退避。
 
 ### 7.4 性能优化（2026-08，卡顿 + 高刷新率）
 - **阅读器整屏重组修复**：电池/时间状态原提升在 ReaderScreen 顶层，每 15s 触发整个阅读器重组；已下沉到 `IndicatorBar` 内部（30s 更新），重组范围缩到指示器本身。
@@ -641,7 +680,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
   `paginateChapter` 的边界（超长段落 / 空章节 / 图片页）、`UpdateChecker` 的版本比较矩阵。⚠️ 无 Robolectric / 无 androidTest，
   **UI 层仍只能人工验收**——所以纯逻辑尽量往 `data/local/*Ops.kt` 这类可测文件里抽（`ShelfOps` / `AccountOps` / `WordCount` / `SiteShelfEntry` 就是这么来的）。
 - 未做：日/周排行榜、书单、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
-  （**多书架分组**（§4.6.1）与**账户登录 / 网站书架**（§4.11）**已实现**，均为实验性开关、默认关闭。）
+  （**多书架分组**（§4.6.1）已是正式功能；**账户登录 / 网站书架**（§4.11）仍是受总开关约束的实验功能。）
 - 账户侧仍可继续做的方向：收藏站点书架的**分组**（`clsssid`）、把站方书架整批导入本地、
   以及"内置账号"相关的运维整理（内置凭据目前仍是硬编码常量）。
 - 书架页里长按「Wenku8书架」的书目前走的是单独的"移出网站书架"确认弹窗（那张卡片可能不在本地书架里，
@@ -671,7 +710,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 ## 8. 参考文档与版本管理
 
 - 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 时间基准（分钟粒度）、发布三件套、dev 分支只构建不发布）。
-- **CI 经验**：`release.yml`（push main/master 触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（push dev 触发：仅构建上传 Artifact）。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
+- **CI 经验**：`release.yml`（手动触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（手动触发：仅构建上传 Artifact）。两者都会把 `WENKU8_JIEQI_USER_INFO` / `WENKU8_JIEQI_VISIT_INFO` Secrets 作为环境变量传给 Gradle。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
 
 `技术性文档(只读勿动)/`：
 - `wenku8-api.md` —— wenku8.net 全接口逆向文档（登录/搜索/详情/目录/正文/下载/书架、编码约定、限流策略）。**优先读它再改数据层。**
@@ -690,6 +729,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
 .\gradlew.bat :app:assembleDebug        # 产物 app/build/outputs/apk/debug/app-debug.apk
 .\gradlew.bat :app:testDebugUnitTest    # 纯 JVM 单测（CI 每次推送都会先跑这个）
+.\gradlew.bat :wenku8-api-core:test     # v2 核心模块的 Action/状态机单测
 ```
 
 ⚠️ **命令行构建注意**：
@@ -741,8 +781,9 @@ $env:JAVA_HOME="C:\Users\<用户>\.jdks\jbr-21.0.11"
    一律**以刷新后的结果为准**（见 §4.11）。
 18. **不改无关代码**：内置账号与 Cookie 相关实现（`DefaultAccount` / `CookieStore` / `Wenku8Client` 的登录内部流程）
    除非任务明确要求，不要动；凭据值**不得**出现在日志、文档、测试夹具与注释里，也不保存用户密码。
-19. **日志**：网络打点统一放在 `Wenku8Client.execute()`（所有 OkHttp 请求的唯一漏斗）与
-    `cronetGet` / `webViewGet` / `fetchWithBypass`；**新增网络路径必须经过这些函数**，否则不会进日志。
+19. **日志与网络出口**：HTTP 打点集中在 `CronetHttpClient.execute()`，wenku8 层的重试 / 兜底打点放在
+    `Wenku8Client.executeCronet()`、`cronetGet`、`webViewGet` 与 `fetchWithBypass`。**新增网络路径必须经过
+    `CronetHttpClient`**；不要重新创建 OkHttpClient 或 HttpURLConnection。
     传给 `AppLogger` 的地址必须先过 `LogSanitizer.sanitizeUrl`，且**不得**传 Cookie、密码、请求体、
     页面 HTML 或章节正文；日志量按"每个请求一条"控制，不要按字节 / 按页打点。
     新增存储目录时同步更新 `backup_rules.xml` / `data_extraction_rules.xml`（见 §4.12）。

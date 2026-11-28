@@ -22,6 +22,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.Wenku8Hosts
+import com.hoshino.wenku8reader.ui.common.CronetImageRequest
 
 /**
  * 阅读器插图（正文里的图片统一走这个组件）。
@@ -45,9 +46,8 @@ fun ReaderIllustration(
     val context = LocalContext.current
     val request = remember(url) {
         ImageRequest.Builder(context)
-            // 这里的 data 同时是 Coil 的磁盘缓存 key（见 `ReaderImagePreview.illustrationOriginalBytes`）：
-            // 换一种取值会让「保存插图」复用不到缓存、静默退回重新下载。
-            .data(Wenku8Hosts.normalizeImageUrl(url))
+            // Keyer 以 URL 为磁盘缓存 key（见 `ReaderImagePreview.illustrationOriginalBytes`）。
+            .data(CronetImageRequest(Wenku8Hosts.normalizeImageUrl(url), Wenku8Hosts.IMAGE_REFERER))
             .setHeader("Referer", Wenku8Hosts.IMAGE_REFERER)
             .crossfade(true)
             .build()

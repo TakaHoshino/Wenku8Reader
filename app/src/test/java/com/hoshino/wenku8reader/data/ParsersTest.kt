@@ -306,6 +306,32 @@ class ParsersTest {
     // ------------------------------------------------------------------ //
 
     @Test
+    fun classifyBookcasePage_distinguishesBookshelfFromLoginPage() {
+        assertEquals(
+            Parsers.BookcasePageKind.BOOKSHELF,
+            Parsers.classifyBookcasePage(
+                """<form name="checkform"></form><a href="login.php">退出登录</a>"""
+            ),
+        )
+        assertEquals(
+            Parsers.BookcasePageKind.BOOKSHELF,
+            Parsers.classifyBookcasePage(
+                """<a href="/modules/article/readbookcase.php?aid=1&bid=2">书名</a>"""
+            ),
+        )
+        assertEquals(
+            Parsers.BookcasePageKind.LOGIN_REQUIRED,
+            Parsers.classifyBookcasePage(
+                """<form name="frmlogin" action="login.php"></form>"""
+            ),
+        )
+        assertEquals(
+            Parsers.BookcasePageKind.OTHER,
+            Parsers.classifyBookcasePage("<h1>403 Forbidden</h1>"),
+        )
+    }
+
+    @Test
     fun parseBookcase_readsAidBidNameAndLatestChapter() {
         // 书链接与"最新章"链接指向同一个 bid：站点每本书给两行链接（书名、最新章节），
         // 解析要合并成一条，而不是两条。
@@ -368,5 +394,20 @@ class ParsersTest {
         assertEquals(1, items.size)
         assertEquals(null, items[0].latestName)
         assertEquals(null, items[0].latestCid)
+    }
+
+    @Test
+    fun parseBookcase_fallsBackToGenericBookLinksForNewTemplate() {
+        val html = """
+            <title>我的书架 - 轻小说文库</title>
+            <a href="/book/4363.htm">新版书架里的书</a>
+        """.trimIndent()
+
+        val items = Parsers.parseBookcase(html)
+
+        assertEquals(1, items.size)
+        assertEquals(4363, items[0].aid)
+        assertEquals("新版书架里的书", items[0].name)
+        assertEquals(0, items[0].bid)
     }
 }

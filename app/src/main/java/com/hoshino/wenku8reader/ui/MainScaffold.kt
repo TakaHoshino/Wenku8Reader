@@ -9,26 +9,36 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +63,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.hoshino.wenku8reader.Wenku8Application
+import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.about.AboutScreen
 import com.hoshino.wenku8reader.ui.author.AuthorBooksScreen
 import com.hoshino.wenku8reader.ui.bookcase.BookcasePage
@@ -60,6 +71,8 @@ import com.hoshino.wenku8reader.ui.components.MainPagerState
 import com.hoshino.wenku8reader.ui.components.rememberMainPagerState
 import com.hoshino.wenku8reader.ui.components.MiuixMainFloatingBar
 import com.hoshino.wenku8reader.ui.navigation.TABS
+import com.hoshino.wenku8reader.ui.navigation.usesSideNavigation
+import com.hoshino.wenku8reader.ui.navigation.windowWidthClass
 import com.hoshino.wenku8reader.ui.detail.DetailScreen
 import com.hoshino.wenku8reader.ui.downloads.DownloadsScreen
 import com.hoshino.wenku8reader.ui.explore.ExplorePage
@@ -102,6 +115,7 @@ import com.hoshino.wenku8reader.ui.miuix.MiuixStatsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixDownloadsPage
 import com.hoshino.wenku8reader.ui.miuix.MiuixAboutPage
 import com.hoshino.wenku8reader.ui.miuix.LocalFloatingBarInset
+import com.hoshino.wenku8reader.ui.miuix.MiuixMainNavigationRail
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
@@ -114,6 +128,9 @@ import kotlinx.coroutines.flow.map
 
 /** 启动更新检查的延迟：等首屏稳定后再发起，避免与启动渲染/首屏请求竞争网络与主线程。 */
 private const val STARTUP_UPDATE_CHECK_DELAY_MS = 2000L
+
+/** Pad 上主内容区的最大宽度；阅读器在 ReaderScreen 内另有更窄的正文宽度约束。 */
+private val PadContentMaxWidth = 1200.dp
 
 /**
  * 应用外壳。参考 SukiSU-Ultra：
@@ -144,13 +161,12 @@ fun MainScaffold() {
     // map + distinctUntilChanged 之后，只有这两个开关变化才会触发重组。
     val barStyle by remember(container) {
         container.readerSettings.flow
-            .map { it.floatingBottomBar to it.bottomBarGlass }
+            .map { it.effectiveFloatingBottomBar to it.effectiveBottomBarGlass }
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = container.readerSettings.flow.value.let {
-        it.floatingBottomBar to it.bottomBarGlass
+        it.effectiveFloatingBottomBar to it.effectiveBottomBarGlass
     })
-    val floatingBar = isMiuixStyle() && barStyle.first
-    val glassEnabled = floatingBar && barStyle.second && isMiuixGlassSupported
+    val floatingBarRequested = isMiuixStyle() && barStyle.first
     // 悬浮胶囊现在浮在手势条之上（底栏自己加了 navigationBarsPadding），
     // 因此滚动内容的底部余量要把系统导航栏高度一并算进去，最后一项才不会被压住。
     val navigationBarsBottom = WindowInsets.navigationBars
@@ -198,46 +214,78 @@ fun MainScaffold() {
         mainPagerState.animateToPage(0)
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        bottomBar = {
-            // 悬浮底栏**不占用** bottomBar 槽位（它是覆盖在内容之上的浮层，见下方 Box）：
-            // 否则槽位高度（胶囊 + miuix 内部余量 + 系统栏 inset）会在内容下方留下一条空白带。
-            if (isMain && !floatingBar) {
-                MainBottomBar(
-                    mainPagerState = mainPagerState,
-                )
-            }
-        },
-    ) { inner ->
-        // 页面切换动效统一取自主题的 motion scheme：
-        // Expressive 主题下是带弹性空间感的滑动，标准主题下自动退化为线性过渡。
-        val motion = MaterialTheme.motionScheme
-        Box(Modifier.fillMaxSize()) {
-        NavHost(
-            navController = nav,
-            startDestination = Routes.MAIN,
-            modifier = Modifier
-                .padding(bottom = inner.calculateBottomPadding())
-                // 模糊源只登记页面内容；底栏（消费者）在外层 Box 里，不在这一层内，
-                // 避免"自己模糊自己"的渲染树自引用（见 backdrop 处的说明）。
-                .then(if (glassEnabled) Modifier.layerBackdrop(backdrop) else Modifier),
-            enterTransition = {
-                fadeIn(motion.defaultEffectsSpec()) +
-                    slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val usesPadNavigation = windowWidthClass(maxWidth).usesSideNavigation
+        val showSideNavigation = usesPadNavigation && route != Routes.READER
+        val showFloatingBar = floatingBarRequested && !usesPadNavigation
+        val glassEnabled = showFloatingBar && barStyle.second && isMiuixGlassSupported
+        val selectMainTab: (Int) -> Unit = { index ->
+            if (!isMain) nav.popBackStack(Routes.MAIN, inclusive = false)
+            if (index != mainPagerState.selectedPage) mainPagerState.animateToPage(index)
+        }
+
+        Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            bottomBar = {
+                // 平板宽度改用左侧 NavigationRail；悬浮底栏仍只属于手机形态。
+                // 悬浮底栏不占用 bottomBar 槽位，否则胶囊与 inset 会在内容下方留下空白带。
+                if (isMain && !usesPadNavigation && !showFloatingBar) {
+                    MainBottomBar(
+                        mainPagerState = mainPagerState,
+                    )
+                }
             },
-            exitTransition = { fadeOut(motion.fastEffectsSpec()) },
-            popEnterTransition = { fadeIn(motion.defaultEffectsSpec()) },
-            popExitTransition = {
-                fadeOut(motion.fastEffectsSpec()) +
-                    slideOutHorizontally(motion.fastSpatialSpec()) { it / 4 }
-            },
-        ) {
+        ) { inner ->
+            // 页面切换动效统一取自主题的 motion scheme：
+            // Expressive 主题下是带弹性空间感的滑动，标准主题下自动退化为线性过渡。
+            val motion = MaterialTheme.motionScheme
+            Row(Modifier.fillMaxSize()) {
+                if (showSideNavigation) {
+                    if (isMiuixStyle()) {
+                        MiuixMainNavigationRail(
+                            selectedPage = mainPagerState.selectedPage,
+                            onSelect = selectMainTab,
+                        )
+                    } else {
+                        MainNavigationRail(
+                            selectedPage = mainPagerState.selectedPage,
+                            onSelect = selectMainTab,
+                        )
+                    }
+                }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    NavHost(
+                        navController = nav,
+                        startDestination = Routes.MAIN,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .then(
+                                if (showSideNavigation) {
+                                    Modifier.widthIn(max = PadContentMaxWidth).fillMaxHeight()
+                                } else {
+                                    Modifier.fillMaxSize()
+                                },
+                            )
+                            .padding(bottom = inner.calculateBottomPadding())
+                            // 模糊源只登记页面内容；底栏（消费者）在外层 Box 里，不在这一层内，
+                            // 避免"自己模糊自己"的渲染树自引用（见 backdrop 处的说明）。
+                            .then(if (glassEnabled) Modifier.layerBackdrop(backdrop) else Modifier),
+                        enterTransition = {
+                            fadeIn(motion.defaultEffectsSpec()) +
+                                slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 }
+                        },
+                        exitTransition = { fadeOut(motion.fastEffectsSpec()) },
+                        popEnterTransition = { fadeIn(motion.defaultEffectsSpec()) },
+                        popExitTransition = {
+                            fadeOut(motion.fastEffectsSpec()) +
+                                slideOutHorizontally(motion.fastSpatialSpec()) { it / 4 }
+                        },
+                    ) {
             composable(Routes.MAIN) {
-                MainPagerScreen(
+                        MainPagerScreen(
                     pagerState = pagerState,
-                    floatingBarInset = if (floatingBar) 88.dp + navigationBarsBottom else 0.dp,
+                    floatingBarInset = if (showFloatingBar) 88.dp + navigationBarsBottom else 0.dp,
                     onOpenBook = { id -> nav.navigate(Routes.detail(id)) },
                     onOpenTag = { tag -> nav.navigate(Routes.tag(tag)) },
                     onOpenDownloads = {
@@ -466,18 +514,20 @@ fun MainScaffold() {
                 ReaderScreen(onBack = { nav.popBackStack() })
             }
         }
-        // MIUIX 悬浮底栏：覆盖在内容之上——玻璃模糊采样的正是它背后的页面内容
-        if (isMain && floatingBar) {
-            MiuixMainFloatingBar(
-                mainPagerState = mainPagerState,
-                backdrop = backdrop,
-                glassEnabled = glassEnabled,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    // 浮在手势条之上（HyperOS 的做法）
-                    .navigationBarsPadding(),
-            )
-        }
+                    // MIUIX 悬浮底栏：覆盖在内容之上——玻璃模糊采样的正是它背后的页面内容
+                    if (isMain && showFloatingBar) {
+                        MiuixMainFloatingBar(
+                            mainPagerState = mainPagerState,
+                            backdrop = backdrop,
+                            glassEnabled = glassEnabled,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                // 浮在手势条之上（HyperOS 的做法）
+                                .navigationBarsPadding(),
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -633,6 +683,56 @@ private fun MainBottomBar(
                 label = {
                     Text(
                         stringResource(dest.labelRes),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+            )
+        }
+    }
+}
+
+/** Material 3 navigation rail for medium/expanded windows. */
+@Composable
+private fun MainNavigationRail(
+    selectedPage: Int,
+    onSelect: (Int) -> Unit,
+) {
+    NavigationRail(
+        modifier = Modifier
+            .fillMaxHeight()
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Horizontal +
+                        WindowInsetsSides.Top +
+                        WindowInsetsSides.Bottom,
+                ),
+            ),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        header = {
+            Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.AutoMirrored.Filled.MenuBook,
+                    contentDescription = stringResource(R.string.app_name),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+    ) {
+        TABS.forEachIndexed { index, destination ->
+            val selected = selectedPage == index
+            NavigationRailItem(
+                selected = selected,
+                onClick = { onSelect(index) },
+                icon = {
+                    Icon(
+                        if (selected) destination.selectedIcon else destination.unselectedIcon,
+                        contentDescription = stringResource(destination.labelRes),
+                    )
+                },
+                label = {
+                    Text(
+                        stringResource(destination.labelRes),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

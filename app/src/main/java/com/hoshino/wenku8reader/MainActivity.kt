@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 // M3 Expressive 动效（可在设置页「外观」切回标准动效）
                 expressiveMotion = settings.expressiveMotion,
                 // 实验性：Material 3 Expressive / MIUIX 风格（设置 → 实验性）
-                uiStyle = UiStyle.fromKey(settings.uiStyle),
+                uiStyle = UiStyle.fromKey(settings.effectiveUiStyle),
             ) {
                 // 全局点击振动（设置开关 + 强度控制）
                 HapticScope(
@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     // MIUIX 模式下再包一层 miuix 根宿主：给 miuix 的下拉/对话框提供
                     // 不随页面切换而销毁的 popup host（详见 ui/miuix/MiuixComponents.kt）
-                    if (settings.uiStyle == com.hoshino.wenku8reader.ui.theme.UiStyle.MIUIX.key) {
+                    if (UiStyle.fromKey(settings.effectiveUiStyle) == UiStyle.MIUIX) {
                         com.hoshino.wenku8reader.ui.miuix.MiuixRootHost { MainScaffold() }
                     } else {
                         MainScaffold()

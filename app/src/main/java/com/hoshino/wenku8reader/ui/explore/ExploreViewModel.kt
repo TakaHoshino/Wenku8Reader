@@ -67,7 +67,7 @@ class ExploreViewModel(private val repository: Wenku8Repository) : ViewModel() {
         private const val MAX_TAGS = 50
 
         /** 每个标签行展示的预览书籍数量。 */
-        private const val TAG_PREVIEW_COUNT = 6
+        private const val TAG_PREVIEW_COUNT = 10
     }
 
     fun loadHomeOnce() {

@@ -64,9 +64,20 @@ class LogSanitizerTest {
 
     @Test
     fun `超长消息截断`() {
-        val sanitized = LogSanitizer.sanitizeMessage("x".repeat(800))
-        assertEquals(500, sanitized.length)
+        val sanitized = LogSanitizer.sanitizeMessage("x".repeat(1_500))
+        assertEquals(1_200, sanitized.length)
         assertTrue(sanitized.endsWith("…"))
+    }
+
+    @Test
+    fun `异常消息中的 URL 敏感参数也会脱敏`() {
+        val sanitized = LogSanitizer.sanitizeEmbeddedUrls(
+            "request failed: https://example.com/path?token=secret&id=7."
+        )
+
+        assertFalse(sanitized.contains("secret"))
+        assertTrue(sanitized.contains("token=***"))
+        assertTrue(sanitized.contains("id=7"))
     }
 
     @Test

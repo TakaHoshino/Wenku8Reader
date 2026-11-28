@@ -102,6 +102,30 @@ class LibraryStore internal constructor(
     }
 
     /**
+     * 导入合并：已有书只并集书架归属，保留本地书目与入架时间；
+     * 新书使用导入快照和原入架时间。不会删除任何现有书架条目。
+     */
+    suspend fun mergeImported(imported: List<LibraryBook>) {
+        migration.ensure()
+        if (imported.isEmpty()) return
+        val existing = dao.books().associateBy { it.id }
+        val rows = imported.distinctBy { it.book.id }.map { entry ->
+            val current = existing[entry.book.id]
+            if (current != null) {
+                current.copy(
+                    shelf = encodeMembership(parseMembership(current.shelf) + entry.shelves),
+                )
+            } else {
+                entry.book.toEntity(
+                    shelfValue = encodeMembership(entry.shelves),
+                    addedAt = entry.addedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                )
+            }
+        }
+        dao.upsertBooks(rows)
+    }
+
+    /**
      * 删除书架后清理归属：把所有还挂着 [name] 的书摘掉它（摘空则回退默认书架）。
      *
      * 必须**先**调用它、再改书架清单：反过来的话中途失败会让那批书指向一个已不存在的书架

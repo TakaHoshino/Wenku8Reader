@@ -55,6 +55,9 @@ data class CacheActionResult(
 
         /** 清理过期阅读记录 */
         READING_HISTORY,
+
+        /** 清理诊断日志 */
+        LOGS,
     }
 
     /** 是否确实有内容被清理（用于决定提示"已释放 X"还是"没有可清理的内容"）。 */
@@ -113,6 +116,21 @@ class SettingsViewModel(
             // 导出后日志多了一条记录，顺手刷新占用
             _storageStats.value = storage.stats()
             _logExport.emit(result)
+        }
+    }
+
+    /** 清理滚动日志与已导出的日志包；之后的请求仍会正常产生新日志。 */
+    fun clearLogs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val freed = storage.stats().logs
+            logger.clear()
+            _storageStats.value = storage.stats()
+            _cacheResults.emit(
+                CacheActionResult(
+                    kind = CacheActionResult.Kind.LOGS,
+                    freedBytes = freed,
+                )
+            )
         }
     }
 
@@ -225,6 +243,7 @@ class SettingsViewModel(
     fun setSeedColor(color: Long) = readerSettings.setSeedColor(color)
     fun setAmoled(enabled: Boolean) = readerSettings.setAmoled(enabled)
     fun setExpressiveMotion(enabled: Boolean) = readerSettings.setExpressiveMotion(enabled)
+    fun setExperimentalEnabled(enabled: Boolean) = readerSettings.setExperimentalEnabled(enabled)
     fun setUiStyle(style: String) = readerSettings.setUiStyle(style)
     fun setFloatingBottomBar(enabled: Boolean) = readerSettings.setFloatingBottomBar(enabled)
     fun setBottomBarGlass(enabled: Boolean) = readerSettings.setBottomBarGlass(enabled)

@@ -161,24 +161,58 @@ class DownloadEngine(
         gid: Int,
         onProgress: (Float) -> Unit,
     ): ByteArray {
-        var chapters: List<ChapterContent>? = null
-        val raw = repository.downloadFullTxt(info.id, "utf8").getOrNull()
-        if (raw != null && raw.isNotEmpty()) {
-            val txt = String(raw, Charsets.UTF_8)
-            val vols = repository.chapters(info.id, gid).getOrThrow()
-            chapters = Parsers.splitFullTxt(txt, vols)
-            val total = vols.sumOf { it.chapters.size }.coerceAtLeast(1)
-            val filled = chapters.count { it.text.isNotEmpty() }
-            if (filled < (total * 0.6f).toInt().coerceAtLeast(1)) {
-                chapters = null
+        onProgress(0f)
+        // EPUB 必须读取章节 HTML 才能同时得到正文与插图 URL；只下载官方 TXT 再拆分
+        // 会永久丢失插图，因此这里不再走 TXT 快捷路径。
+        val chapters = fetchAllChapters(info, gid) { progress ->
+            onProgress(progress * 0.65f)
+        }
+        val images = fetchChapterImages(info, chapters) { progress ->
+            onProgress(0.65f + progress * 0.3f)
+        }
+        onProgress(0.98f)
+        return EpubBuilder.build(
+            info.title,
+            info.author,
+            info.description,
+            chapters,
+            images,
+        )
+    }
+
+    /**
+     * 逐张下载插图并保留章节对应关系。
+     *
+     * 单张图片失败只会跳过该图，不会让整本 EPUB 失败；相同 URL 只下载一次。
+     */
+    private suspend fun fetchChapterImages(
+        info: BookInfo,
+        chapters: List<ChapterContent>,
+        onProgress: (Float) -> Unit,
+    ): List<List<EpubBuilder.EpubImage>> {
+        val total = chapters.sumOf { it.images.size }
+        if (total == 0) {
+            onProgress(1f)
+            return List(chapters.size) { emptyList() }
+        }
+        val cache = mutableMapOf<String, EpubBuilder.EpubImage?>()
+        var done = 0
+        return chapters.map { chapter ->
+            chapter.images.mapNotNull { url ->
+                checkCancelled(info.id)
+                val image = if (cache.containsKey(url)) {
+                    cache[url]
+                } else {
+                    repository.imageBytes(url).getOrNull()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { EpubBuilder.EpubImage(it) }
+                        .also { cache[url] = it }
+                }
+                done++
+                onProgress(done.toFloat() / total)
+                image
             }
         }
-        if (chapters == null) {
-            onProgress(0f)
-            chapters = fetchAllChapters(info, gid, onProgress)
-        }
-        onProgress(0.9f)
-        return EpubBuilder.build(info.title, info.author, info.description, chapters)
     }
 
     private suspend fun fetchAllChapters(

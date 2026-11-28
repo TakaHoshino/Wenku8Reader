@@ -1,5 +1,5 @@
 # 自动化版本发布（详见 VERSIONING.md）
-# - 触发：push 到 main/master，或手动 workflow_dispatch
+# - 触发：仅手动 workflow_dispatch（推送到 main/master 不再自动发布）
 # - 版本：解析 Conventional Commits 自动升级（feat→minor，fix/perf→patch，BREAKING→major）
 # - versionCode：2_030_000_000 + 自 2026-01-01 UTC 起的分钟数（跨工作流单调递增，
 #   必然大于任何历史已装版本；分钟粒度避免同小时撞号，见 VERSIONING.md §2）
@@ -16,14 +16,6 @@
 name: Release
 
 on:
-  push:
-    branches: [main, master]
-    # 纯文档/图标等不影响产物的改动不触发（注意用 **/ 以覆盖子目录文档）
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - 'app_icon*.png'
   workflow_dispatch:
 
 # 顶层最小权限：写权限只授予真正需要的 publish job
@@ -183,6 +175,8 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          WENKU8_JIEQI_USER_INFO: ${{ secrets.WENKU8_JIEQI_USER_INFO }}
+          WENKU8_JIEQI_VISIT_INFO: ${{ secrets.WENKU8_JIEQI_VISIT_INFO }}
         run: |
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew

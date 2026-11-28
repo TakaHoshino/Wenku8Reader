@@ -117,7 +117,7 @@ class DetailViewModel(
                 readerSettings.flow,
                 wenku8Shelf.state,
             ) { account, settings, site ->
-                (settings.accountLoginEnabled && settings.multiShelfEnabled &&
+                (settings.effectiveAccountLoginEnabled && settings.effectiveMultiShelfEnabled &&
                     account.activeUsername != null) to site.contains(bookId)
             }.collect { (available, inSite) ->
                 // 不可用时一律记 false：站点镜像里可能还留着上一个账户的书，别显示出来
@@ -157,7 +157,7 @@ class DetailViewModel(
                 libraryStore.observeBook(bookId),
                 progressStore.observe(bookId),
                 shelfStore.observe(),
-                readerSettings.flow.map { it.multiShelfEnabled },
+                readerSettings.flow.map { it.effectiveMultiShelfEnabled },
             ) { book, progress, customShelves, multiShelf ->
                 LocalState(
                     inLocalLibrary = book != null,

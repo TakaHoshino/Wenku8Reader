@@ -24,7 +24,9 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,6 +50,7 @@ import com.hoshino.wenku8reader.ui.theme.UiStyle
 import com.hoshino.wenku8reader.ui.account.MirrorChangeDialog
 import top.yukonga.miuix.kmp.window.WindowDialog
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 /**
  * 设置分类二级页（PiliPlus 模式：设置主页只放分类入口，具体设置项都在二级页里）。
@@ -62,6 +65,8 @@ fun MiuixAppearancePage(
 ) {
     val rs by vm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val styles = UiStyle.entries
+    var pendingStyleIndex by remember { mutableStateOf<Int?>(null) }
     MiuixCategoryPage(title = stringResource(R.string.settings_section_appearance), onBack = onBack) {
         val languageOptions = listOf(
             "system" to R.string.settings_language_system,
@@ -74,6 +79,30 @@ fun MiuixAppearancePage(
             "dark" to R.string.settings_dark_dark,
         )
         MiuixSection(title = stringResource(R.string.settings_section_appearance)) {
+            MiuixDropdownRow(
+                title = stringResource(R.string.settings_ui_style),
+                summary = stringResource(R.string.settings_ui_style_summary),
+                icon = Icons.Filled.Animation,
+                items = styles.map { style ->
+                    stringResource(
+                        when (style) {
+                            UiStyle.MATERIAL3 -> R.string.settings_ui_style_material3
+                            UiStyle.MIUIX -> R.string.settings_ui_style_miuix
+                        },
+                    )
+                },
+                selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
+                onSelected = { index -> pendingStyleIndex = index },
+                onExpandedChange = { expanded ->
+                    if (!expanded) {
+                        pendingStyleIndex?.let { index ->
+                            pendingStyleIndex = null
+                            vm.setUiStyle(styles[index].key)
+                        }
+                    }
+                },
+            )
+            MiuixRowDivider()
             MiuixDropdownRow(
                 title = stringResource(R.string.settings_language),
                 summary = stringResource(R.string.settings_language_summary),
@@ -106,6 +135,14 @@ fun MiuixAppearancePage(
         // 通用：触觉反馈（与 Material 版同在一处分组的做法一致）。
         // 这是应用行为设置、不是 MD3 专属项，所以 MIUIX 下同样要能调。
         MiuixSection(title = stringResource(R.string.settings_section_general)) {
+            MiuixSwitchRow(
+                title = stringResource(R.string.settings_multi_shelf),
+                summary = stringResource(R.string.settings_multi_shelf_summary),
+                icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                checked = rs.multiShelfEnabled,
+                onCheckedChange = vm::setMultiShelfEnabled,
+            )
+            MiuixRowDivider()
             MiuixSwitchRow(
                 title = stringResource(R.string.settings_haptics),
                 summary = stringResource(R.string.settings_haptics_summary),
@@ -216,33 +253,31 @@ fun MiuixExperimentalPage(
     vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val rs by vm.ui.collectAsStateWithLifecycle()
-    val styles = UiStyle.entries
-    // UI 风格切换会替换整棵界面（含 miuix 根宿主），必须等下拉弹层收起后再应用
-    var pendingStyleIndex by remember { mutableStateOf<Int?>(null) }
     // 账户登录的前置依赖确认框（多书架未开时点账户开关才会出现）
     var askShelfPrerequisite by remember { mutableStateOf(false) }
+    var showExperimentalConfirm by remember { mutableStateOf(false) }
+    var experimentalCountdown by remember { mutableIntStateOf(5) }
+    LaunchedEffect(showExperimentalConfirm) {
+        if (!showExperimentalConfirm) return@LaunchedEffect
+        experimentalCountdown = 5
+        while (experimentalCountdown > 0) {
+            delay(1000)
+            experimentalCountdown--
+        }
+    }
     MiuixCategoryPage(title = stringResource(R.string.settings_section_experimental), onBack = onBack) {
         MiuixSection(title = stringResource(R.string.settings_section_experimental)) {
-            MiuixDropdownRow(
-                title = stringResource(R.string.settings_ui_style),
-                summary = stringResource(R.string.settings_ui_style_summary),
+            MiuixSwitchRow(
+                title = stringResource(R.string.settings_experimental_master),
+                summary = stringResource(R.string.settings_experimental_master_summary),
                 icon = Icons.Filled.Animation,
-                items = styles.map { style ->
-                    stringResource(
-                        when (style) {
-                            UiStyle.MATERIAL3 -> R.string.settings_ui_style_material3
-                            UiStyle.MIUIX -> R.string.settings_ui_style_miuix
-                        },
-                    )
-                },
-                selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
-                onSelected = { index -> pendingStyleIndex = index },
-                onExpandedChange = { expanded ->
-                    if (!expanded) {
-                        pendingStyleIndex?.let { index ->
-                            pendingStyleIndex = null
-                            vm.setUiStyle(styles[index].key)
-                        }
+                checked = rs.experimentalEnabled,
+                onCheckedChange = { enable ->
+                    if (enable) {
+                        experimentalCountdown = 5
+                        showExperimentalConfirm = true
+                    } else {
+                        vm.setExperimentalEnabled(false)
                     }
                 },
             )
@@ -252,6 +287,7 @@ fun MiuixExperimentalPage(
                 summary = stringResource(R.string.settings_floating_bottom_bar_summary),
                 icon = Icons.Filled.Tune,
                 checked = rs.floatingBottomBar,
+                enabled = rs.experimentalEnabled,
                 onCheckedChange = vm::setFloatingBottomBar,
             )
             MiuixRowDivider()
@@ -260,17 +296,8 @@ fun MiuixExperimentalPage(
                 summary = stringResource(R.string.settings_bottom_bar_glass_summary),
                 icon = Icons.Filled.Palette,
                 checked = rs.bottomBarGlass,
-                enabled = rs.floatingBottomBar,
+                enabled = rs.experimentalEnabled && rs.floatingBottomBar,
                 onCheckedChange = vm::setBottomBarGlass,
-            )
-            MiuixRowDivider()
-            // 多书架是通用实验功能（Material 与 MIUIX 都生效），不像上面两个只影响 MIUIX
-            MiuixSwitchRow(
-                title = stringResource(R.string.settings_multi_shelf),
-                summary = stringResource(R.string.settings_multi_shelf_summary),
-                icon = Icons.AutoMirrored.Filled.LibraryBooks,
-                checked = rs.multiShelfEnabled,
-                onCheckedChange = vm::setMultiShelfEnabled,
             )
             MiuixRowDivider()
             // 账户登录：同样是通用实验功能，且**依赖多书架**（状态机见 AccountOps，有单测）
@@ -279,6 +306,7 @@ fun MiuixExperimentalPage(
                 summary = stringResource(R.string.settings_account_login_summary),
                 icon = Icons.Filled.AccountCircle,
                 checked = rs.accountLoginEnabled,
+                enabled = rs.experimentalEnabled,
                 onCheckedChange = {
                     when (accountSwitchAction(rs.multiShelfEnabled, rs.accountLoginEnabled)) {
                         AccountSwitchAction.EnableAccount -> vm.setAccountLoginEnabled(true)
@@ -286,6 +314,33 @@ fun MiuixExperimentalPage(
                         AccountSwitchAction.AskShelfPrerequisite -> askShelfPrerequisite = true
                     }
                 },
+            )
+        }
+    }
+
+    if (showExperimentalConfirm) {
+        WindowDialog(
+            show = true,
+            title = stringResource(R.string.settings_experimental_confirm_title),
+            summary = stringResource(R.string.settings_experimental_confirm_message),
+            onDismissRequest = { showExperimentalConfirm = false },
+        ) {
+            MiuixDialogButtons(
+                confirmText = if (experimentalCountdown > 0) {
+                    stringResource(
+                        R.string.settings_experimental_confirm_wait,
+                        experimentalCountdown,
+                    )
+                } else {
+                    stringResource(R.string.settings_experimental_confirm_action)
+                },
+                dismissText = stringResource(R.string.action_cancel),
+                confirmEnabled = experimentalCountdown == 0,
+                onConfirm = {
+                    showExperimentalConfirm = false
+                    vm.setExperimentalEnabled(true)
+                },
+                onDismiss = { showExperimentalConfirm = false },
             )
         }
     }

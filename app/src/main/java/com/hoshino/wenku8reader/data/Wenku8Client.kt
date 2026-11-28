@@ -9,33 +9,16 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.ValueCallback
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import org.chromium.net.CronetEngine
-import org.chromium.net.CronetException
-import org.chromium.net.UploadDataProvider
-import org.chromium.net.UrlRequest
-import org.chromium.net.UrlResponseInfo
 import org.json.JSONTokener
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.URLEncoder
-import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.util.Base64
-import java.util.concurrent.Executor
-import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.math.max
@@ -62,6 +45,10 @@ import com.hoshino.wenku8reader.data.local.HtmlDiskCache
  */
 class Wenku8Client(
     context: Context,
+    /** 共享 Cookie 存储（与统一 Cronet 网络栈共用）。 */
+    private val cookieStore: CookieStore,
+    /** 应用唯一的 HTTP 网络栈；所有请求均经 CronetHttpClient。 */
+    private val cronetHttp: CronetHttpClient,
     /** 用户选定的主站镜像（设置页可切换）；缺省用 wenku8.net */
     private val primaryMirrorProvider: () -> String = { DEFAULT_BASE },
     /** 内置账号凭据（供需登录接口 ensureLoggedIn 静默登录用） */
@@ -87,29 +74,7 @@ class Wenku8Client(
 ) {
 
     private val appContext = context.applicationContext
-    private val cookieStore = CookieStore(appContext)
     private val htmlCache = HtmlDiskCache(appContext, cacheMaxMbProvider().toLong() * 1024 * 1024)
-    private val okHttp = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .cookieJar(cookieStore)
-        .build()
-
-    /**
-     * Chromium network stack; its TLS fingerprint usually bypasses Cloudflare blocks.
-     * 用 [Lazy] 持有，便于 [close] 判断引擎是否真的创建过（避免 close 反而触发创建）。
-     */
-    private val cronetEngineLazy: Lazy<CronetEngine?> = lazy {
-        runCatching { CronetEngine.Builder(appContext).build() }.getOrNull()
-    }
-    private val cronetEngine: CronetEngine? get() = cronetEngineLazy.value
-
-    /**
-     * Cronet 回调执行器。复用 IO 调度器而不是自建单线程池：
-     * 自建线程池的生命周期与应用等长却从不 `shutdown()`（线程泄漏），
-     * 复用调度器后无需再管理其释放。
-     */
-    private val cronetExecutor: Executor = Dispatchers.IO.asExecutor()
 
     /**
      * 统一限流组件。原先 `lastRequest` / `lastSearch` / `rate` 三个字段与
@@ -183,15 +148,6 @@ class Wenku8Client(
         /** 详情页/单书命中链接（`/book/{id}.htm`）。 */
         private val BOOK_URL = Regex("/book/(\\d+)\\.htm")
 
-        /** Cronet 请求等待上限（秒）；超时后 cancel 并返回 null。 */
-        private const val CRONET_TIMEOUT_SECONDS = 8L
-
-        /** 一次逻辑请求（含重定向）的总等待上限（秒）。 */
-        private const val CRONET_TOTAL_TIMEOUT_SECONDS = 20L
-
-        /** 手动跟随重定向的层数上限，防止异常 Location 循环。 */
-        private const val CRONET_MAX_REDIRECTS = 6
-
         /** 单个隐藏 WebView 解挑战的等待上限（毫秒）。 */
         private const val WEBVIEW_TIMEOUT_MS = 15_000L
 
@@ -221,6 +177,8 @@ class Wenku8Client(
         )
 
     }
+
+    private data class PagePayload(val url: String, val html: String)
 
     // ------------------------------------------------------------------ //
     // 主镜像选择（设置页可切换）+ cf_clearance UA 绑定
@@ -257,8 +215,20 @@ class Wenku8Client(
     private val base: String get() = mirrors.first()
 
     /**
+     * 实际持有登录会话的镜像。
+     *
+     * 主镜像与可用于登录的镜像不一定相同：Cookie 按主机隔离，认证类请求必须回到
+     * 真正收到 `jieqiUserInfo` 的那个主机，不能盲目使用设置页选中的主镜像。
+     */
+    @Volatile
+    private var activeSessionBase: String? = null
+
+    private val authenticatedBase: String
+        get() = activeSessionBase ?: base
+
+    /**
      * WebView 解出 Cloudflare 挑战时使用的 UA（按主机记录）。
-     * cf_clearance 令牌与该 UA 绑定，后续 OkHttp/Cronet 复用令牌时必须使用同一 UA。
+     * cf_clearance 令牌与该 UA 绑定，后续 Cronet 复用令牌时必须使用同一 UA。
      */
     private val challengeUa = java.util.concurrent.ConcurrentHashMap<String, String>()
 
@@ -269,6 +239,7 @@ class Wenku8Client(
     /** 切换主镜像/清空会话时调用：清空全部 Cookie 与 UA 绑定。 */
     fun clearCookies() {
         challengeUa.clear()
+        activeSessionBase = null
         cookieStore.clear()
     }
 
@@ -288,14 +259,8 @@ class Wenku8Client(
      */
     private val singleFlight = SingleFlight()
 
-    /**
-     * 释放网络资源（应用退出或数据源被替换时调用）。
-     * 仅在 Cronet 引擎确实创建过时才 shutdown，避免"释放"反而触发初始化。
-     */
     fun close() {
-        if (cronetEngineLazy.isInitialized()) {
-            runCatching { cronetEngineLazy.value?.shutdown() }
-        }
+        cronetHttp.close()
     }
 
     /** App API 串行限流（官方 App 行为：同时间仅一个请求）。 */
@@ -304,64 +269,79 @@ class Wenku8Client(
     // ------------------------------------------------------------------ //
     // retry（节流状态统一在 [pacer]）
     // ------------------------------------------------------------------ //
-    private suspend fun execute(req: Request, retries: Int = 3): Response {
+    private suspend fun executeCronet(
+        url: String,
+        method: String = "GET",
+        headers: Map<String, String>,
+        body: ByteArray? = null,
+        retries: Int = 3,
+        timeoutMs: Long = 20_000L,
+    ): CronetHttpClient.Response {
         var attempt = 0
         val startedAt = System.currentTimeMillis()
-        // 请求体（登录表单）与 Cookie 一律不进日志，只记方法与脱敏后的地址
-        val target = "${req.method} ${LogSanitizer.sanitizeUrl(req.url.toString())}"
+        val target = "$method ${LogSanitizer.sanitizeUrl(url)}"
+        val requestHeaders = withCookieSnapshot(url, headers)
         while (true) {
             pacer.pace()
-            val resp = try {
-                withContext(Dispatchers.IO) { okHttp.newCall(req).execute() }
-            } catch (e: IOException) {
+            val resp = cronetHttp.execute(
+                CronetHttpClient.Request(
+                    url = url,
+                    method = method,
+                    headers = requestHeaders,
+                    body = body,
+                    useCookies = true,
+                    timeoutMs = timeoutMs,
+                    redirectTransform = Wenku8Hosts::secureMainSiteUrl,
+                )
+            )
+            if (resp == null) {
                 logger?.warn(
                     TAG_NET,
-                    "$target -> ${e.javaClass.simpleName}: ${e.message.orEmpty()} " +
-                        "(${elapsedMs(startedAt)} ms, attempt ${attempt + 1})",
+                    "$target -> 网络失败/超时（${elapsedMs(startedAt)} ms, " +
+                        "attempt ${attempt + 1}）",
                 )
-                throw e
+                throw IOException("网络请求失败，请检查网络连接")
             }
             // 403 = Cloudflare 硬拦截：重试没有意义，直接失败交给三级绕过栈
             //（2026-10-18 设备日志：一天 433 次 403，每次白跑 3 次尝试；随后 Cronet 一次就 200）
-            if (resp.code == HttpRetryPolicy.BLOCKED) {
+            if (resp.statusCode == HttpRetryPolicy.BLOCKED) {
                 pacer.adjust(ok = false)
-                resp.close()
                 logger?.error(
                     TAG_NET,
                     "$target -> HTTP 403（Cloudflare 拦截，不重试，${elapsedMs(startedAt)} ms）",
                 )
                 throw IOException("请求被站点拦截(HTTP 403)")
             }
-            if (HttpRetryPolicy.shouldRetry(resp.code)) {
+            if (HttpRetryPolicy.shouldRetry(resp.statusCode)) {
                 pacer.adjust(ok = false)
                 if (attempt < retries) {
-                    resp.close()
                     val backoff = min(1500L * (1L shl attempt), 30000L)
                     logger?.warn(
                         TAG_NET,
-                        "$target -> HTTP ${resp.code}，${backoff} ms 后重试（第 ${attempt + 1} 次）",
+                        "$target -> HTTP ${resp.statusCode}，${backoff} ms 后重试" +
+                            "（第 ${attempt + 1} 次）",
                     )
                     delay(backoff)
                     attempt++
                     continue
                 }
-                resp.close()
                 logger?.error(
                     TAG_NET,
-                    "$target -> HTTP ${resp.code}，重试 ${attempt + 1} 次后放弃" +
+                    "$target -> HTTP ${resp.statusCode}，重试 ${attempt + 1} 次后放弃" +
                         "（${elapsedMs(startedAt)} ms）",
                 )
-                val msg = if (resp.code == 429) {
+                val msg = if (resp.statusCode == 429) {
                     "站点限流(HTTP 429)，请稍后重试"
                 } else {
-                    "请求失败(HTTP ${resp.code})，请稍后重试"
+                    "请求失败(HTTP ${resp.statusCode})，请稍后重试"
                 }
                 throw IOException(msg)
             }
             pacer.adjust(ok = true)
             logger?.info(
                 TAG_NET,
-                "$target -> ${resp.code}（${elapsedMs(startedAt)} ms, attempt ${attempt + 1}）",
+                "$target -> ${resp.statusCode}（${elapsedMs(startedAt)} ms, " +
+                    "attempt ${attempt + 1}）",
             )
             return resp
         }
@@ -369,35 +349,48 @@ class Wenku8Client(
 
     private fun elapsedMs(startedAt: Long): Long = System.currentTimeMillis() - startedAt
 
-    private suspend fun readBytes(resp: Response): ByteArray =
-        withContext(Dispatchers.IO) { resp.use { it.body?.bytes() ?: ByteArray(0) } }
-
     // ------------------------------------------------------------------ //
     // low-level requests
     // ------------------------------------------------------------------ //
-    private fun Request.Builder.browserHeaders(
+    private fun browserHeaders(
         referer: String?,
         ua: String = DEVICE_UA,
-    ): Request.Builder {
-        header("User-Agent", ua)
-        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-        header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-        header("Cache-Control", "max-age=0")
-        header("Upgrade-Insecure-Requests", "1")
-        header("Sec-Fetch-Dest", "document")
-        header("Sec-Fetch-Mode", "navigate")
-        header("Sec-Fetch-Site", "none")
-        header("Sec-Fetch-User", "?1")
-        referer?.let { header("Referer", it) }
-        return this
+        sameOriginForm: Boolean = false,
+    ): Map<String, String> = buildMap {
+        put("User-Agent", ua)
+        put(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        )
+        put("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+        put("Cache-Control", "max-age=0")
+        put("Upgrade-Insecure-Requests", "1")
+        put("Sec-Fetch-Dest", "document")
+        put("Sec-Fetch-Mode", "navigate")
+        put("Sec-Fetch-Site", if (sameOriginForm) "same-origin" else "none")
+        put("Sec-Fetch-User", "?1")
+        referer?.let { put("Referer", it) }
     }
 
-    private suspend fun getBytes(url: String, retries: Int = 3, ua: String = DEVICE_UA): ByteArray {
-        val req = Request.Builder()
-            .url(url)
-            .browserHeaders(refererFor(url), ua)
-            .build()
-        return readBytes(execute(req, retries))
+    private suspend fun getBytes(
+        url: String,
+        retries: Int = 3,
+        ua: String = DEVICE_UA,
+        referer: String? = refererFor(url),
+    ): ByteArray {
+        val response = executeCronet(
+            url = url,
+            headers = browserHeaders(referer, ua),
+            retries = retries,
+        )
+        if (isUnexpectedRootRedirect(url, response.url)) {
+            logger?.warn(
+                TAG_NET,
+                "GET ${LogSanitizer.sanitizeUrl(url)} -> 被重定向到站点根页，拒绝解析",
+            )
+            throw IOException("请求被重定向到站点首页")
+        }
+        return response.body
     }
 
     /** Referer matching the request's own host (mirror-safe). */
@@ -405,6 +398,18 @@ class Wenku8Client(
         val h = url.toHttpUrl()
         "${h.scheme}://${h.host}/"
     }.getOrNull()
+
+    /**
+     * 参考 LightNovelReader：主动生成完整的 Cookie 头，而不是完全依赖底层自动拼接。
+     * 值仍来自动态 CookieStore；Cronet 继续使用 `useCookies=true` 接收 Set-Cookie。
+     */
+    private fun withCookieSnapshot(url: String, headers: Map<String, String>): Map<String, String> {
+        if (headers.keys.any { it.equals("Cookie", ignoreCase = true) }) return headers
+        val cookieHeader = runCatching {
+            cookieStore.snapshotHeader(url.toHttpUrl())
+        }.getOrNull().orEmpty()
+        return if (cookieHeader.isBlank()) headers else headers + ("Cookie" to cookieHeader)
+    }
 
     /** Fetches a page and decodes it as GB18030 on the IO dispatcher. */
     private suspend fun getHtml(url: String, retries: Int = 3, ua: String = DEVICE_UA): String =
@@ -427,7 +432,7 @@ class Wenku8Client(
     ): String {
         htmlCache.get(url, ttlMs, category)?.let { return it }
         val html = getHtml(url, retries, ua)
-        if (html.isNotBlank() && !isChallenge(html) && !html.contains(LOGIN_PATH)) {
+        if (html.isNotBlank() && !isBlockedPage(html) && !html.contains(LOGIN_PATH)) {
             // 写入前同步用户配置的缓存上限（动态生效）
             htmlCache.setMaxBytes(cacheMaxMbProvider().toLong() * 1024 * 1024)
             htmlCache.put(url, html, category)
@@ -463,37 +468,56 @@ class Wenku8Client(
         }
     }
 
-    /** GBK 编码的表单体（Cronet POST 需要原始字节，OkHttp 需要 [RequestBody]，共用这一份）。 */
+    /** GBK 编码的表单体（Cronet POST 使用原始字节）。 */
     private fun gbkFormBytes(pairs: List<Pair<String, String>>): ByteArray =
         pairs.joinToString("&") { (k, v) ->
             "${URLEncoder.encode(k, "GBK")}=${URLEncoder.encode(v, "GBK")}"
         }.toByteArray(GB18030)
 
-    private fun gbkForm(pairs: List<Pair<String, String>>): RequestBody =
-        gbkFormBytes(pairs).toRequestBody("application/x-www-form-urlencoded".toMediaType())
-
-    private suspend fun postForm(url: String, pairs: List<Pair<String, String>>): Response {
-        val req = Request.Builder()
-            .url(url)
-            .browserHeaders("$base/login.php")
-            // 表单 POST 是站内导航，与普通地址栏 GET（Sec-Fetch-Site: none）不同。
-            .header("Sec-Fetch-Site", "same-origin")
-            .post(gbkForm(pairs))
-            .build()
-        return execute(req, retries = 2)
+    private suspend fun postForm(
+        url: String,
+        pairs: List<Pair<String, String>>,
+    ): CronetHttpClient.Response {
+        val target = url.toHttpUrl()
+        val origin = "${target.scheme}://${target.host}"
+        return executeCronet(
+            url = url,
+            method = "POST",
+            headers = browserHeaders(url.substringBefore('?'), sameOriginForm = true) + mapOf(
+                "Content-Type" to "application/x-www-form-urlencoded",
+                "Origin" to origin,
+            ),
+            body = gbkFormBytes(pairs),
+            retries = 2,
+        )
     }
 
     // ------------------------------------------------------------------ //
     // account
     // ------------------------------------------------------------------ //
 
-    /** 是否持有有效会话：以 jieqiUserInfo 会话 Cookie 为准（旧版 frmlogin 标记已随页面改版失效）。 */
-    private fun hasSession(): Boolean =
-        cookieStore.loadForRequest(base.toHttpUrl()).any {
+    /** 指定镜像是否持有有效会话；Cookie 不跨主机共享，不能只检查主镜像。 */
+    private fun hasSessionFor(hostBase: String): Boolean =
+        cookieStore.loadForRequest(hostBase.toHttpUrl()).any {
             it.name == "jieqiUserInfo" && it.value.isNotBlank()
         }
 
+    /**
+     * 找到实际持有会话的镜像，并刷新 [activeSessionBase]。
+     *
+     * `www.wenku8.cc` 在部分网络下持续出现 HTTP/2 协议错误，而 `www.wenku8.net`
+     * 可以正常登录；会话只属于成功登录的那个主机，因此这里不能只看当前主镜像。
+     */
+    private fun findSessionBase(): String? =
+        mirrors.firstOrNull(::hasSessionFor)?.also { activeSessionBase = it }
+
+    private fun hasSession(): Boolean = findSessionBase() != null
+
     suspend fun isLoggedIn(): Boolean = withContext(Dispatchers.IO) { hasSession() }
+
+    /** 网站登录页（使用当前主镜像；登录完成后由 WebView CookieManager 回填会话）。 */
+    fun websiteLoginUrl(): String =
+        "$base/login.php?jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}"
 
     /**
      * 确保已登录（供 tags/bookcase 等需登录接口调用）。
@@ -526,40 +550,67 @@ class Wenku8Client(
                 "username" to user,
                 "password" to pass,
                 "usecookie" to "315360000",
-                "action" to "login",
+                "action" to if (user.contains('@')) "loginemail" else "login",
                 "submit" to "\u00A0\u00A0\u767B\u00A0\u00A0\u5F55\u00A0",
             )
-            val loginUrl = "$base/login.php?do=submit" +
-                "&jumpurl=${URLEncoder.encode("$base/index.php", "UTF-8")}"
+            // 主镜像的 HTTP/2 可能在当前网络下不可用。登录必须逐镜像尝试，并用每个镜像
+            // 自己的 Cookie 域验证结果；只向 base 提交会让可用的备用镜像永远收不到请求。
+            for (hostBase in mirrors) {
+                val loginUrl = "$hostBase/login.php?do=submit" +
+                    "&jumpurl=${URLEncoder.encode("$hostBase/index.php", "UTF-8")}"
+                val loginAttempt = runCatchingNotCancelling {
+                    cronetPost(loginUrl, gbkFormBytes(fields))
+                }
+                val viaCronet = loginAttempt.getOrNull()
+                if (viaCronet != null && hasSessionFor(hostBase)) {
+                    activeSessionBase = hostBase
+                    cookieStore.persist()
+                    logger?.info(
+                        TAG_AUTH,
+                        "登录成功（Cronet, ${LogSanitizer.sanitizeUrl(hostBase)}）",
+                    )
+                    return@withContext true
+                }
+                val failure = loginAttempt.exceptionOrNull()
+                if (failure != null) {
+                    logger?.warn(
+                        TAG_AUTH,
+                        "镜像登录失败（${LogSanitizer.sanitizeUrl(hostBase)}）",
+                        failure,
+                    )
+                } else {
+                    logger?.warn(
+                        TAG_AUTH,
+                        "镜像登录未获得会话 Cookie（${LogSanitizer.sanitizeUrl(hostBase)}）: " +
+                            (viaCronet?.let(::loginResponseReason) ?: "响应为空"),
+                    )
+                }
+            }
 
-            // OkHttp 的 TLS 指纹很容易被 Cloudflare 403；Cronet 是搜索已经验证过的
-            // 通道。登录响应通常是 302，会话 Cookie 可能在重定向响应而非最终页上，
-            // cronetRequestRaw() 会逐跳保存 Set-Cookie，再按 HTTP 语义继续 GET。
-            val viaCronet = cronetEngine?.let { engine ->
-                runCatchingNotCancelling {
-                    cronetPost(engine, loginUrl, gbkFormBytes(fields))
-                }.getOrNull()
-            }
-            if (viaCronet != null && hasSession()) {
-                cookieStore.persist()
-                logger?.info(TAG_AUTH, "登录成功（Cronet）")
-                return@withContext true
-            }
-
-            if (viaCronet != null) {
-                logger?.warn(TAG_AUTH, "Cronet 登录未建立会话，回退直连")
-            }
-            val resp = postForm(loginUrl, fields)
-            readBytes(resp)
-            // 成功与否以是否拿到 jieqiUserInfo 会话 Cookie 为准
-            val ok = hasSession()
+            activeSessionBase = null
             // 只记成败，不记用户名（账户名属于用户隐私）
-            logger?.info(TAG_AUTH, "登录${if (ok) "成功" else "失败"}")
-            if (ok) {
-                cookieStore.persist()
-            }
-            ok
+            logger?.info(TAG_AUTH, "登录失败")
+            false
         }
+
+    /** 只分类响应特征，不记录登录页正文或任何凭据。 */
+    private fun loginResponseReason(result: Pair<String, String>): String {
+        val (finalUrl, html) = result
+        return when {
+            html.contains("验证码") || html.contains("captcha", ignoreCase = true) ->
+                "需要验证码"
+            html.contains("密码错误") || html.contains("用户名或密码") ->
+                "内置账号凭据被拒绝"
+            html.contains("challenge-platform") || html.contains("Just a moment") ->
+                "Cloudflare challenge"
+            html.contains("formhash") ->
+                "登录页包含 formhash，可能需要动态表单令牌"
+            html.contains("frmlogin") || html.contains("login.php") ->
+                "仍返回登录页"
+            else ->
+                "最终地址=${LogSanitizer.sanitizeUrl(finalUrl)}, htmlChars=${html.length}"
+        }
+    }
 
     // 关于「退出登录」：客户端这里只提供 [clearCookies]（清会话），**不提供 logout()**。
     // 因为退出登录还牵扯"当前激活账户"这一层状态（见 AccountStore），而客户端并不持有它；
@@ -586,9 +637,7 @@ class Wenku8Client(
             )
             pacer.paceSearch()
             val viaCronet = runCatchingNotCancelling {
-                cronetEngine?.let { engine ->
-                    cronetPost(engine, "$base/so.php", gbkFormBytes(fields))
-                }
+                cronetPost("$authenticatedBase/so.php", gbkFormBytes(fields))
             }.getOrNull()
             if (viaCronet != null) {
                 val (finalUrl, html) = viaCronet
@@ -609,14 +658,17 @@ class Wenku8Client(
                 .getOrDefault(keyword)
             pacer.paceSearch()
             val viaBypass = runCatchingNotCancelling {
-                fetchWithBypass(
+                fetchWithFinalUrlBypass(
                     urlFor = { h ->
                         "$h/modules/article/search.php?searchtype=$type&searchkey=$encoded"
                     },
-                    parse = { html ->
+                    parse = { finalUrl, html ->
                         when {
                             // 限流页 → 返回 null，交给下面的 POST 路径按原逻辑重试
                             html.contains(THROTTLE_MARK) || html.contains("出现错误") -> null
+                            // 精确命中：最终地址已经是书籍详情页，必须按单本结果解析
+                            BOOK_URL.containsMatchIn(finalUrl) ->
+                                parseSearchResult(finalUrl, html)
                             // 结果页（含 0 条结果）→ 正常返回；登录页 / CF 挑战页 → null
                             html.contains("id=\"centerm\"") || html.contains("<caption") ->
                                 Parsers.parseSearchResults(html)
@@ -636,7 +688,7 @@ class Wenku8Client(
             repeat(SEARCH_MAX_ATTEMPTS) { attempt ->
                 pacer.paceSearch()
                 val resp = postForm(
-                    "$base/so.php",
+                    "$authenticatedBase/so.php",
                     listOf(
                         "searchtype" to type,
                         "searchkey" to keyword,
@@ -644,8 +696,8 @@ class Wenku8Client(
                         "Submit" to "\u8F7B\u5C0F\u8BF4\u641C\u7D22",
                     )
                 )
-                val finalUrl = resp.request.url.toString()
-                val html = String(readBytes(resp), GB18030)
+                val finalUrl = resp.url
+                val html = String(resp.body, GB18030)
                 val throttled = html.contains(THROTTLE_MARK) || html.contains("出现错误")
                 if (!throttled) {
                     val results = parseSearchResult(finalUrl, html)
@@ -740,7 +792,7 @@ class Wenku8Client(
                 val text = runCatching {
                     var attempt = 0
                     while (true) {
-                        val body = gbkForm(
+                        val body = gbkFormBytes(
                             listOf(
                                 "request" to Base64.getEncoder()
                                     .encodeToString(request.toByteArray()),
@@ -748,15 +800,25 @@ class Wenku8Client(
                                 "appver" to APP_VER,
                             )
                         )
-                        val req = Request.Builder()
-                            .url(host)
-                            .post(body)
-                            .header("User-Agent", APP_UA)
-                            .header("Accept", "*/*")
-                            .build()
-                        val resp = execute(req, retries = 1)
-                        val text = readBytes(resp).toString(GB18030)
-                        if (text.isNotBlank()) return@runCatching text
+                        val resp = executeCronet(
+                            url = host,
+                            method = "POST",
+                            headers = mapOf(
+                                "User-Agent" to APP_UA,
+                                "Accept" to "*/*",
+                                "Content-Type" to "application/x-www-form-urlencoded",
+                            ),
+                            body = body,
+                            retries = 1,
+                        )
+                        val text = resp.body.toString(GB18030)
+                        if (
+                            text.isNotBlank() &&
+                            !text.trim().equals("Welcome", ignoreCase = true) &&
+                            !isBlockedPage(text)
+                        ) {
+                            return@runCatching text
+                        }
                         if (attempt >= 2) break
                         attempt++
                         delay(2500L * attempt)
@@ -803,14 +865,23 @@ class Wenku8Client(
      */
     suspend fun bookcase(): List<BookcaseItem> = withContext(Dispatchers.IO) {
         ensureLoggedIn()
-        val html = getHtml("$base/modules/article/bookcase.php")
-        // 会话在服务端失效时 OkHttp 会跟随 302 拿到登录页。正常书架页**一定**带这个表单
-        // （空书架也有，页面里有"您的书架可收藏 300 本"那一段），据此把"真的没有书"与
-        // "掉登录了"分开——否则用户会看到"书架空了"而不是"请重新登录"。
-        if (!html.contains("checkform") && html.contains("login.php")) {
-            logger?.warn(TAG_SHELF, "站方书架会话失效（被重定向到登录页）")
-            onUserSessionLost()
-            throw SessionExpiredException()
+        val html = fetchSiteBookcasePage(
+            urlFor = { h -> "$h/modules/article/bookcase.php" },
+        ) ?: throw IOException("Wenku8 书架加载失败，请稍后重试")
+
+        when (Parsers.classifyBookcasePage(html)) {
+            Parsers.BookcasePageKind.LOGIN_REQUIRED -> markBookcaseSessionExpired()
+            Parsers.BookcasePageKind.OTHER -> {
+                logger?.warn(
+                    TAG_SHELF,
+                    "书架页面未命中旧模板，尝试新版解析（len=${html.length}, " +
+                        "checkform=${html.contains("checkform")}, " +
+                        "readbookcase=${html.contains("readbookcase.php")}, " +
+                        "login=${html.contains(LOGIN_PATH)}, " +
+                        "title=${bookcasePageTitle(html)}）",
+                )
+            }
+            Parsers.BookcasePageKind.BOOKSHELF -> Unit
         }
         Parsers.parseBookcase(html).also {
             logger?.info(TAG_SHELF, "站方书架 -> ${it.size} 本")
@@ -829,7 +900,12 @@ class Wenku8Client(
     suspend fun addToSiteBookcase(bookId: Int) {
         withContext(Dispatchers.IO) {
             ensureLoggedIn()
-            getHtml("$base/modules/article/addbookcase.php?bid=$bookId")
+            val html = fetchSiteBookcasePage(
+                urlFor = { h -> "$h/modules/article/addbookcase.php?bid=$bookId" },
+            ) ?: throw IOException("加入 Wenku8 书架失败，请稍后重试")
+            if (Parsers.classifyBookcasePage(html) == Parsers.BookcasePageKind.LOGIN_REQUIRED) {
+                markBookcaseSessionExpired()
+            }
             logger?.info(TAG_SHELF, "加入站方书架 book=$bookId")
         }
     }
@@ -843,15 +919,67 @@ class Wenku8Client(
     suspend fun removeFromSiteBookcase(bookcaseId: Int) {
         withContext(Dispatchers.IO) {
             ensureLoggedIn()
-            getHtml("$base/modules/article/bookcase.php?delid=$bookcaseId")
+            val html = fetchSiteBookcasePage(
+                urlFor = { h -> "$h/modules/article/bookcase.php?delid=$bookcaseId" },
+            ) ?: throw IOException("移出 Wenku8 书架失败，请稍后重试")
+            if (Parsers.classifyBookcasePage(html) == Parsers.BookcasePageKind.LOGIN_REQUIRED) {
+                markBookcaseSessionExpired()
+            }
             logger?.info(TAG_SHELF, "移出站方书架 delid=$bookcaseId")
         }
     }
 
     /**
+     * 站方账号数据只属于登录时的那个镜像（Cookie 不跨主机共享），因此不能用
+     * [fetchWithBypass] 默认的全镜像轮换：切到另一个镜像只会得到登录页。
+     * Cronet 的 TLS 指纹仍能通过当前镜像的 Cloudflare。
+     */
+    private suspend fun fetchSiteBookcasePage(
+        urlFor: (String) -> String,
+    ): String? = fetchWithBypass(
+        urlFor = urlFor,
+        candidateHosts = listOf(authenticatedBase),
+        parse = { html ->
+            if (isBlockedPage(html)) {
+                null
+            } else {
+                when (Parsers.classifyBookcasePage(html)) {
+                    Parsers.BookcasePageKind.BOOKSHELF,
+                    Parsers.BookcasePageKind.LOGIN_REQUIRED,
+                    Parsers.BookcasePageKind.OTHER -> html
+                }
+            }
+        },
+    )
+
+    /** Cronet 即使拿到 HTTP 403 也会返回正文；必须按错误页特征过滤，不能把错误页当成功。 */
+    private fun isBlockedPage(html: String): Boolean = isWenku8BlockedPage(html)
+
+    private fun bookcasePageTitle(html: String): String =
+        Regex(
+            "<title[^>]*>(.*?)</title>",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+        )
+            .find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+            ?.take(80)
+            .orEmpty()
+
+    private suspend fun markBookcaseSessionExpired(): Nothing {
+        logger?.warn(TAG_SHELF, "站方书架会话失效（被重定向到登录页）")
+        activeSessionBase = null
+        cookieStore.clearSessionCookies()
+        onUserSessionLost()
+        throw SessionExpiredException()
+    }
+
+    /**
      * 首页栏目。快路径：默认 UA 直连（常规情况毫秒级返回）；
      * 若直连失败或返回疑似 CF 挑战页（解析为空），自动升级到
-     * WebView → Cronet → OkHttp 的三级 Cloudflare 绕过栈（三者统一使用稳定的设备 UA）。
+     * Cronet → WebView 的两级 Cloudflare 绕过栈（统一使用稳定的设备 UA）。
      */
     suspend fun homepage(): List<HomeSection> = withContext(Dispatchers.IO) {
         // 未登录时站点会把首页 302 到 login.php，并给出明文 HTTP Location。
@@ -881,7 +1009,7 @@ class Wenku8Client(
         BUILT_IN_TAGS
     }
 
-    /** Books under a tag. 需登录；快路径 → WebView → Cronet → OkHttp mirrors。分页：page>=2 追加 &page=N。 */
+    /** Books under a tag. 需登录；快路径 → Cronet → WebView。分页：page>=2 追加 &page=N。 */
     suspend fun tagBooks(tag: String, page: Int = 1): List<HomeBook> = withContext(Dispatchers.IO) {
         ensureLoggedIn()
         val query = URLEncoder.encode(tag, "GBK")
@@ -897,9 +1025,7 @@ class Wenku8Client(
         ) ?: emptyList()
     }
 
-    private fun isChallenge(html: String): Boolean =
-        html.contains("challenge-platform") || html.contains("cf-challenge") ||
-            html.contains("cf_chl") || html.contains("cf-chl")
+    private fun isChallenge(html: String): Boolean = isWenku8ChallengePage(html)
 
     /**
      * `runCatching` 的同义封装：**不吞协程取消**。
@@ -918,7 +1044,7 @@ class Wenku8Client(
         }
 
     /**
-     * 快路径（参考 LightNovelReader 的 cookie-first 思路）：直接用 OkHttp 携带
+     * 快路径（参考 LightNovelReader 的 cookie-first 思路）：直接用 Cronet 携带
      * 持久化的 cf_clearance 与绑定 UA 直连各镜像；已有有效令牌时一次通过，无需跑 WebView。
      * [ttlMs] > 0 时启用磁盘缓存（见 getHtmlCached），避免二次加载。
      * 返回 null 表示全部镜像直连均无有效内容（此时才升级到三级绕过栈）。
@@ -940,9 +1066,9 @@ class Wenku8Client(
     }
 
     /**
-     * Cloudflare 三级绕过抓取（与 tags/tagBooks 同栈）：
+     * Cloudflare 两级绕过抓取（与 tags/tagBooks 同栈）：
      * **Cronet（TLS 指纹）→ WebView（真浏览器跑 CF JS 挑战，解出后持久化 cf_clearance）**
-     * **→ OkHttp（携带设备 UA）**，逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
+     * 逐镜像尝试。[parse] 返回 null 表示该响应无有效内容。
      * 返回 null 表示全部失败。
      *
      * ⚠️ **Cronet 放最前是有意的**（2026-10 调整）：WebView 请求是串行的
@@ -953,36 +1079,60 @@ class Wenku8Client(
     private suspend fun <T> fetchWithBypass(
         urlFor: (String) -> String,
         parse: (String) -> T?,
+        candidateHosts: List<String> = mirrors,
     ): T? {
-        val engine = cronetEngine
-        if (engine != null) {
-            for (h in mirrors) {
-                val html = cronetGet(engine, urlFor(h)) ?: continue
-                parse(html)?.let {
-                    logger?.info(TAG_BYPASS, "BYPASS 命中 cronet: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
-                    return it
-                }
+        for (h in candidateHosts) {
+            val html = cronetGet(urlFor(h))?.takeUnless(::isBlockedPage) ?: continue
+            parse(html)?.let {
+                logger?.info(TAG_BYPASS, "BYPASS 命中 cronet: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
+                return it
             }
         }
-        for (h in mirrors) {
-            val html = webViewGet(urlFor(h)) ?: continue
+        for (h in candidateHosts) {
+            val html = webViewGet(urlFor(h))?.takeUnless(::isBlockedPage) ?: continue
             parse(html)?.let {
                 logger?.info(TAG_BYPASS, "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
                 return it
             }
         }
-        for (h in mirrors) {
-            // 若该主机已有 cf_clearance（WebView 解出后持久化），复用其绑定 UA 直接通过
-            val ua = uaFor(urlFor(h))
-            val parsed = runCatchingNotCancelling {
-                parse(getHtml(urlFor(h), retries = 1, ua = ua))
-            }.getOrNull()
-            if (parsed != null) {
-                logger?.info(TAG_BYPASS, "BYPASS 命中 okhttp: ${LogSanitizer.sanitizeUrl(urlFor(h))}")
-                return parsed
+        logger?.error(
+            TAG_BYPASS,
+            "BYPASS 全部失败（cronet / webview × ${candidateHosts.size} 个镜像）",
+        )
+        return null
+    }
+
+    /**
+     * 与 [fetchWithBypass] 相同，但把最终 URL 一起交给解析器。
+     * 搜索的精确命中会 302 到 `/book/{id}.htm`，只传 HTML 会把它误当成结果列表页。
+     */
+    private suspend fun <T> fetchWithFinalUrlBypass(
+        urlFor: (String) -> String,
+        parse: (finalUrl: String, html: String) -> T?,
+        candidateHosts: List<String> = mirrors,
+    ): T? {
+        for (host in candidateHosts) {
+            val page = cronetGetPage(urlFor(host)) ?: continue
+            if (isBlockedPage(page.html)) continue
+            parse(page.url, page.html)?.let {
+                logger?.info(
+                    TAG_BYPASS,
+                    "BYPASS 命中 cronet: ${LogSanitizer.sanitizeUrl(page.url)}",
+                )
+                return it
             }
         }
-        logger?.error(TAG_BYPASS, "BYPASS 全部失败（cronet / webview / okhttp × ${mirrors.size} 个镜像）")
+        for (host in candidateHosts) {
+            val requestedUrl = urlFor(host)
+            val html = webViewGet(requestedUrl)?.takeUnless(::isBlockedPage) ?: continue
+            parse(requestedUrl, html)?.let {
+                logger?.info(
+                    TAG_BYPASS,
+                    "BYPASS 命中 webview: ${LogSanitizer.sanitizeUrl(requestedUrl)}",
+                )
+                return it
+            }
+        }
         return null
     }
 
@@ -1023,16 +1173,54 @@ class Wenku8Client(
      * 线程仍会等到超时才释放。改成 `suspendCancellableCoroutine` 后：
      * 线程在等待期间被释放、取消能立刻传播到 `UrlRequest.cancel()`。
      */
-    private suspend fun cronetGet(engine: CronetEngine, url: String): String? {
+    private suspend fun cronetGet(url: String): String? = cronetGetPage(url)?.html
+
+    private suspend fun cronetGetPage(url: String): PagePayload? {
         val startedAt = System.currentTimeMillis()
-        val html = cronetRequestRaw(engine, url)?.second
-        if (html == null) {
+        val response = cronetHttp.execute(
+            CronetHttpClient.Request(
+                url = url,
+                headers = withCookieSnapshot(
+                    url,
+                    browserHeaders(refererFor(url), uaFor(url)),
+                ),
+                useCookies = true,
+                timeoutMs = 20_000L,
+                redirectTransform = Wenku8Hosts::secureMainSiteUrl,
+            )
+        )
+        if (response == null) {
             logger?.warn(
                 TAG_BYPASS,
                 "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
             )
+            return null
         }
+        logger?.info(
+            TAG_BYPASS,
+            "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> ${response.statusCode}" +
+                "（${response.body.size} bytes）",
+        )
+        if (!response.isSuccessful) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> HTTP ${response.statusCode}，" +
+                    "丢弃响应并继续镜像回退",
+            )
+            return null
+        }
+        if (isUnexpectedRootRedirect(url, response.url)) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET GET ${LogSanitizer.sanitizeUrl(url)} -> 最终地址是站点根页，" +
+                    "丢弃响应并继续镜像回退",
+            )
+            return null
+        }
+        val html = String(response.body, GB18030)
         return html
+            .takeIf { isUsableWenku8Response(response.statusCode, it) }
+            ?.let { PagePayload(response.url, it) }
     }
 
     /**
@@ -1041,207 +1229,58 @@ class Wenku8Client(
      *
      * @return 最终 URL（精确命中会 302 到 `/book/{id}.htm`）+ 解码后的 HTML。
      */
-    private suspend fun cronetPost(
-        engine: CronetEngine,
-        url: String,
-        formBytes: ByteArray,
-    ): Pair<String, String>? {
+    private suspend fun cronetPost(url: String, formBytes: ByteArray): Pair<String, String>? {
         val startedAt = System.currentTimeMillis()
-        val result = cronetRequestRaw(engine, url, postBody = formBytes)
-        if (result == null) {
+        val target = url.toHttpUrl()
+        val origin = "${target.scheme}://${target.host}"
+        val response = cronetHttp.execute(
+            CronetHttpClient.Request(
+                url = url,
+                method = "POST",
+                headers = withCookieSnapshot(
+                    url,
+                    browserHeaders(url.substringBefore('?'), sameOriginForm = true) + mapOf(
+                        "Content-Type" to "application/x-www-form-urlencoded",
+                        "Origin" to origin,
+                    ),
+                ),
+                body = formBytes,
+                useCookies = true,
+                timeoutMs = 20_000L,
+                redirectTransform = Wenku8Hosts::secureMainSiteUrl,
+            )
+        )
+        if (response == null) {
             logger?.warn(
                 TAG_BYPASS,
                 "CRONET POST ${LogSanitizer.sanitizeUrl(url)} -> 失败/超时（${elapsedMs(startedAt)} ms）",
             )
+            return null
         }
-        return result
-    }
-
-    /** 单跳 Cronet 结果：成功正文，或需要在 Kotlin 层复核/升级的 Location。 */
-    private sealed interface CronetHop {
-        data class Complete(val url: String, val html: String) : CronetHop
-        data class Redirect(val statusCode: Int, val location: String) : CronetHop
-    }
-
-    /**
-     * Cronet 请求（手动跟随重定向）。
-     *
-     * 不让 Cronet 直接 `followRedirect()` 的原因：
-     * - 重定向响应里的 `Set-Cookie` 也必须保存；登录成功时会话 Cookie 正好在这个 302 上；
-     * - 站点仍会返回 `Location: http://...`，而应用禁止明文流量，直接跟随必然失败；
-     * - 手动跟随可以保持标准语义（301/302/303 后 POST 改为 GET，307/308 保留方法与正文）。
-     */
-    private suspend fun cronetRequestRaw(
-        engine: CronetEngine,
-        url: String,
-        postBody: ByteArray? = null,
-    ): Pair<String, String>? = withTimeoutOrNull(CRONET_TOTAL_TIMEOUT_SECONDS * 1000) {
-        var currentUrl = url
-        var currentBody = postBody
-        val visited = HashSet<String>()
-
-        repeat(CRONET_MAX_REDIRECTS + 1) {
-            if (!visited.add(currentUrl)) {
-                logger?.warn(
-                    TAG_BYPASS,
-                    "CRONET 重定向成环: ${LogSanitizer.sanitizeUrl(currentUrl)}",
-                )
-                return@withTimeoutOrNull null
-            }
-
-            when (val hop = cronetRequestOnce(engine, currentUrl, currentBody)) {
-                null -> return@withTimeoutOrNull null
-                is CronetHop.Complete -> return@withTimeoutOrNull hop.url to hop.html
-                is CronetHop.Redirect -> {
-                    val nextUrl = Wenku8Hosts.secureMainSiteUrl(hop.location)
-                    logger?.info(
-                        TAG_BYPASS,
-                        "CRONET 重定向 ${hop.statusCode}: " +
-                            "${LogSanitizer.sanitizeUrl(currentUrl)} -> " +
-                            LogSanitizer.sanitizeUrl(nextUrl),
-                    )
-                    // 301/302/303 按浏览器行为把 POST 变成 GET；307/308 保留原请求。
-                    if (hop.statusCode != 307 && hop.statusCode != 308) currentBody = null
-                    currentUrl = nextUrl
-                }
-            }
-        }
-
-        logger?.warn(
+        logger?.info(
             TAG_BYPASS,
-            "CRONET 重定向超过 $CRONET_MAX_REDIRECTS 次: ${LogSanitizer.sanitizeUrl(url)}",
+            "CRONET POST ${LogSanitizer.sanitizeUrl(response.url)} -> ${response.statusCode}" +
+                "（${response.body.size} bytes）",
         )
-        null
-    }
-
-    /** 执行一个不会自动跟随重定向的 Cronet 请求。 */
-    private suspend fun cronetRequestOnce(
-        engine: CronetEngine,
-        url: String,
-        postBody: ByteArray?,
-    ): CronetHop? = withTimeoutOrNull(CRONET_TIMEOUT_SECONDS * 1000) {
-        val readBuffer = ByteBuffer.allocateDirect(64 * 1024)
-        val body = ByteArrayOutputStream()
-        val httpUrl = url.toHttpUrl()
-        val cookieHeader = cookieStore.loadForRequest(httpUrl)
-            .joinToString("; ") { "${it.name}=${it.value}" }
-
-        suspendCancellableCoroutine<CronetHop?> { cont ->
-            val callback = object : UrlRequest.Callback() {
-                override fun onRedirectReceived(
-                    request: UrlRequest,
-                    info: UrlResponseInfo,
-                    newLocationUrl: String?,
-                ) {
-                    saveResponseCookies(info, httpUrl)
-                    val location = newLocationUrl
-                    if (location == null) {
-                        if (cont.isActive) cont.resume(null)
-                        request.cancel()
-                    } else {
-                        // 先恢复 continuation，再取消当前 hop；即使 onCanceled 同步回调，
-                        // 也不会把已经拿到的 Location 覆盖成 null。
-                        if (cont.isActive) {
-                            cont.resume(CronetHop.Redirect(info.httpStatusCode, location))
-                        }
-                        request.cancel()
-                    }
-                }
-
-                override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
-                    saveResponseCookies(info, httpUrl)
-                    request.read(readBuffer)
-                }
-
-                override fun onReadCompleted(
-                    request: UrlRequest,
-                    info: UrlResponseInfo,
-                    byteBuffer: ByteBuffer,
-                ) {
-                    byteBuffer.flip()
-                    val arr = ByteArray(byteBuffer.remaining())
-                    byteBuffer.get(arr)
-                    body.write(arr)
-                    byteBuffer.clear()
-                    request.read(byteBuffer)
-                }
-
-                override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
-                    logger?.info(
-                        TAG_BYPASS,
-                        "CRONET ${if (postBody == null) "GET" else "POST"} " +
-                            "${LogSanitizer.sanitizeUrl(info.url)} -> ${info.httpStatusCode}" +
-                            "（${body.size()} bytes）",
-                    )
-                    if (cont.isActive) {
-                        cont.resume(
-                            CronetHop.Complete(
-                                info.url,
-                                String(body.toByteArray(), GB18030),
-                            )
-                        )
-                    }
-                }
-
-                override fun onFailed(
-                    request: UrlRequest,
-                    info: UrlResponseInfo?,
-                    error: CronetException,
-                ) {
-                    logger?.warn(
-                        TAG_BYPASS,
-                        "CRONET ${if (postBody == null) "GET" else "POST"} " +
-                            "${LogSanitizer.sanitizeUrl(url)} -> " +
-                            "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
-                    )
-                    if (cont.isActive) cont.resume(null)
-                }
-
-                override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
-                    if (cont.isActive) cont.resume(null)
-                }
-            }
-
-            val builder = engine.newUrlRequestBuilder(url, callback, cronetExecutor)
-                .setHttpMethod(if (postBody == null) "GET" else "POST")
-                .addHeader("User-Agent", uaFor(url))
-                .addHeader(
-                    "Accept",
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-                )
-                .addHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-                .addHeader("Cache-Control", "max-age=0")
-                .addHeader("Upgrade-Insecure-Requests", "1")
-                .addHeader("Sec-Fetch-Dest", "document")
-                .addHeader("Sec-Fetch-Mode", "navigate")
-                .addHeader("Sec-Fetch-Site", if (postBody == null) "none" else "same-origin")
-                .addHeader("Sec-Fetch-User", "?1")
-            val referer = if (postBody == null) refererFor(url) else url.substringBefore('?')
-            referer?.let { builder.addHeader("Referer", it) }
-            if (cookieHeader.isNotEmpty()) builder.addHeader("Cookie", cookieHeader)
-            if (postBody != null) {
-                builder.addHeader("Content-Type", "application/x-www-form-urlencoded")
-                builder.addHeader("Origin", base)
-                builder.setUploadDataProvider(uploadProvider(postBody), cronetExecutor)
-            }
-            val request = builder.build()
-            // 取消（页面离开 / 超时）时立刻取消底层请求，回调再触发 onCanceled 也不影响已取消的协程
-            cont.invokeOnCancellation { runCatching { request.cancel() } }
-            request.start()
+        if (!response.isSuccessful) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET POST ${LogSanitizer.sanitizeUrl(url)} -> HTTP ${response.statusCode}，" +
+                    "丢弃响应并继续回退",
+            )
+            return null
         }
-    }
-
-    /** 保存 Cronet 响应头里的 Cookie（成功页与中间重定向都要保存）。 */
-    private fun saveResponseCookies(info: UrlResponseInfo, requestUrl: okhttp3.HttpUrl) {
-        runCatching {
-            info.allHeadersAsList
-                .filter { it.key.equals("Set-Cookie", ignoreCase = true) }
-                .mapNotNull { (_, value) ->
-                    runCatching { Cookie.parse(requestUrl, value) }.getOrNull()
-                }
-                .takeIf { it.isNotEmpty() }
-                ?.let { cookieStore.saveFromResponse(requestUrl, it) }
+        if (isUnexpectedRootRedirect(url, response.url)) {
+            logger?.warn(
+                TAG_BYPASS,
+                "CRONET POST ${LogSanitizer.sanitizeUrl(url)} -> 最终地址是站点根页，" +
+                    "丢弃响应并继续回退",
+            )
+            return null
         }
+        val html = String(response.body, GB18030)
+        if (!isUsableWenku8Response(response.statusCode, html)) return null
+        return response.url to html
     }
 
     /**
@@ -1251,7 +1290,7 @@ class Wenku8Client(
      * 挑战通过后会做两件事（参考 LightNovelReader 的 cf_clearance 思路）：
      * 1. 记录本次使用的 UA（cf_clearance 与该 UA 绑定，后续复用需一致）；
      * 2. 把 WebView 写入的 Cookie（含 cf_clearance / __cf_bm）持久化到 CookieStore，
-     *    之后 OkHttp/Cronet 直接带令牌请求，无需每次重跑 WebView。
+     *    之后 Cronet 直接带令牌请求，无需每次重跑 WebView。
      */
     private suspend fun webViewGet(url: String): String? {
         val startedAt = System.currentTimeMillis()
@@ -1320,7 +1359,20 @@ class Wenku8Client(
                                         return true
                                     }
 
-                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                    override fun onPageFinished(view: WebView?, finishedUrl: String?) {
+                                        if (
+                                            finishedUrl != null &&
+                                            isUnexpectedRootRedirect(url, finishedUrl)
+                                        ) {
+                                            logger?.warn(
+                                                TAG_BYPASS,
+                                                "WEBVIEW ${LogSanitizer.sanitizeUrl(url)} -> " +
+                                                    "被重定向到站点根页，拒绝解析",
+                                            )
+                                            destroyWebView(webView)
+                                            if (cont.isActive) cont.resume(null)
+                                            return
+                                        }
                                         view?.evaluateJavascript(
                                             "document.documentElement.outerHTML",
                                             object : ValueCallback<String> {
@@ -1333,7 +1385,6 @@ class Wenku8Client(
                                                     if (decoded != null && (!isChallenge(decoded) || attempts >= 3)) {
                                                         // 挑战已通过：记录 UA 并持久化 cf_clearance 等 Cookie
                                                         if (host != null) challengeUa[host] = usedUa
-                                                        val finishedUrl = url
                                                         if (finishedUrl != null) {
                                                             runCatching {
                                                                 val wvCookies = CookieManager.getInstance()
@@ -1357,12 +1408,24 @@ class Wenku8Client(
                                         request: WebResourceRequest?,
                                         error: WebResourceError?,
                                     ) {
+                                        logger?.error(
+                                            TAG_BYPASS,
+                                            "WEBVIEW ${LogSanitizer.sanitizeUrl(url)} -> " +
+                                                "errorCode=${error?.errorCode ?: -1} " +
+                                                "description=${error?.description?.toString().orEmpty()} " +
+                                                "request=${LogSanitizer.sanitizeUrl(request?.url?.toString().orEmpty())}",
+                                        )
                                         destroyWebView(webView)
                                         if (cont.isActive) cont.resume(null)
                                     }
                                 }
                                 webView.loadUrl(url)
-                            }.onFailure {
+                            }.onFailure { error ->
+                                logger?.warn(
+                                    TAG_BYPASS,
+                                    "WEBVIEW 初始化/加载失败 ${LogSanitizer.sanitizeUrl(url)}",
+                                    error,
+                                )
                                 destroyWebView(webView)
                                 if (cont.isActive) cont.resume(null)
                             }
@@ -1371,18 +1434,6 @@ class Wenku8Client(
                 }
             }
         }
-
-    /**
-     * Cronet 的表单上传体。
-     *
-     * ⚠️ 必须用官方 `UploadDataProviders.create`：自实现的读取协议在 cronet 119 上
-     * 会被判为 `CallbackExceptionImpl: Exception received from UploadDataProvider`
-     * （2026-10-18 设备日志实测），POST 直接失败。
-     * 该类虽已标记 deprecated，但仍是当前版本唯一可用的实现，故局部抑制告警。
-     */
-    @Suppress("DEPRECATION")
-    private fun uploadProvider(bytes: ByteArray): UploadDataProvider =
-        org.chromium.net.UploadDataProviders.create(bytes)
 
     /**
      * 隐藏 WebView 的统一销毁路径。
@@ -1403,8 +1454,20 @@ class Wenku8Client(
     }
 
     /** type: "txt"(GBK) | "utf8" | "big5" */
-    suspend fun downloadFullTxt(id: Int, type: String): ByteArray =
-        getBytes("$DL/down.php?type=$type&node=1&id=$id")
+    suspend fun downloadFullTxt(id: Int, type: String): ByteArray {
+        var lastFailure: Throwable? = null
+        for (node in 1..2) {
+            try {
+                return getBytes("$DL/down.php?type=$type&node=$node&id=$id")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                lastFailure = error
+                logger?.warn(TAG_NET, "TXT node=$node 失败", error)
+            }
+        }
+        throw lastFailure ?: IOException("TXT 下载失败")
+    }
 
     /**
      * 抓取图片原始字节（阅读器插图的「保存图片」用）。
@@ -1413,12 +1476,10 @@ class Wenku8Client(
      * [Wenku8Hosts.IMAGE_REFERER]，用同域根地址会被拒绝。地址同样统一升级为 HTTPS
      * （站点页面给的是 http，明文流量已被 networkSecurityConfig 禁止）。
      */
-    suspend fun imageBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
-        val req = Request.Builder()
-            .url(Wenku8Hosts.normalizeImageUrl(url))
-            .browserHeaders(Wenku8Hosts.IMAGE_REFERER)
-            .build()
-        readBytes(execute(req))
-    }
+    suspend fun imageBytes(url: String): ByteArray =
+        getBytes(
+            url = Wenku8Hosts.normalizeImageUrl(url),
+            referer = Wenku8Hosts.IMAGE_REFERER,
+        )
 
 }

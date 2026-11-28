@@ -12,7 +12,7 @@ import java.net.URI
 object Wenku8Hosts {
 
     /**
-     * 可用镜像（第一个为默认主站）。
+     * 可用镜像（第一个为默认主站）。`www` 失败后继续尝试裸域，再进入 WebView/App API 回退。
      *
      * ⚠️ **`https://www.wenku8.com` 已于 2026-10 下线**：实测（PC 与 Android 17 设备一致）
      * 该域名解析到 47.243.247.59，TLS 证书是 `s1.n9z.net`（SAN 只有 `s1.n9z.net`），
@@ -24,6 +24,8 @@ object Wenku8Hosts {
     val MIRRORS: List<String> = listOf(
         "https://www.wenku8.cc",
         "https://www.wenku8.net",
+        "https://wenku8.cc",
+        "https://wenku8.net",
     )
 
     /** 默认主站镜像。 */

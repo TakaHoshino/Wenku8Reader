@@ -1,5 +1,8 @@
 package com.hoshino.wenku8reader.ui.bookcase
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +29,8 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Warning
@@ -50,6 +55,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,12 +70,17 @@ import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.data.local.WENKU8_SHELF
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CoverImage
+import com.hoshino.wenku8reader.ui.common.readTextFromUri
+import com.hoshino.wenku8reader.ui.common.saveTextToUri
 import com.hoshino.wenku8reader.ui.components.ExpressiveEmptyState
 import com.hoshino.wenku8reader.ui.components.ExpressiveLoadingIndicator
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.ExpressiveTopAppBar
 import com.hoshino.wenku8reader.ui.components.TonalCard
 import com.hoshino.wenku8reader.ui.shelf.ShelfPickerDialog
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 /**
  * 书架页（主 Tab）。参考 SukiSU-Ultra：折叠大顶栏 + surfaceBright 卡片列表，
@@ -85,6 +96,40 @@ fun BookcasePage(
     vm: BookcaseViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingImportText by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val saved = saveTextToUri(context, vm.exportShelfConfig(), uri)
+            Toast.makeText(
+                context,
+                context.getString(
+                    if (saved) R.string.bookcase_export_success
+                    else R.string.bookcase_export_failed,
+                ),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = readTextFromUri(context, uri)
+        if (text == null) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.bookcase_import_read_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
+        } else {
+            pendingImportText = text
+        }
+    }
 
     LaunchedEffect(Unit) { vm.load() }
 
@@ -99,6 +144,30 @@ fun BookcasePage(
             ExpressiveTopAppBar(
                 title = stringResource(R.string.bookcase_title),
                 actions = {
+                    IconButton(
+                        onClick = {
+                            val stamp = LocalDateTime.now()
+                                .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+                            exportLauncher.launch("wenku8-shelf-$stamp.json")
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.IosShare,
+                            contentDescription = stringResource(R.string.bookcase_export_shelves),
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            importLauncher.launch(
+                                arrayOf("application/json", "text/plain", "application/octet-stream"),
+                            )
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.FileOpen,
+                            contentDescription = stringResource(R.string.bookcase_import_shelves),
+                        )
+                    }
                     // 管理书架只属于多书架模式：关闭时顶栏与当前版本逐像素一致
                     if (ui.multiShelfEnabled) {
                         IconButton(onClick = onOpenShelfManage) {
@@ -219,6 +288,43 @@ fun BookcasePage(
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+
+    pendingImportText?.let { text ->
+        AlertDialog(
+            onDismissRequest = { pendingImportText = null },
+            title = { Text(stringResource(R.string.bookcase_import_confirm_title)) },
+            text = { Text(stringResource(R.string.bookcase_import_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingImportText = null
+                        scope.launch {
+                            val result = vm.importShelfConfig(text)
+                            Toast.makeText(
+                                context,
+                                if (result == null) {
+                                    context.getString(R.string.bookcase_import_invalid)
+                                } else {
+                                    context.getString(
+                                        R.string.bookcase_import_success,
+                                        result.shelvesAdded,
+                                        result.booksAdded,
+                                        result.booksMerged,
+                                    )
+                                },
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    },
+                ) { Text(stringResource(R.string.action_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImportText = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 
     movingEntry?.let { entry ->

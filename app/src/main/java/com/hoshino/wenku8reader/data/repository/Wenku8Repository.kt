@@ -7,61 +7,62 @@ import com.hoshino.wenku8reader.data.HomeBook
 import com.hoshino.wenku8reader.data.HomeSection
 import com.hoshino.wenku8reader.data.SearchResult
 import com.hoshino.wenku8reader.data.Volume
-import com.hoshino.wenku8reader.data.Wenku8Client
+import com.hoshino.wenku8reader.data.remote.Wenku8DataSourceProvider
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Single source of truth for wenku8 data. Exposes suspend functions that return
  * [Result] so the UI layer owns error handling without leaking network types.
  *
- * 账号说明：默认路径是**内置共享账号**——需要会话时由 [Wenku8Client.ensureLoggedIn]
- * 静默完成；实验性「账户登录」开启并登录用户账户后，同一个 ensureLoggedIn 会**复用**那份会话。
- * 仓库层仍然**不暴露 login/logout API**：登录与退出是需要编排多步状态（会话 Cookie、
- * 激活账户标记、错误反馈）的交互动作，归属 `ui/account` 的 ViewModel。
+ * 网络入口只依赖 [Wenku8DataSourceProvider]，不再知道 Cronet、网页解析或旧 App API。
+ * 账号会话仍由独立的客户端管理；仓库层不暴露 login/logout API。
  */
-class Wenku8Repository(private val client: Wenku8Client) {
+class Wenku8Repository(private val network: Wenku8DataSourceProvider) {
 
     suspend fun search(keyword: String, byAuthor: Boolean): Result<List<SearchResult>> =
-        runCatchingNotCancelling { client.search(keyword, byAuthor) }
+        runCatchingNotCancelling { network.highPriority.search(keyword, byAuthor) }
 
     suspend fun bookInfo(id: Int): Result<BookInfo> =
-        runCatchingNotCancelling { client.bookInfo(id) }
+        runCatchingNotCancelling { network.highPriority.bookInfo(id) }
 
     suspend fun chapters(bookId: Int, groupId: Int): Result<List<Volume>> =
-        runCatchingNotCancelling { client.chapters(bookId, groupId) }
+        runCatchingNotCancelling { network.default.chapters(bookId, groupId) }
 
     suspend fun chapterContent(gid: Int, bookId: Int, cid: String): Result<ChapterContent> =
-        runCatchingNotCancelling { client.chapterContent(gid, bookId, cid) }
+        runCatchingNotCancelling { network.highPriority.chapterContent(gid, bookId, cid) }
 
     suspend fun bookcase(): Result<List<BookcaseItem>> =
-        runCatchingNotCancelling { client.bookcase() }
+        runCatchingNotCancelling { network.default.bookcase() }
 
     /** 加入站方书架（按**书 id**）。 */
     suspend fun addToSiteBookcase(bookId: Int): Result<Unit> =
-        runCatchingNotCancelling { client.addToSiteBookcase(bookId) }
+        runCatchingNotCancelling { network.default.addToSiteBookcase(bookId) }
 
     /** 从站方书架移出（按**书架记录 id**，即 `BookcaseItem.bid`）。 */
     suspend fun removeFromSiteBookcase(bookcaseId: Int): Result<Unit> =
-        runCatchingNotCancelling { client.removeFromSiteBookcase(bookcaseId) }
+        runCatchingNotCancelling { network.default.removeFromSiteBookcase(bookcaseId) }
 
     suspend fun homepage(): Result<List<HomeSection>> =
-        runCatchingNotCancelling { client.homepage() }
+        runCatchingNotCancelling { network.default.homepage() }
 
     suspend fun tags(): Result<List<String>> =
-        runCatchingNotCancelling { client.tags() }
+        runCatchingNotCancelling { network.default.tags() }
 
     suspend fun tagBooks(tag: String, page: Int = 1): Result<List<HomeBook>> =
-        runCatchingNotCancelling { client.tagBooks(tag, page) }
+        runCatchingNotCancelling { network.default.tagBooks(tag, page) }
 
     suspend fun downloadFullTxt(id: Int, type: String): Result<ByteArray> =
-        runCatchingNotCancelling { client.downloadFullTxt(id, type) }
+        runCatchingNotCancelling { network.lowPriority.downloadFullTxt(id, type) }
+
+    suspend fun imageBytes(url: String): Result<ByteArray> =
+        runCatchingNotCancelling { network.lowPriority.imageBytes(url) }
 
     /** The `gid` required by /novel/ URLs. Falls back to id/1000 when the detail page omits it. */
     fun groupIdOf(info: BookInfo): Int = bookGroupId(info)
 }
 
 /**
- * 与 [Wenku8Client] 同口径的 `runCatching`：**不吞协程取消**。
+ * 网络层的 `runCatching`：**不吞协程取消**。
  *
  * 标准 `runCatching` 捕获 `Throwable`，会把 `CancellationException` 也包成
  * `Result.failure`；调用方（如下载任务、阅读器加载）随后会把"取消"误判成

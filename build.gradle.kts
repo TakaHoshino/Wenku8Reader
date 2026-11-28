@@ -15,4 +15,5 @@ plugins {
     // AGP 9 起 Kotlin 支持内置，**不能再应用 org.jetbrains.kotlin.android**。
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.compose) apply false
+    alias(libs.plugins.kotlin.jvm) apply false
 }

@@ -16,6 +16,9 @@ import com.hoshino.wenku8reader.data.local.ReadingProgress
 import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettings
 import com.hoshino.wenku8reader.data.local.ShelfStore
+import com.hoshino.wenku8reader.data.local.decodeShelfConfig
+import com.hoshino.wenku8reader.data.local.encodeShelfConfig
+import com.hoshino.wenku8reader.data.local.mergeShelfNames
 import com.hoshino.wenku8reader.data.local.shelfNames
 import com.hoshino.wenku8reader.data.local.normalizeMembership
 import com.hoshino.wenku8reader.ui.common.UiText
@@ -98,6 +101,12 @@ data class BookcaseUiState(
     val siteShelfAvailable: Boolean = false,
     /** 站方书架里的书 id（弹窗据此预勾选站方那一项）；仅 [siteShelfAvailable] 为真时有意义。 */
     val siteBookIds: Set<Int> = emptySet(),
+)
+
+data class ShelfImportResult(
+    val shelvesAdded: Int,
+    val booksAdded: Int,
+    val booksMerged: Int,
 )
 
 class BookcaseViewModel(
@@ -187,8 +196,8 @@ class BookcaseViewModel(
             ) { selected, settings, account, site ->
                 Env(
                     selected = selected,
-                    multiShelfEnabled = settings.multiShelfEnabled,
-                    accountLoginEnabled = settings.accountLoginEnabled,
+                    multiShelfEnabled = settings.effectiveMultiShelfEnabled,
+                    accountLoginEnabled = settings.effectiveAccountLoginEnabled,
                     activeUsername = account.activeUsername,
                     site = site,
                 )
@@ -278,8 +287,8 @@ class BookcaseViewModel(
     /** 一次性读取当前环境（下拉刷新路径用；Flow 路径由 combine 提供）。 */
     private suspend fun currentEnv(): Env = Env(
         selected = selectedShelfFlow.value,
-        multiShelfEnabled = readerSettings.flow.value.multiShelfEnabled,
-        accountLoginEnabled = readerSettings.flow.value.accountLoginEnabled,
+        multiShelfEnabled = readerSettings.flow.value.effectiveMultiShelfEnabled,
+        accountLoginEnabled = readerSettings.flow.value.effectiveAccountLoginEnabled,
         activeUsername = accountStore.read().activeUsername,
         site = wenku8Shelf.state.value,
     )
@@ -365,6 +374,34 @@ class BookcaseViewModel(
         preferences.bookcaseSortReversed = reversed
         _ui.update { it.copy(sortReversed = reversed) }
         applySort()
+    }
+
+    suspend fun exportShelfConfig(): String =
+        encodeShelfConfig(
+            shelves = shelfStore.read(),
+            books = libraryStore.all(),
+        )
+
+    /**
+     * 安全导入：书架名称取并集，已有书只合并归属，不覆盖本地书目或删除任何现有数据。
+     */
+    suspend fun importShelfConfig(raw: String): ShelfImportResult? {
+        val config = decodeShelfConfig(raw) ?: return null
+        val currentShelves = shelfStore.read()
+        val currentLibrary = libraryStore.all()
+        val currentIds = currentLibrary.mapTo(mutableSetOf()) { it.book.id }
+        val importedBooks = config.books.distinctBy { it.book.id }
+        val mergedShelves = mergeShelfNames(currentShelves, config.shelves)
+        val booksAdded = importedBooks.count { it.book.id !in currentIds }
+        val booksMerged = importedBooks.size - booksAdded
+        shelfStore.replace(mergedShelves)
+        libraryStore.mergeImported(importedBooks)
+        load()
+        return ShelfImportResult(
+            shelvesAdded = (mergedShelves.size - currentShelves.size).coerceAtLeast(0),
+            booksAdded = booksAdded,
+            booksMerged = booksMerged,
+        )
     }
 
     private fun applySort() {
