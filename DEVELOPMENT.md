@@ -91,6 +91,11 @@ Wenku8Reader/
     │       │   ├── Models.kt              # SearchResult/BookInfo/Chapter/Volume/ChapterContent/BookcaseItem/FlatChapter/HomeBook/HomeSection
     │       │   ├── CronetHttpClient.kt    # 应用唯一 HTTP 出口（Cronet、Cookie、重定向、超时、流式下载）
     │       │   ├── Wenku8Client.kt        # 全部 wenku8 接口（限速/重试/多镜像/Cronet+WebView/站点书架增删）
+    │       │   ├── remote/                # 参考 LightNovelReader 重建的数据源/调度/优先级网络层
+    │       │   │   ├── Wenku8BookDataSource.kt    # 数据源契约
+    │       │   │   ├── Wenku8ClientDataSource.kt  # 当前 Cronet+WebView 实现适配器
+    │       │   │   ├── Wenku8SourceDispatcher.kt  # 多源轮换与空结果回退
+    │       │   │   └── Wenku8DataSourceProvider.kt # 高/默认/低优先级并发入口
     │       │   ├── Wenku8Hosts.kt         # 镜像与图片域名（https 升级、Referer 常量）
     │       │   ├── Parsers.kt / AppParsers.kt   # 网页正则解析 / 官方 App API 协议解析
     │       │   ├── CoverUrls.kt           # 由书 id 推导封面地址（零请求）
@@ -133,6 +138,12 @@ Wenku8Reader/
 
 ### 4.2 网络客户端（`Wenku8Client.kt`）
 所有方法 suspend，内部 `withContext(Dispatchers.IO)`。关键细节：
+- **网络访问分层（2026-11，参考 LightNovelReader）**：仓库只依赖
+  `Wenku8DataSourceProvider` 的高/默认/低优先级入口；底层由 `Wenku8BookDataSource`
+  提供数据，当前 `Wenku8ClientDataSource` 适配现有 Cronet+WebView 实现，
+  `Wenku8SourceDispatcher` 负责多源轮换。阅读器/详情走 high，普通浏览走 default，
+  下载与图片走 low，共享同一优先级并发闸门；后续 API Core 或其他站点源可直接加入
+  dispatcher，不需要改 UI 或仓库。新增网络读取入口必须经过该层。
 - **统一 Cronet 网络栈**：`CronetHttpClient` 是应用数据请求的唯一 HTTP 出口，wenku8 页面 / 搜索 / 书架 / TXT 下载、GitHub 更新检查与 APK 下载，以及 Coil 封面 / 插图均经它请求。它统一处理 Cookie、逐跳重定向、主站 HTTPS 升级、超时、取消和流式下载回调；源码中不再创建 `OkHttpClient` 或 `HttpURLConnection`。例外仅限 `WebsiteLoginActivity`（必须运行站点登录表单）与 Cloudflare JS 挑战。
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
 - **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`，UA 统一用 `UserAgent.build()` 生成的**设备 UA**（真实 `Build.VERSION.RELEASE` + `Build.MODEL`，WebKit/Safari 固定 `537.36`、Chrome 主版本固定，进程内只算一次）。

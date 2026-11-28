@@ -21,6 +21,9 @@ import com.hoshino.wenku8reader.data.local.ReadingStatsStore
 import com.hoshino.wenku8reader.data.local.ShelfStore
 import com.hoshino.wenku8reader.data.local.db.AppDatabase
 import com.hoshino.wenku8reader.data.log.AppLogger
+import com.hoshino.wenku8reader.data.remote.Wenku8ClientDataSource
+import com.hoshino.wenku8reader.data.remote.Wenku8DataSourceProvider
+import com.hoshino.wenku8reader.data.remote.Wenku8SourceDispatcher
 import com.hoshino.wenku8reader.data.repository.Wenku8Repository
 import com.hoshino.wenku8reader.ui.common.CronetImageFetcher
 import kotlinx.coroutines.CoroutineScope
@@ -108,7 +111,18 @@ class AppContainer(context: Context) {
         logger = logger,
     )
 
-    val repository: Wenku8Repository = Wenku8Repository(client)
+    /**
+     * Wenku8 网络访问层。
+     *
+     * 当前先注册成熟的页面数据源；后续 API Core、备用站点或插件源只需加入 dispatcher，
+     * 仓库和 UI 无需改动。高/默认/低优先级由 provider 统一控制。
+     */
+    private val networkSource = Wenku8SourceDispatcher(
+        sources = listOf(Wenku8ClientDataSource(client)),
+    )
+    val network: Wenku8DataSourceProvider = Wenku8DataSourceProvider(networkSource)
+
+    val repository: Wenku8Repository = Wenku8Repository(network)
 
     /**
      * 站方书架（Wenku8 账户的书架）的应用内状态：远端镜像、不落库。
