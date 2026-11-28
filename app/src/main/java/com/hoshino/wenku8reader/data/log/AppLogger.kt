@@ -40,6 +40,12 @@ class AppLogger(context: Context) {
 
     fun error(tag: String, message: String) = write(LogLevel.ERROR, tag, message)
 
+    fun warn(tag: String, message: String, error: Throwable) =
+        write(LogLevel.WARN, tag, "$message | ${LogErrorFormatter.format(error)}")
+
+    fun error(tag: String, message: String, error: Throwable) =
+        write(LogLevel.ERROR, tag, "$message | ${LogErrorFormatter.format(error)}")
+
     fun log(level: LogLevel, tag: String, message: String) = write(level, tag, message)
 
     fun totalBytes(): Long = rolling.totalBytes()
@@ -80,7 +86,7 @@ class AppLogger(context: Context) {
             append("] [")
             append(tag.take(16))
             append("] ")
-            append(LogSanitizer.sanitizeMessage(message))
+            append(LogSanitizer.sanitizeMessage(LogSanitizer.sanitizeEmbeddedUrls(message)))
         }
         rolling.append(line)
     }
@@ -102,7 +108,7 @@ class AppLogger(context: Context) {
         }
         appendLine()
         appendLine(
-            "说明：日志只记录请求方法、地址、状态码、耗时与错误类型；不含 Cookie、密码、" +
+            "说明：日志记录请求方法、地址、状态码、耗时、异常链与底层网络错误码；不含 Cookie、密码、" +
                 "请求体或章节正文，地址中的敏感参数已替换为 ***。",
         )
     }

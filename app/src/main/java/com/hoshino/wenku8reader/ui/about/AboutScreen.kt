@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,12 +45,16 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.ui.AppViewModelProvider
+import com.hoshino.wenku8reader.ui.common.shareFile
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
 import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.SegmentedColumn
 import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.TonalCard
+import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
 
 /**
  * 关于页（子页）。应用图标 + 版本号 + 仓库 / 爱发电链接 + 应用介绍。
@@ -57,6 +63,7 @@ import com.hoshino.wenku8reader.ui.components.TonalCard
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
+    vm: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory),
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
@@ -71,6 +78,26 @@ fun AboutScreen(
     val repoUrl = stringResource(R.string.about_repo_url)
     val qqGroupUrl = stringResource(R.string.about_qq_group_url)
     val supportUrl = stringResource(R.string.about_support_url)
+
+    LaunchedEffect(Unit) {
+        vm.logExport.collect { result ->
+            result.onSuccess { file ->
+                shareFile(
+                    context = context,
+                    file = file,
+                    mimeType = "application/zip",
+                    subject = context.getString(R.string.settings_logs_share_subject),
+                    chooserTitle = context.getString(R.string.settings_logs_export),
+                )
+            }.onFailure {
+                android.widget.Toast.makeText(
+                    context,
+                    R.string.settings_logs_export_failed,
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
 
     ExpressiveScaffold(
         topBar = {
@@ -169,6 +196,30 @@ fun AboutScreen(
                             supportingContent = { Text(stringResource(R.string.about_support_desc)) },
                             trailingContent = {
                                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                            },
+                        )
+                    },
+                ),
+            )
+
+            SegmentedColumn(
+                title = stringResource(R.string.settings_logs),
+                items = listOf(
+                    {
+                        SegmentedListItem(
+                            onClick = vm::exportLogs,
+                            leadingContent = {
+                                Icon(Icons.Filled.Description, contentDescription = null)
+                            },
+                            headlineContent = { Text(stringResource(R.string.settings_logs_export)) },
+                            supportingContent = {
+                                Text(stringResource(R.string.settings_logs_export_summary))
+                            },
+                            trailingContent = {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                )
                             },
                         )
                     },

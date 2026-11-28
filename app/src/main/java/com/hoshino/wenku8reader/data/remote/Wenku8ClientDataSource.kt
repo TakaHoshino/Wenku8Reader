@@ -19,6 +19,7 @@ class Wenku8ClientDataSource(
     private val client: Wenku8Client,
     override val id: Int = "wenku8-page".hashCode(),
 ) : Wenku8BookDataSource {
+    override val sourceName: String = "wenku8-page"
     override suspend fun search(keyword: String, byAuthor: Boolean): List<SearchResult> =
         client.search(keyword, byAuthor)
 

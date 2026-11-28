@@ -45,7 +45,6 @@ import com.hoshino.wenku8reader.data.local.ReadingProgressStore
 import com.hoshino.wenku8reader.data.local.ReaderSettingsState
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
 import com.hoshino.wenku8reader.ui.common.CacheCategory
-import com.hoshino.wenku8reader.ui.common.shareFile
 import com.hoshino.wenku8reader.ui.common.formatByteSize
 import com.hoshino.wenku8reader.ui.components.ExpressiveLargeTopAppBar
 import com.hoshino.wenku8reader.ui.components.ExpressiveScaffold
@@ -82,6 +81,13 @@ fun StorageSettingsPage(
                         context.getString(R.string.settings_cache_reading_nothing)
                     }
 
+                CacheActionResult.Kind.LOGS ->
+                    if (result.freedSomething) {
+                        context.getString(R.string.settings_logs_clear_done, formatByteSize(result.freedBytes))
+                    } else {
+                        context.getString(R.string.settings_logs_clear_nothing)
+                    }
+
                 else ->
                     if (result.freedSomething) {
                         context.getString(R.string.settings_cache_freed, formatByteSize(result.freedBytes))
@@ -90,26 +96,6 @@ fun StorageSettingsPage(
                     }
             }
             android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-    // 日志导出：zip 已生成 → 拉起系统分享面板；失败只提示，不打断用户
-    LaunchedEffect(Unit) {
-        vm.logExport.collect { result ->
-            result.onSuccess { file ->
-                shareFile(
-                    context = context,
-                    file = file,
-                    mimeType = "application/zip",
-                    subject = context.getString(R.string.settings_logs_share_subject),
-                    chooserTitle = context.getString(R.string.settings_logs_export),
-                )
-            }.onFailure {
-                android.widget.Toast.makeText(
-                    context,
-                    R.string.settings_logs_export_failed,
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
         }
     }
     // 进入页面刷新存储占用统计（统计在 ViewModel 的 IO 线程执行）
@@ -169,6 +155,7 @@ private fun StorageSettingsContent(
     val stats by vm.storageStats.collectAsStateWithLifecycle()
     var confirmClearAll by remember { mutableStateOf(false) }
     var confirmCleanupHistory by remember { mutableStateOf(false) }
+    var confirmClearLogs by remember { mutableStateOf(false) }
     // 上限选项：默认 30 含在其中，其余按常用档位
     val maxOptions = listOf(30, 50, 100, 200, 500)
 
@@ -358,20 +345,20 @@ private fun StorageSettingsContent(
         },
     )
 
-    // ---- 日志（排查网络问题时导出给开发者）----
+    // ---- 日志清理；导出入口已移到关于页 ----
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_logs),
         items = listOf(
             {
                 SegmentedListItem(
-                    onClick = { vm.exportLogs() },
+                    onClick = { confirmClearLogs = true },
                     leadingContent = { Icon(Icons.Filled.Description, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.settings_logs_export)) },
+                    headlineContent = { Text(stringResource(R.string.settings_logs_clear)) },
                     supportingContent = {
                         Text(
                             formatByteSize(stats.logs) + " · " +
-                                stringResource(R.string.settings_logs_export_summary),
+                                stringResource(R.string.settings_logs_clear_summary),
                         )
                     },
                 )
@@ -394,6 +381,27 @@ private fun StorageSettingsContent(
             },
             dismissButton = {
                 TextButton(onClick = { confirmClearAll = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    if (confirmClearLogs) {
+        AlertDialog(
+            onDismissRequest = { confirmClearLogs = false },
+            title = { Text(stringResource(R.string.settings_logs_confirm_clear_title)) },
+            text = { Text(stringResource(R.string.settings_logs_confirm_clear_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmClearLogs = false
+                        vm.clearLogs()
+                    },
+                ) { Text(stringResource(R.string.action_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearLogs = false }) {
                     Text(stringResource(R.string.action_cancel))
                 }
             },

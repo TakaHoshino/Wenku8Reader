@@ -94,8 +94,16 @@ class CronetHttpClient(
         collectBody: Boolean = true,
         onBodyChunk: ((ByteArray, Long) -> Unit)? = null,
     ): Response? {
-        val engine = engineLazy.value ?: return null
-        return withTimeoutOrNull(request.timeoutMs) {
+        val engine = engineLazy.value
+        if (engine == null) {
+            logger?.error(
+                TAG,
+                "${request.method} ${LogSanitizer.sanitizeUrl(request.url)} -> " +
+                    "Cronet engine 初始化失败或不可用",
+            )
+            return null
+        }
+        val response = withTimeoutOrNull(request.timeoutMs) {
             var currentUrl = request.url
             var currentMethod = request.method.uppercase()
             var currentBody = request.body
@@ -150,6 +158,14 @@ class CronetHttpClient(
             )
             null
         }
+        if (response == null) {
+            logger?.warn(
+                TAG,
+                "${request.method} ${LogSanitizer.sanitizeUrl(request.url)} -> " +
+                    "无响应（整体超时 ${request.timeoutMs}ms，或底层请求失败）",
+            )
+        }
+        return response
     }
 
     fun close() {
@@ -170,6 +186,7 @@ class CronetHttpClient(
     ): Hop? = suspendCancellableCoroutine { cont ->
         val httpUrl = runCatching { url.toHttpUrl() }.getOrNull()
         if (httpUrl == null) {
+            logger?.error(TAG, "无效 URL（$method）: ${LogSanitizer.sanitizeUrl(url)}")
             cont.resume(null)
             return@suspendCancellableCoroutine
         }
@@ -255,10 +272,14 @@ class CronetHttpClient(
                 info: UrlResponseInfo?,
                 error: CronetException,
             ) {
-                logger?.warn(
+                val responseInfo = info?.let {
+                    "http=${it.httpStatusCode} protocol=${it.negotiatedProtocol}"
+                } ?: "http=unknown protocol=unknown"
+                logger?.error(
                     TAG,
                     "$method ${LogSanitizer.sanitizeUrl(url)} -> " +
-                        "${error.javaClass.simpleName}: ${error.message.orEmpty()}",
+                        "$responseInfo",
+                    error,
                 )
                 if (cont.isActive) cont.resume(null)
             }
@@ -268,11 +289,17 @@ class CronetHttpClient(
             }
         }
 
-        val builder = runCatching {
+        val builderResult = runCatching {
             engine.newUrlRequestBuilder(url, callback, executor)
                 .setHttpMethod(method)
-        }.getOrNull()
+        }
+        val builder = builderResult.getOrNull()
         if (builder == null) {
+            logger?.error(
+                TAG,
+                "$method ${LogSanitizer.sanitizeUrl(url)} -> 创建 UrlRequest.Builder 失败",
+                builderResult.exceptionOrNull() ?: IOException("unknown_builder_failure"),
+            )
             cont.resume(null)
             return@suspendCancellableCoroutine
         }
@@ -288,13 +315,26 @@ class CronetHttpClient(
             }
             builder.setUploadDataProvider(uploadProvider(body), executor)
         }
-        val request = runCatching { builder.build() }.getOrNull()
+        val buildResult = runCatching { builder.build() }
+        val request = buildResult.getOrNull()
         if (request == null) {
+            logger?.error(
+                TAG,
+                "$method ${LogSanitizer.sanitizeUrl(url)} -> 构建 UrlRequest 失败",
+                buildResult.exceptionOrNull() ?: IOException("unknown_request_build_failure"),
+            )
             cont.resume(null)
             return@suspendCancellableCoroutine
         }
         cont.invokeOnCancellation { runCatching { request.cancel() } }
-        request.start()
+        runCatching { request.start() }.onFailure { error ->
+            logger?.error(
+                TAG,
+                "$method ${LogSanitizer.sanitizeUrl(url)} -> UrlRequest.start() 失败",
+                error,
+            )
+            if (cont.isActive) cont.resume(null)
+        }
     }
 
     @Suppress("DEPRECATION")

@@ -7,6 +7,7 @@ import com.hoshino.wenku8reader.data.HomeBook
 import com.hoshino.wenku8reader.data.HomeSection
 import com.hoshino.wenku8reader.data.SearchResult
 import com.hoshino.wenku8reader.data.Volume
+import com.hoshino.wenku8reader.data.log.AppLogger
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -17,6 +18,7 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 class Wenku8SourceDispatcher(
     private val sources: List<Wenku8BookDataSource>,
+    private val logger: AppLogger? = null,
     override val id: Int = "wenku8-dispatcher".hashCode(),
 ) : Wenku8BookDataSource {
     init {
@@ -24,6 +26,7 @@ class Wenku8SourceDispatcher(
     }
 
     override val permits: Int = sources.maxOf(Wenku8BookDataSource::permits)
+    override val sourceName: String = "wenku8-dispatcher"
 
     override suspend fun search(keyword: String, byAuthor: Boolean): List<SearchResult> =
         rotate(emptyList()) { this.search(keyword, byAuthor) }
@@ -70,15 +73,26 @@ class Wenku8SourceDispatcher(
     ): T {
         var hadResponse = false
         var lastFailure: Throwable? = null
+        var failedSources = 0
         for (source in sources) {
             try {
                 val result = source.block()
                 hadResponse = true
-                if (!isEmpty(result)) return result
+                if (!isEmpty(result)) {
+                    if (failedSources > 0) {
+                        logger?.info(
+                            "NET",
+                            "数据源回退命中 ${source.sourceName}（前序失败 $failedSources 个）",
+                        )
+                    }
+                    return result
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 lastFailure = error
+                failedSources++
+                logger?.warn("NET", "数据源 ${source.sourceName} 失败", error)
             }
         }
         if (lastFailure != null && !hadResponse) throw lastFailure

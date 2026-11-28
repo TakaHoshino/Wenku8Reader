@@ -18,6 +18,9 @@ import com.hoshino.wenku8reader.data.Volume
 interface Wenku8BookDataSource {
     val id: Int
 
+    /** 日志中可读的数据源名称。 */
+    val sourceName: String get() = "source-${id}"
+
     /** 同一数据源允许的最大并发请求数。 */
     val permits: Int get() = 8
 

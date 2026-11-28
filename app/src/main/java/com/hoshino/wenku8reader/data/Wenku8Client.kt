@@ -546,9 +546,10 @@ class Wenku8Client(
             for (hostBase in mirrors) {
                 val loginUrl = "$hostBase/login.php?do=submit" +
                     "&jumpurl=${URLEncoder.encode("$hostBase/index.php", "UTF-8")}"
-                val viaCronet = runCatchingNotCancelling {
+                val loginAttempt = runCatchingNotCancelling {
                     cronetPost(loginUrl, gbkFormBytes(fields))
-                }.getOrNull()
+                }
+                val viaCronet = loginAttempt.getOrNull()
                 if (viaCronet != null && hasSessionFor(hostBase)) {
                     activeSessionBase = hostBase
                     cookieStore.persist()
@@ -558,10 +559,19 @@ class Wenku8Client(
                     )
                     return@withContext true
                 }
-                logger?.warn(
-                    TAG_AUTH,
-                    "镜像登录失败（${LogSanitizer.sanitizeUrl(hostBase)}）",
-                )
+                val failure = loginAttempt.exceptionOrNull()
+                if (failure != null) {
+                    logger?.warn(
+                        TAG_AUTH,
+                        "镜像登录失败（${LogSanitizer.sanitizeUrl(hostBase)}）",
+                        failure,
+                    )
+                } else {
+                    logger?.warn(
+                        TAG_AUTH,
+                        "镜像登录未获得会话 Cookie（${LogSanitizer.sanitizeUrl(hostBase)}）",
+                    )
+                }
             }
 
             activeSessionBase = null
@@ -1283,12 +1293,24 @@ class Wenku8Client(
                                         request: WebResourceRequest?,
                                         error: WebResourceError?,
                                     ) {
+                                        logger?.error(
+                                            TAG_BYPASS,
+                                            "WEBVIEW ${LogSanitizer.sanitizeUrl(url)} -> " +
+                                                "errorCode=${error?.errorCode ?: -1} " +
+                                                "description=${error?.description?.toString().orEmpty()} " +
+                                                "request=${LogSanitizer.sanitizeUrl(request?.url?.toString().orEmpty())}",
+                                        )
                                         destroyWebView(webView)
                                         if (cont.isActive) cont.resume(null)
                                     }
                                 }
                                 webView.loadUrl(url)
-                            }.onFailure {
+                            }.onFailure { error ->
+                                logger?.warn(
+                                    TAG_BYPASS,
+                                    "WEBVIEW 初始化/加载失败 ${LogSanitizer.sanitizeUrl(url)}",
+                                    error,
+                                )
                                 destroyWebView(webView)
                                 if (cont.isActive) cont.resume(null)
                             }
@@ -1326,7 +1348,7 @@ class Wenku8Client(
                 throw cancelled
             } catch (error: Throwable) {
                 lastFailure = error
-                logger?.warn(TAG_NET, "TXT node=$node 失败: ${error.javaClass.simpleName}")
+                logger?.warn(TAG_NET, "TXT node=$node 失败", error)
             }
         }
         throw lastFailure ?: IOException("TXT 下载失败")

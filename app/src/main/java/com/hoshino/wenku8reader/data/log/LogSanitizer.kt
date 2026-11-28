@@ -23,9 +23,10 @@ internal object LogSanitizer {
     )
 
     private val MULTI_SPACE = Regex(" {2,}")
+    private val URL_TOKEN = Regex("""https?://[^\s<>"']+""")
 
     private const val MAX_URL_LENGTH = 400
-    private const val MAX_MESSAGE_LENGTH = 500
+    private const val MAX_MESSAGE_LENGTH = 1_200
 
     /** 处理一条 URL：掩掉 userinfo、敏感查询参数与 fragment，并限长。 */
     fun sanitizeUrl(raw: String): String {
@@ -72,6 +73,14 @@ internal object LogSanitizer {
             .trim()
         return truncate(oneLine, MAX_MESSAGE_LENGTH)
     }
+
+    /** 异常文本里可能内嵌 URL；逐个复用 [sanitizeUrl]，避免查询参数绕开脱敏。 */
+    fun sanitizeEmbeddedUrls(raw: String): String =
+        URL_TOKEN.replace(raw) { match ->
+            val value = match.value
+            val suffix = value.takeLastWhile { it in ".,;:)]}" }
+            sanitizeUrl(value.dropLast(suffix.length)) + suffix
+        }
 
     private fun truncate(s: String, max: Int): String =
         if (s.length <= max) s else s.take(max - 1) + "…"

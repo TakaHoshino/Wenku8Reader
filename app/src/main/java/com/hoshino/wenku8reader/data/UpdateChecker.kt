@@ -123,7 +123,7 @@ class UpdateChecker(
                     ?.groupValues?.get(1)?.toLongOrNull(),
             )
         }.onFailure {
-            logger?.warn("UPDATE", "检查更新失败: ${it.javaClass.simpleName}: ${it.message.orEmpty()}")
+            logger?.warn("UPDATE", "检查更新失败", it)
         }
     }
 

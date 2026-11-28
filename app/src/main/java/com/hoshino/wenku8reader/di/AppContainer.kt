@@ -119,6 +119,7 @@ class AppContainer(context: Context) {
      */
     private val networkSource = Wenku8SourceDispatcher(
         sources = listOf(Wenku8ClientDataSource(client)),
+        logger = logger,
     )
     val network: Wenku8DataSourceProvider = Wenku8DataSourceProvider(networkSource)
 
