@@ -175,6 +175,8 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          WENKU8_JIEQI_USER_INFO: ${{ secrets.WENKU8_JIEQI_USER_INFO }}
+          WENKU8_JIEQI_VISIT_INFO: ${{ secrets.WENKU8_JIEQI_VISIT_INFO }}
         run: |
           # gradlew 在 Windows 上创建，Linux runner 需补可执行位
           chmod +x gradlew

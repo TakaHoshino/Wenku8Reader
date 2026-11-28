@@ -33,8 +33,9 @@ val localProperties = Properties().apply {
     }
 }
 
-fun localBuildConfigString(name: String): String =
-    localProperties.getProperty(name, "")
+fun buildConfigString(name: String): String =
+    (System.getenv(name)?.takeIf { it.isNotBlank() }
+        ?: localProperties.getProperty(name, ""))
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
 
@@ -52,16 +53,16 @@ android {
         versionCode = releaseVersionCode
         versionName = releaseVersionName
 
-        // 仅供本地构建注入 Wenku8 身份 Cookie；values 只存在于未入库的 local.properties。
+        // 构建时注入 Wenku8 身份 Cookie：CI 使用 Secrets，本地回退未入库的 local.properties。
         buildConfigField(
             "String",
             "WENKU8_JIEQI_USER_INFO",
-            "\"${localBuildConfigString("WENKU8_JIEQI_USER_INFO")}\"",
+            "\"${buildConfigString("WENKU8_JIEQI_USER_INFO")}\"",
         )
         buildConfigField(
             "String",
             "WENKU8_JIEQI_VISIT_INFO",
-            "\"${localBuildConfigString("WENKU8_JIEQI_VISIT_INFO")}\"",
+            "\"${buildConfigString("WENKU8_JIEQI_VISIT_INFO")}\"",
         )
 
         // 资源语言裁剪：应用只提供中文（默认 values 即简体）+ 繁体（values-zh-rTW），
