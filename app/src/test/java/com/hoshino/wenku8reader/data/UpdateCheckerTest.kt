@@ -59,7 +59,7 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun ghProxySettingUsesGhfastPrefix() {
+    fun ghProxySettingUsesGhProxyPrefix() {
         val release = ReleaseInfo(
             tag = "v1.0.0",
             versionName = "1.0.0",
@@ -67,7 +67,7 @@ class UpdateCheckerTest {
         )
 
         assertEquals(
-            "https://ghfast.top/https://github.com/owner/repo/releases/download/v1.0.0/app.apk",
+            "https://gh-proxy.com/https://github.com/owner/repo/releases/download/v1.0.0/app.apk",
             checker.apkUrl(release, "gh_proxy"),
         )
     }

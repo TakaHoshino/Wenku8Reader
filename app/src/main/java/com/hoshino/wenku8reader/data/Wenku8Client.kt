@@ -278,13 +278,14 @@ class Wenku8Client(
         var attempt = 0
         val startedAt = System.currentTimeMillis()
         val target = "$method ${LogSanitizer.sanitizeUrl(url)}"
+        val requestHeaders = withCookieSnapshot(url, headers)
         while (true) {
             pacer.pace()
             val resp = cronetHttp.execute(
                 CronetHttpClient.Request(
                     url = url,
                     method = method,
-                    headers = headers,
+                    headers = requestHeaders,
                     body = body,
                     useCookies = true,
                     timeoutMs = timeoutMs,
@@ -385,6 +386,18 @@ class Wenku8Client(
         val h = url.toHttpUrl()
         "${h.scheme}://${h.host}/"
     }.getOrNull()
+
+    /**
+     * 参考 LightNovelReader：主动生成完整的 Cookie 头，而不是完全依赖底层自动拼接。
+     * 值仍来自动态 CookieStore；Cronet 继续使用 `useCookies=true` 接收 Set-Cookie。
+     */
+    private fun withCookieSnapshot(url: String, headers: Map<String, String>): Map<String, String> {
+        if (headers.keys.any { it.equals("Cookie", ignoreCase = true) }) return headers
+        val cookieHeader = runCatching {
+            cookieStore.snapshotHeader(url.toHttpUrl())
+        }.getOrNull().orEmpty()
+        return if (cookieHeader.isBlank()) headers else headers + ("Cookie" to cookieHeader)
+    }
 
     /** Fetches a page and decodes it as GB18030 on the IO dispatcher. */
     private suspend fun getHtml(url: String, retries: Int = 3, ua: String = DEVICE_UA): String =
@@ -1090,7 +1103,10 @@ class Wenku8Client(
         val response = cronetHttp.execute(
             CronetHttpClient.Request(
                 url = url,
-                headers = browserHeaders(refererFor(url), uaFor(url)),
+                headers = withCookieSnapshot(
+                    url,
+                    browserHeaders(refererFor(url), uaFor(url)),
+                ),
                 useCookies = true,
                 timeoutMs = 20_000L,
                 redirectTransform = Wenku8Hosts::secureMainSiteUrl,
@@ -1126,9 +1142,12 @@ class Wenku8Client(
             CronetHttpClient.Request(
                 url = url,
                 method = "POST",
-                headers = browserHeaders(url.substringBefore('?'), sameOriginForm = true) + mapOf(
-                    "Content-Type" to "application/x-www-form-urlencoded",
-                    "Origin" to origin,
+                headers = withCookieSnapshot(
+                    url,
+                    browserHeaders(url.substringBefore('?'), sameOriginForm = true) + mapOf(
+                        "Content-Type" to "application/x-www-form-urlencoded",
+                        "Origin" to origin,
+                    ),
                 ),
                 body = formBytes,
                 useCookies = true,
@@ -1298,8 +1317,20 @@ class Wenku8Client(
     }
 
     /** type: "txt"(GBK) | "utf8" | "big5" */
-    suspend fun downloadFullTxt(id: Int, type: String): ByteArray =
-        getBytes("$DL/down.php?type=$type&node=1&id=$id")
+    suspend fun downloadFullTxt(id: Int, type: String): ByteArray {
+        var lastFailure: Throwable? = null
+        for (node in 1..2) {
+            try {
+                return getBytes("$DL/down.php?type=$type&node=$node&id=$id")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                lastFailure = error
+                logger?.warn(TAG_NET, "TXT node=$node 失败: ${error.javaClass.simpleName}")
+            }
+        }
+        throw lastFailure ?: IOException("TXT 下载失败")
+    }
 
     /**
      * 抓取图片原始字节（阅读器插图的「保存图片」用）。

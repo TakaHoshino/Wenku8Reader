@@ -148,7 +148,7 @@ Wenku8Reader/
 - **编码**：响应声明 `charset=gbk` 但实际为 **GB18030**（GBK 严格超集）。全部用 `Charset.forName("GB18030")` 手动解码字节；POST 表单体用 `URLEncoder.encode(k, "GBK")`。
 - **浏览器头伪装**：`browserHeaders()` 带 `Sec-Fetch-*`、`Upgrade-Insecure-Requests`、`Accept`（含 image/avif/webp）、`Cache-Control: max-age=0`，UA 统一用 `UserAgent.build()` 生成的**设备 UA**（真实 `Build.VERSION.RELEASE` + `Build.MODEL`，WebKit/Safari 固定 `537.36`、Chrome 主版本固定，进程内只算一次）。
   > ⚠️ **不要改回"每次请求随机 UA"**：随机机型/系统组合、`Chrome/140.0.12.3`、`Safari/537.118` 这类不存在的值本身就是自动化特征；而 `cf_clearance` 与 UA 绑定，换 UA 还会让令牌复用失效。参考 LightNovelReader 2026-10-02 的 `fix(web): 修正UA生成器`（同样是改成真实 Build + 固定版本 + 缓存）。
-- **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
+- **多镜像域名**：`MIRRORS = [www.wenku8.cc, www.wenku8.net, wenku8.cc, wenku8.net]`；**默认主域为 wenku8.cc**，可在设置页切换（`ReaderSettings.primaryMirror`，`Wenku8Client` 经 `primaryMirrorProvider` 读取），请求顺序 = 选定主域 + 其余兜底，再进入 Cronet/WebView/App API 链；旧默认 wenku8.net（未手动改过的用户）自动迁移到新默认。
   ⚠️ `www.wenku8.com` 已于 **2026-10 下线**：实测（PC 与 Android 17 设备一致）解析到 47.243.247.59，
   TLS 证书是 `s1.n9z.net`（SAN 只有该域名），主机名校验必然失败，每次冷启动白等约 4.6s。
   它已从清单移除；**老用户设置里残留的该值会在读取时回落到默认主站**（`ReaderSettings.toState()`），
@@ -200,9 +200,11 @@ Wenku8Reader/
 
 ### 4.4 Cookie（`CookieStore.kt`）
 实现 `okhttp3.CookieJar` 兼容类型，登录成功后 `persist()` 落盘；Cronet 与 WebView 共用同一份 Cookie。
+请求侧参考 LightNovelReader 显式生成单个 `Cookie` 头（固定 `PHPSESSID` / `jieqi*` /
+`cf_clearance` 顺序），但值来自动态 CookieStore，不硬编码参考项目中的过期会话。
 
 ### 4.5 下载（`DownloadEngine` / `FileSaver` / `EpubBuilder`）
-- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`），失败回退逐章抓取；EPUB 始终逐章抓取 HTML，以同时获得正文和插图 URL，再下载并内嵌插图，最后 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml + `OEBPS/images/`；章节 id/文件名统一 `%04d`；图片项写入 manifest 并由章节相对路径引用；`nav.xhtml` 标记 `properties="nav"` 且**不进入 spine**，避免被阅读器排在正文最后一页；uid 取书名+作者 SHA-256 前 8 字节；`dcterms:modified` 用构建时刻）。
+- `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`，`node=1` 失败自动尝试 `node=2`），再失败回退逐章抓取；EPUB 始终逐章抓取 HTML，以同时获得正文和插图 URL，再下载并内嵌插图，最后 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml + `OEBPS/images/`；章节 id/文件名统一 `%04d`；图片项写入 manifest 并由章节相对路径引用；`nav.xhtml` 标记 `properties="nav"` 且**不进入 spine**，避免被阅读器排在正文最后一页；uid 取书名+作者 SHA-256 前 8 字节；`dcterms:modified` 用构建时刻）。
 - `FileSaver`：API 29+ 走 MediaStore（`Downloads/Wenku8/`），以下写应用私有目录。**重名即覆盖**：插入前先按 `RELATIVE_PATH` 查回本目录的文件并删掉同名/自动重命名副本（判定见 `isDuplicateDownloadName()`：标准形态 `书名 (1).txt` 与部分 ROM 的 `书名.txt(1)` 都算副本，另有单测覆盖），否则 MediaProvider 会把新文件改名成 `书名 (1).txt`，每重新下载一次就多一份副本；写入用 `IS_PENDING`，其他应用在写完前看不到半截文件。
 
 ### 4.6 本地存储
@@ -277,7 +279,7 @@ Wenku8Reader/
 - **检查**：查 GitHub Releases（`api.github.com`）；正式版通道取 `releases/latest`，测试版通道取列表里**按 `published_at` 排序后**最新的一条带 APK 的发布（**不能相信接口返回的顺序**，见下）。版本判定优先 `versionCode`（发布描述里的 `versionCode: <N>`，时间基准「`2_030_000_000` + 分钟偏移」，见 VERSIONING.md §2），旧发布无该字段时回退 `versionName` 语义比较（同基础"测试版→正式版"视为更新）。
   **启动检查频率 = 每次启动一次**（2026-10 起）：不再有 24h 节流，由 `StartupCheckGate` 保证同一进程内只请求一次（Activity 重建 / 多入口不会重复打 GitHub）；失败只在**手动**检查时提示，自动检查静默。「跳过该版本」仍只影响自动检查。
   > ⚠️ **GitHub 的 releases 列表顺序不可靠**（2026-09-25 实测）：`v0.8.0-dev.100` 的 `id`/`created_at` 都是最新，却被排在 `dev.94` 之后（位置第 5）；新建的探针 release 同样落不到首位，带随机参数绕过缓存后顺序不变。所以"取第一条带 APK 的"会把旧包当成最新——测试版通道会一直提示已经过期好几个版本的 dev 包。实现改为显式按 `published_at` 排序（单测 `UpdateCheckerPickLatestTest` 用真实顺序当夹具）。这条**无法用 CI 侧绕过**：重新发布不会置顶，缩减保留数量也治不了。
-- **下载**：支持 GitHub 直连或 `ghfast.top` 镜像前缀；APK 通过共享 Cronet 按数据块流式写入文件，默认整体超时 120s，进度按 `Content-Length` 更新。
+- **下载**：支持 GitHub 直连或 `gh-proxy.com` 镜像前缀；APK 通过共享 Cronet 按数据块流式写入文件，默认整体超时 120s，进度按 `Content-Length` 更新。
 - **安装前签名校验（安全关键）**：下载完成后 `verifyApkSignature()` 比对 APK 与当前已安装应用的签名证书（SHA-256 指纹集合，API 28+ 用 `signingInfo.apkContentsSigners`，26/27 回退 `signatures`），**不一致则删除文件、提示用户并拒绝安装**。这是必要的：更新包可经第三方镜像下载，若不校验，中间人或被接管的镜像可下发任意 APK 并直接拉起安装器。
 - **安装器兼容**：Manifest 声明 `REQUEST_INSTALL_PACKAGES`；API 26+ 未授权时跳转 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`。FileProvider URI 同时放进 `data` 与 `ClipData`，保证部分 OEM 安装器能取得读取授权；`ACTION_VIEW` 失败后回退旧 `ACTION_INSTALL_PACKAGE`。
 - **两个 CoroutineScope 统一注入**：`UpdateCenter` 与 `DownloadEngine` 的作用域均由 `AppContainer.applicationScope`（`SupervisorJob + Main.immediate`，与原 UpdateCenter 行为一致）提供，不再各自裸建且永不取消。

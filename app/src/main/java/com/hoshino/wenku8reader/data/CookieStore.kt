@@ -55,6 +55,10 @@ class CookieStore(context: Context) : CookieJar {
     override fun loadForRequest(url: HttpUrl): List<Cookie> =
         cookies[url.host]?.toList() ?: emptyList()
 
+    /** 按参考项目的手工 Cookie 头方式快照当前会话。 */
+    @Synchronized
+    fun snapshotHeader(url: HttpUrl): String = buildCookieHeader(loadForRequest(url))
+
     @Synchronized
     fun persist() {
         val arr = JSONArray()

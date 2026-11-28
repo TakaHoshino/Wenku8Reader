@@ -29,7 +29,7 @@ data class UpdateUiState(
  * 更新中心（应用级单例，经 AppContainer 注入）：
  * - check()：查询 GitHub Releases 最新版，比当前版本新且未被「跳过」时进入 [latest] 状态（弹窗）；
  *   已是最新 → 无提示（手动检查时由调用方 Toast 提示）；失败 → 记录错误由调用方提示。
- * - download()：按设置里的更新源（github 直连 / ghfast 镜像）下载 APK → FileProvider 安装。
+ * - download()：按设置里的更新源（github 直连 / gh-proxy 镜像）下载 APK → FileProvider 安装。
  * - later()：稍后提醒（关闭弹窗）；skip()：记住该版本并关闭。
  */
 class UpdateCenter(
