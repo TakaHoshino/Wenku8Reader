@@ -15,10 +15,12 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetException
+import org.chromium.net.NetworkException
 import org.chromium.net.UploadDataProvider
 import org.chromium.net.UrlRequest
 import org.chromium.net.UrlResponseInfo
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
 /**
@@ -81,6 +83,16 @@ class CronetHttpClient(
         runCatching { CronetEngine.Builder(appContext).build() }.getOrNull()
     }
 
+    /** 仅在上游明确报 HTTP/2 协议错误时使用，避免网络正常时改变协议行为。 */
+    private val http1EngineLazy: Lazy<CronetEngine?> = lazy {
+        runCatching {
+            CronetEngine.Builder(appContext)
+                .enableHttp2(false)
+                .enableQuic(false)
+                .build()
+        }.getOrNull()
+    }
+
     val isAvailable: Boolean get() = engineLazy.value != null
 
     /**
@@ -104,6 +116,57 @@ class CronetHttpClient(
             return null
         }
         val response = withTimeoutOrNull(request.timeoutMs) {
+            val http2Failure = AtomicBoolean(false)
+            val first = executeWithEngine(
+                engine = engine,
+                request = request,
+                collectBody = collectBody,
+                onBodyChunk = onBodyChunk,
+                http2Failure = http2Failure,
+            )
+            if (first != null) return@withTimeoutOrNull first
+            if (!http2Failure.get()) return@withTimeoutOrNull null
+
+            val http1Engine = http1EngineLazy.value
+            if (http1Engine == null) {
+                logger?.warn(
+                    TAG,
+                    "${request.method} ${LogSanitizer.sanitizeUrl(request.url)} -> " +
+                        "HTTP/2 协议错误，但 HTTP/1.1 回退引擎初始化失败",
+                )
+                return@withTimeoutOrNull null
+            }
+            logger?.warn(
+                TAG,
+                "${request.method} ${LogSanitizer.sanitizeUrl(request.url)} -> " +
+                    "HTTP/2 协议错误，改用 HTTP/1.1 重试一次",
+            )
+            executeWithEngine(
+                engine = http1Engine,
+                request = request,
+                collectBody = collectBody,
+                onBodyChunk = onBodyChunk,
+                http2Failure = AtomicBoolean(false),
+            )
+        }
+        if (response == null) {
+            logger?.warn(
+                TAG,
+                "${request.method} ${LogSanitizer.sanitizeUrl(request.url)} -> " +
+                    "无响应（整体超时 ${request.timeoutMs}ms，或底层请求失败）",
+            )
+        }
+        return response
+    }
+
+    private suspend fun executeWithEngine(
+        engine: CronetEngine,
+        request: Request,
+        collectBody: Boolean,
+        onBodyChunk: ((ByteArray, Long) -> Unit)?,
+        http2Failure: AtomicBoolean,
+    ): Response? {
+        return withTimeoutOrNull(request.timeoutMs) {
             var currentUrl = request.url
             var currentMethod = request.method.uppercase()
             var currentBody = request.body
@@ -126,6 +189,7 @@ class CronetHttpClient(
                         useCookies = request.useCookies,
                         collectBody = collectBody,
                         onBodyChunk = onBodyChunk,
+                        http2Failure = http2Failure,
                     )
                 ) {
                     null -> return@withTimeoutOrNull null
@@ -158,19 +222,14 @@ class CronetHttpClient(
             )
             null
         }
-        if (response == null) {
-            logger?.warn(
-                TAG,
-                "${request.method} ${LogSanitizer.sanitizeUrl(request.url)} -> " +
-                    "无响应（整体超时 ${request.timeoutMs}ms，或底层请求失败）",
-            )
-        }
-        return response
     }
 
     fun close() {
         if (engineLazy.isInitialized()) {
             runCatching { engineLazy.value?.shutdown() }
+        }
+        if (http1EngineLazy.isInitialized()) {
+            runCatching { http1EngineLazy.value?.shutdown() }
         }
     }
 
@@ -183,6 +242,7 @@ class CronetHttpClient(
         useCookies: Boolean,
         collectBody: Boolean,
         onBodyChunk: ((ByteArray, Long) -> Unit)?,
+        http2Failure: AtomicBoolean,
     ): Hop? = suspendCancellableCoroutine { cont ->
         val httpUrl = runCatching { url.toHttpUrl() }.getOrNull()
         if (httpUrl == null) {
@@ -272,6 +332,9 @@ class CronetHttpClient(
                 info: UrlResponseInfo?,
                 error: CronetException,
             ) {
+                if (error.isHttp2ProtocolFailure()) {
+                    http2Failure.set(true)
+                }
                 val responseInfo = info?.let {
                     "http=${it.httpStatusCode} protocol=${it.negotiatedProtocol}"
                 } ?: "http=unknown protocol=unknown"
@@ -341,9 +404,17 @@ class CronetHttpClient(
     private fun uploadProvider(bytes: ByteArray): UploadDataProvider =
         org.chromium.net.UploadDataProviders.create(bytes)
 
+    private fun CronetException.isHttp2ProtocolFailure(): Boolean =
+        this is NetworkException &&
+            (
+                cronetInternalErrorCode == HTTP2_PROTOCOL_INTERNAL_ERROR ||
+                    message.orEmpty().contains("ERR_HTTP2_PROTOCOL_ERROR", ignoreCase = true)
+                )
+
     private companion object {
         const val TAG = "NET"
         const val DEFAULT_TIMEOUT_MS = 20_000L
         const val DEFAULT_MAX_REDIRECTS = 6
+        const val HTTP2_PROTOCOL_INTERNAL_ERROR = -337
     }
 }

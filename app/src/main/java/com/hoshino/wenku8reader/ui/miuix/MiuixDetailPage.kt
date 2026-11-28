@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -54,6 +55,8 @@ import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+private val DetailWideBreakpoint = 840.dp
 
 /**
  * MIUIX 书籍详情页——与 Material 版（`ui/detail/DetailScreen.kt`）**完全独立**。
@@ -138,68 +141,71 @@ fun MiuixDetailPage(
                 modifier = Modifier.fillMaxSize().padding(inner),
             )
 
-            else -> Column(
+            else -> BoxWithConstraints(
                 Modifier
                     .fillMaxSize()
                     .padding(inner)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(13.dp),
             ) {
-                Spacer(Modifier.height(2.dp))
-                MiuixDetailInfoCard(
-                    info = book,
-                    onOpenAuthor = onOpenAuthor,
-                    onOpenTag = onOpenTag,
-                )
-
-                // 主操作：开始 / 继续阅读
-                Button(
-                    onClick = { onRead(vm.bookId) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                        contentDescription = null,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        stringResource(
-                            if (ui.hasProgress) R.string.detail_continue_reading
-                            else R.string.detail_start_reading,
-                        ),
-                    )
+                if (maxWidth >= DetailWideBreakpoint) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        MiuixDetailMainColumn(
+                            book = book,
+                            hasProgress = ui.hasProgress,
+                            onRead = { onRead(vm.bookId) },
+                            onOpenToc = { onOpenToc(vm.bookId) },
+                            onOpenAuthor = onOpenAuthor,
+                            onOpenTag = onOpenTag,
+                            modifier = Modifier.weight(1.15f),
+                        )
+                        Column(
+                            modifier = Modifier.weight(0.85f),
+                            verticalArrangement = Arrangement.spacedBy(13.dp),
+                        ) {
+                            MiuixDetailDescriptionCard(
+                                book = book,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            MiuixDownloadCard(
+                                busy = busy,
+                                status = job?.status,
+                                progress = job?.progress ?: 0f,
+                                filePath = job?.filePath,
+                                error = job?.error,
+                                onDownload = vm::download,
+                            )
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(13.dp),
+                    ) {
+                        Spacer(Modifier.height(2.dp))
+                        MiuixDetailMainColumn(
+                            book = book,
+                            hasProgress = ui.hasProgress,
+                            onRead = { onRead(vm.bookId) },
+                            onOpenToc = { onOpenToc(vm.bookId) },
+                            onOpenAuthor = onOpenAuthor,
+                            onOpenTag = onOpenTag,
+                        )
+                        MiuixDownloadCard(
+                            busy = busy,
+                            status = job?.status,
+                            progress = job?.progress ?: 0f,
+                            filePath = job?.filePath,
+                            error = job?.error,
+                            onDownload = vm::download,
+                        )
+                        MiuixDetailDescriptionCard(book = book)
+                    }
                 }
-
-                // 次级操作：目录页
-                TextButton(
-                    text = stringResource(R.string.detail_toc),
-                    onClick = { onOpenToc(vm.bookId) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                MiuixDownloadCard(
-                    busy = busy,
-                    status = job?.status,
-                    progress = job?.progress ?: 0f,
-                    filePath = job?.filePath,
-                    error = job?.error,
-                    onDownload = vm::download,
-                )
-
-                MiuixSection(title = stringResource(R.string.detail_description)) {
-                    Text(
-                        text = book.description.ifEmpty {
-                            stringResource(R.string.detail_no_description)
-                        },
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceContainer,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    )
-                }
-
                 Spacer(Modifier.height(24.dp + LocalFloatingBarInset.current))
             }
         }
@@ -235,6 +241,74 @@ fun MiuixDetailPage(
                 showShelfPicker = false
                 vm.applyFavorite(result.shelves, result.siteShelf)
             },
+        )
+    }
+}
+
+@Composable
+private fun MiuixDetailMainColumn(
+    book: BookInfo,
+    hasProgress: Boolean,
+    onRead: () -> Unit,
+    onOpenToc: () -> Unit,
+    onOpenAuthor: (String) -> Unit,
+    onOpenTag: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        MiuixDetailInfoCard(
+            info = book,
+            onOpenAuthor = onOpenAuthor,
+            onOpenTag = onOpenTag,
+        )
+
+        Button(
+            onClick = onRead,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                contentDescription = null,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(
+                    if (hasProgress) R.string.detail_continue_reading
+                    else R.string.detail_start_reading,
+                ),
+            )
+        }
+
+        TextButton(
+            text = stringResource(R.string.detail_toc),
+            onClick = onOpenToc,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+    }
+}
+
+@Composable
+private fun MiuixDetailDescriptionCard(
+    book: BookInfo,
+    modifier: Modifier = Modifier,
+) {
+    MiuixSection(
+        title = stringResource(R.string.detail_description),
+        modifier = modifier,
+    ) {
+        Text(
+            text = book.description.ifEmpty {
+                stringResource(R.string.detail_no_description)
+            },
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceContainer,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         )
     }
 }

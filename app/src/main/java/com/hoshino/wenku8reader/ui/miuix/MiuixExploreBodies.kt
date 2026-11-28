@@ -169,7 +169,7 @@ internal fun MiuixHomeSectionBlock(section: HomeSection, onOpenBook: (Int) -> Un
                 Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
             ) {
-                items(section.books.take(4), key = { it.id }) { book ->
+                items(section.books.take(10), key = { it.id }) { book ->
                     MiuixCoverCard(book, onOpenBook)
                 }
             }

@@ -13,3 +13,18 @@ internal fun saveFileToUri(context: Context, file: File, uri: Uri): Boolean =
         } ?: return false
         true
     }.getOrDefault(false)
+
+internal fun saveTextToUri(context: Context, text: String, uri: Uri): Boolean =
+    runCatching {
+        context.contentResolver.openOutputStream(uri, "w")?.use { output ->
+            output.bufferedWriter(Charsets.UTF_8).use { writer -> writer.write(text) }
+        } ?: return false
+        true
+    }.getOrDefault(false)
+
+internal fun readTextFromUri(context: Context, uri: Uri): String? =
+    runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            input.bufferedReader(Charsets.UTF_8).readText()
+        }
+    }.getOrNull()

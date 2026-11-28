@@ -152,12 +152,12 @@ private fun HomeSectionBlock(section: HomeSection, onOpenBook: (Int) -> Unit) {
             modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
         )
         if (section.books.any { it.coverUrl != null }) {
-            // 每行 4 本：快速滑动时一次性组合的封面数更少，显著降低组合爆发
+            // 每个栏目最多 10 本；LazyRow 仍只组合视口附近的封面。
             LazyRow(
                 Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
             ) {
-                items(section.books.take(4), key = { it.id }) { b ->
+                items(section.books.take(10), key = { it.id }) { b ->
                     HomeCoverCard(b, onOpenBook)
                 }
             }

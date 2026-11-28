@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -24,6 +26,18 @@ val releaseVersionCode: Int =
 // 是否注入正式签名（CI secrets）：未注入时 release 回退 debug 签名，保证可安装
 val useReleaseSigning = System.getenv("KEYSTORE_PATH") != null
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun localBuildConfigString(name: String): String =
+    localProperties.getProperty(name, "")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+
 android {
     namespace = "com.hoshino.wenku8reader"
     // compileSdk 37：material3 1.5 要求 ≥35，而 miuix 0.9.x 的 AAR metadata 要求 37
@@ -37,6 +51,18 @@ android {
         targetSdk = 34
         versionCode = releaseVersionCode
         versionName = releaseVersionName
+
+        // 仅供本地构建注入 Wenku8 身份 Cookie；values 只存在于未入库的 local.properties。
+        buildConfigField(
+            "String",
+            "WENKU8_JIEQI_USER_INFO",
+            "\"${localBuildConfigString("WENKU8_JIEQI_USER_INFO")}\"",
+        )
+        buildConfigField(
+            "String",
+            "WENKU8_JIEQI_VISIT_INFO",
+            "\"${localBuildConfigString("WENKU8_JIEQI_VISIT_INFO")}\"",
+        )
 
         // 资源语言裁剪：应用只提供中文（默认 values 即简体）+ 繁体（values-zh-rTW），
         // 但依赖库（androidx / emoji2 / material3 / miuix）带了几十种语言的字符串，
@@ -91,6 +117,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

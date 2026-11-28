@@ -59,6 +59,8 @@ data class ReaderSettingsState(
     val cacheMaxMb: Int = 30,                  // 磁盘缓存上限（MB），默认 30
     // 动效风格：true = M3 Expressive 动效（推荐默认），false = 标准动效（线性、克制）
     val expressiveMotion: Boolean = true,
+    // 实验性功能总开关：关闭时保留下方原始选项，但所有实验能力按未启用处理。
+    val experimentalEnabled: Boolean = false,
     // 实验性 UI 风格："material3"（默认，M3 Expressive）| "miuix"（MIUIX / HyperOS 风格）
     val uiStyle: String = "material3",
     // 实验性（仅 MIUIX 风格生效）：悬浮底栏（HyperOS 的胶囊式底栏）与其液态玻璃背景
@@ -76,6 +78,12 @@ data class ReaderSettingsState(
     val leftPadding: Int = 20,
     val rightPadding: Int = 20,
 ) {
+    val effectiveUiStyle: String get() = uiStyle
+    val effectiveFloatingBottomBar: Boolean get() = experimentalEnabled && floatingBottomBar
+    val effectiveBottomBarGlass: Boolean get() = experimentalEnabled && bottomBarGlass
+    val effectiveMultiShelfEnabled: Boolean get() = multiShelfEnabled
+    val effectiveAccountLoginEnabled: Boolean get() = experimentalEnabled && accountLoginEnabled
+
     companion object {
         /** 默认主站镜像（单一来源：[Wenku8Hosts.DEFAULT_BASE]；用户可在设置页「网络」切换）。 */
         const val DEFAULT_MIRROR = Wenku8Hosts.DEFAULT_BASE
@@ -123,6 +131,7 @@ private object Keys {
     val appLanguage = stringPreferencesKey("app_language")
     val cacheMaxMb = intPreferencesKey("cache_max_mb")
     val expressiveMotion = booleanPreferencesKey("expressive_motion")
+    val experimentalEnabled = booleanPreferencesKey("experimental_enabled")
     val uiStyle = stringPreferencesKey("ui_style")
     val floatingBottomBar = booleanPreferencesKey("floating_bottom_bar")
     val bottomBarGlass = booleanPreferencesKey("bottom_bar_glass")
@@ -278,6 +287,7 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
             appLanguage = legacyPrefs.getString("app_language", "system") ?: "system",
             cacheMaxMb = legacyPrefs.getInt("cache_max_mb", 30).coerceIn(10, 500),
             expressiveMotion = legacyPrefs.getBoolean("expressive_motion", true),
+            experimentalEnabled = legacyPrefs.getBoolean("experimental_enabled", false),
             uiStyle = legacyPrefs.getString("ui_style", "material3") ?: "material3",
             floatingBottomBar = legacyPrefs.getBoolean("floating_bottom_bar", true),
             bottomBarGlass = legacyPrefs.getBoolean("bottom_bar_glass", true),
@@ -325,6 +335,7 @@ class ReaderSettings(context: Context, private val scope: CoroutineScope) {
     fun setAppLanguage(language: String) = emit { it.copy(appLanguage = language) }
     fun setCacheMaxMb(mb: Int) = emit { it.copy(cacheMaxMb = mb.coerceIn(10, 500)) }
     fun setExpressiveMotion(enabled: Boolean) = emit { it.copy(expressiveMotion = enabled) }
+    fun setExperimentalEnabled(enabled: Boolean) = emit { it.copy(experimentalEnabled = enabled) }
     fun setUiStyle(style: String) = emit { it.copy(uiStyle = style) }
     fun setFloatingBottomBar(enabled: Boolean) = emit { it.copy(floatingBottomBar = enabled) }
     fun setBottomBarGlass(enabled: Boolean) = emit { it.copy(bottomBarGlass = enabled) }
@@ -376,6 +387,7 @@ internal fun Preferences.toState(): ReaderSettingsState = ReaderSettingsState(
     appLanguage = this[Keys.appLanguage] ?: "system",
     cacheMaxMb = (this[Keys.cacheMaxMb] ?: 30).coerceIn(10, 500),
     expressiveMotion = this[Keys.expressiveMotion] ?: true,
+    experimentalEnabled = this[Keys.experimentalEnabled] ?: false,
     uiStyle = this[Keys.uiStyle] ?: "material3",
     floatingBottomBar = this[Keys.floatingBottomBar] ?: true,
     bottomBarGlass = this[Keys.bottomBarGlass] ?: true,
@@ -432,6 +444,7 @@ internal fun MutablePreferences.writeAll(state: ReaderSettingsState) {
     this[Keys.appLanguage] = state.appLanguage
     this[Keys.cacheMaxMb] = state.cacheMaxMb
     this[Keys.expressiveMotion] = state.expressiveMotion
+    this[Keys.experimentalEnabled] = state.experimentalEnabled
     this[Keys.uiStyle] = state.uiStyle
     this[Keys.floatingBottomBar] = state.floatingBottomBar
     this[Keys.bottomBarGlass] = state.bottomBarGlass

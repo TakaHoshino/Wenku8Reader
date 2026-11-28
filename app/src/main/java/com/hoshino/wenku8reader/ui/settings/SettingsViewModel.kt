@@ -243,6 +243,7 @@ class SettingsViewModel(
     fun setSeedColor(color: Long) = readerSettings.setSeedColor(color)
     fun setAmoled(enabled: Boolean) = readerSettings.setAmoled(enabled)
     fun setExpressiveMotion(enabled: Boolean) = readerSettings.setExpressiveMotion(enabled)
+    fun setExperimentalEnabled(enabled: Boolean) = readerSettings.setExperimentalEnabled(enabled)
     fun setUiStyle(style: String) = readerSettings.setUiStyle(style)
     fun setFloatingBottomBar(enabled: Boolean) = readerSettings.setFloatingBottomBar(enabled)
     fun setBottomBarGlass(enabled: Boolean) = readerSettings.setBottomBarGlass(enabled)

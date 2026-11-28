@@ -8,17 +8,17 @@
 ## 1. 项目概述
 
 轻小说文库（wenku8.net，jieqi CMS）的 Android 客户端，**Kotlin + Jetpack Compose** 实现，界面有
-**Material 3 Expressive**（默认）与 **MIUIX / HyperOS**（实验性）两套**完全独立**的实现（见 §5.6）。
+**Material 3 Expressive**（默认）与 **MIUIX / HyperOS**（正式功能）两套**完全独立**的实现（见 §5.6）。
 
 功能现状：探索（首页栏目 / 搜索 / 标签分页）、书籍详情（作者与 Tag 跳转、独立目录页）、书架（已读进度）、
 **沉浸式在线阅读器**（滚动/侧滑双模式、自动边距、章节进度、状态指示器、自动翻页、音量键翻页、
-插图章节、简繁转换）、阅读统计热力图、TXT/EPUB 离线下载（保存至 `Downloads/Wenku8/`）、
+插图章节、简繁转换）、阅读统计热力图、书架配置 JSON 导入/导出、TXT/EPUB 离线下载（保存至 `Downloads/Wenku8/`）、
 应用内更新（正式 / 测试双通道 + 安装前签名校验）、存储占用统计与清理。
 站点侧仍使用**内置账号**静默登录（用户无需操作）。
 
-> **实验性功能**（设置 → 实验性，**默认关闭**；关闭时用户可见行为与正式版完全一致）：
-> MIUIX 界面风格、悬浮底栏与液态玻璃、**多书架分组**（§4.6.1）、**账户登录与网站书架**（§4.11）。
-> 其中**单书架是正式行为**；"实验性 ≠ 不能进 master"，判定标准见 §4.6.1 开头的三条。
+> **实验性功能总开关**（设置 → 实验性，**默认关闭**，开启需等待 5 秒确认）：
+> 总开关只约束仍处于实验性的悬浮底栏、液态玻璃与**账户登录 / 网站书架**（§4.11）。
+> MIUIX 界面风格与**多书架分组**（§4.6.1）已是正式功能，分别在外观页和通用设置中提供独立开关。
 
 ---
 
@@ -37,7 +37,7 @@
 | 测试 | 纯 JVM **JUnit4 + `org.json` 替身**（无 Robolectric、无 androidTest、无 in-memory Room）；30 个测试类 / 205 用例，见 §9 |
 | minSdk / target / compile | 26 / 34 / **37**（material3 1.5 要求 minCompileSdk ≥ 35；miuix 0.9.x 要求 37） |
 | Gradle | Gradle 9.7.1（wrapper 已入库，含 `gradlew`/`gradlew.bat`），AGP 9.4.1，Kotlin 2.3.21（AGP 9 内置 Kotlin，见 §5.6） |
-| 备用 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，实验性，设置→实验性切换，见 §5.6） |
+| 正式 UI 风格 | MIUIX（`miuix-ui` / `miuix-blur` / `miuix-preference` **0.9.1**，设置→外观切换，见 §5.6） |
 
 关键 build 文件：`app/build.gradle.kts`（应用模块配置）+ `wenku8-api-core/build.gradle.kts`
 （纯 JVM v2 API 核心模块）+ `gradle/libs.versions.toml`（**版本目录**，所有依赖与插件版本集中在此）
@@ -218,15 +218,12 @@ Wenku8Reader/
 - `ReadingStatsStore`（prefs：`reading_stats`）：阅读时长，按「书 + 日期」聚合秒数（一书一天一条），`version` 流通知 UI 重算（详见 §4.7）。
 - `DefaultAccount`：**内置共享账号**，未登录用户全程用它访问站点（首启静默登录，任何"回落"都回到它）。凭据为硬编码常量（不再声称从 `wenku8account.txt` 读取，该文件仅作运维记录），**不保存任何用户密码**。账户登录（实验性，见 §4.11）开启后用户可以登录自己的 wenku8 账户；"用户已登录"的判据是**激活账户标记 + 会话 Cookie**两者同时成立，登出即回落内置账号。
 
-### 4.6.1 多书架（实验性，2026-09）
+### 4.6.1 多书架（正式功能，2026-09）
 
-- **定位**：**单书架是对外承诺的正式行为，多书架是实验性功能**。开关
+- **定位**：单书架与多书架都是正式行为。开关
   `ReaderSettingsState.multiShelfEnabled`（DataStore 键 `multi_shelf_enabled`，**默认 false**）
-  位于设置 → 实验性，Material 与 MIUIX 各一个。关闭时书架页与收藏路径与单书架版本逐像素一致
+  位于设置 → 外观 → 通用，Material 与 MIUIX 各一个。关闭时书架页与收藏路径与单书架版本逐像素一致
   （连弹窗都不出现，收藏/取消收藏仍是点一下即刻生效），且**不删任何数据**，重新开启即恢复。
-  > **实验性 ≠ 不能进 master**：多书架可以随正式版一起发布，作为"设置 → 实验性"里的开关存在。
-  > 衡量它能不能进正式版的是这三条，而不是"功能新不新"：
-  > ① 默认关闭；② 关闭时的行为与单书架正式版完全一致；③ 入口明确归在"实验性"分类下。
   > 注意"行为一致"指的是**用户可见行为**：开关关闭后存储里的归属仍是 JSON 数组（内部表示），
   > 旧版本应用从来不读这一列，所以不影响降级兼容。
 - **数据**：书的归属复用 `BookEntity.shelf` 列（迁移时就已带上，老用户零迁移），
@@ -452,14 +449,15 @@ Wenku8Reader/
 - **返回键**：非首个 Tab 时 `BackHandler` 先回首页 Tab，再回退导航栈。
 - 子页路由（`detail/{id}`、`reader/{id}?cid=`、`tag/{tag}`、`author/{name}`、`toc/{id}`、`search?keyword=&byAuthor=`、`stats`、`downloads`、`settings/custom`、`settings/storage`、`settings/*` 分类页、`settings/account`（账户登录，实验性）、`shelf/manage`（多书架管理）、`about`）走 NavHost（淡入 + 侧滑过渡），自带顶栏、无底栏；阅读器自绘 chrome。
 - 每个 Tab 页自带 `ExpressiveScaffold` + 顶栏（主 Tab 用静态 64dp `ExpressiveTopAppBar`，已去掉折叠大顶栏以消除滚动逐帧布局级联；子页统一用 Expressive Flexible 版 `ExpressiveLargeTopAppBar`，可带副标题并在滚动时收起），顶栏右侧下载图标进 `downloads`。
+- **Pad / 大窗口适配**：断点按应用当前窗口宽度判断（`<600dp` Compact、`600–839dp` Medium、`≥840dp` Expanded），因此平板分屏也跟随可用宽度而不是物理设备类型。Medium/Expanded 在左侧显示导航栏（Material 用 `NavigationRail`、MIUIX 用独立 `MiuixMainNavigationRail`），手机仍用底部导航；阅读器独占整屏时不显示侧栏。主内容最大 1200dp 并居中；阅读器在 Expanded 窗口使用连续双页跨栏，窄窗口则单栏并将正文限制为 760dp，防止过长的阅读行。书籍详情页在 Expanded 窗口同样改为双栏：信息与阅读/目录操作在左，完整简介与离线下载在右。
 
 ### 5.3 各页面（统一 M3 Expressive：surfaceContainer 背景 + surfaceBright 卡片 + 大圆角/弹性动效）
 - `ExplorePage/ViewModel`：静态顶栏「轻小说文库」+ 圆角搜索条（surfaceContainerHigh 药丸形）+ **Expressive 按钮组**（`ExpressiveToggleGroup`，按下项变宽/相邻项压缩）切换推荐 / 标签；首页栏目封面轮播、文字榜单（surfaceBright 卡片）、标签入口。**标签页按需加载**：标签清单来自内置常量（秒回），每个标签的书籍预览在行进入可见区域时才请求（`TagsBody` 的 `LaunchedEffect(tag, generation)` → `loadTagPreview`），刷新用 `tagsGeneration` 重新触发可见行。
 - `TagBooksScreen/ViewModel`：某标签下书籍列表（SegmentedColumn 卡片行）+ Flexible 大顶栏，**分页加载全部**（底部「加载更多」逐页追加）。
 - `DetailScreen/ViewModel`：Flexible 大顶栏（副标题=作者）+ 封面信息卡（标签用 StatusTag 药丸）+ 56dp 高强调阅读主按钮 + tonal 目录按钮 + 离线下载卡（TXT/EPUB + 波浪进度）+ 简介卡。
-- `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计与下载入口。
+- `BookcasePage/ViewModel`：书架卡列表 + **`SplitButtonLayout`**（主按钮选排序方式 / 尾随 toggle 切正倒序）+ 刷新 + 顶栏统计、下载及书架配置导入/导出入口；配置使用版本化 JSON，导入按书架名和书籍归属做安全合并。
 - `DownloadsScreen/ViewModel`：Flexible 大顶栏 + 下载任务卡列表（进行中用 `ActiveProgressBar` 波浪进度、完成/失败为文本），自带返回键。
-- `SettingsPage`：SegmentedColumn 分组卡片——账号（账户登录开启后：摘要随登录态变化、可点击进 `settings/account`；关闭时是引入前的只读说明行，见 §4.11）/ **外观**（深色模式下拉、纯黑模式、动态取色、**表达性动效开关**、手动种子色）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **实验性**（UI 风格：Material 3 Expressive ↔ MIUIX（§5.6）、多书架（§4.6.1）、账户登录（§4.11））/ **网络**（主站域名镜像切换；切域会退出用户账户并回落内置账号）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
+- `SettingsPage`：SegmentedColumn 分组卡片——账号（账户登录开启后：摘要随登录态变化、可点击进 `settings/account`；关闭时是引入前的只读说明行，见 §4.11）/ **外观**（UI 风格 Material 3 Expressive ↔ MIUIX（§5.6）、深色模式、纯黑模式、动态取色、表达性动效、手动种子色；通用分组含多书架开关（§4.6.1）与触觉反馈）/ **存储**（只留一个入口行 → `settings/storage` 二级页，见 §4.10）/ **实验性**（5 秒确认总开关、账户登录（§4.11））/ **网络**（主站域名镜像切换；切域会退出用户账户并回落内置账号）/ 更新 / 阅读设置（进 `settings/custom`）/ 关于（进 `about`）。
 - `StorageSettingsPage`（`ui/settings/StorageSettingsScreen.kt`，路由 `settings/storage`）：存储设置二级页——占用合计（与系统设置同口径）/ 按类型清理（图片、更新包、WebView 与临时文件）/ 网页缓存分类明细 / 过期阅读记录清理 / 缓存上限；清理结果以 Toast 回报（`CacheActionResult`）。主设置页因此不再被十余行缓存明细撑长，且这是低频操作。
 - `AboutScreen`：Flexible 大顶栏（副标题=应用名）——应用图标（`painterResource(R.mipmap.ic_launcher)`）、版本号（`versionName`）、GitHub 仓库与爱发电链接（`LocalUriHandler` 打开，链接常量在 `strings.xml`）、应用介绍与声明。
 - `CustomizationScreen`：阅读器外观定制（仍在 `settings/custom`）——Expressive 大顶栏、按钮组选深色模式、✓/✕ 开关；**浅色模式/深色模式各自独立的背景色与字体色**（默认纯白+纯黑 / 纯黑+纯白）、背景图片、字体/字号/字重/行距、简繁、四边边距、翻页方式等。
@@ -489,9 +487,9 @@ Wenku8Reader/
 - **动效**：页面切换（`MainScaffold` NavHost 过渡）、Tab 分页弹簧（`PagerNavigation`）、按压缩放（`Anim.pressClickable`）、折叠展开（详情下载区 / 目录分卷）统一取自 `MaterialTheme.motionScheme`，不再写死 `tween`/`spring` 参数。
 - **版本约束**：`MaterialExpressiveTheme` 在 material3 **1.4.0 仍是 internal**，Expressive 组件（`MaterialShapes`/`LoadingIndicator`/`ButtonGroup`/`SplitButton`/`FloatingToolbar`）也只出现在 1.5.0-alpha；因此 `app/build.gradle.kts` 显式把 material3 钉在 `1.5.0-alpha18`（BOM 2026.05.01 之外的单点覆盖）。升级 material3 时必须同时满足 `minCompileSdk`（当前 35，取 36）与 `minAndroidGradlePluginVersion`，并复核 `@ExperimentalMaterial3ExpressiveApi` 的 opt-in（见 `app/build.gradle.kts` 的 `compilerOptions.optIn`）。
 
-### 5.6 MIUIX 备用风格与双风格切换（2026-09，实验性）
+### 5.6 MIUIX 风格与双风格切换（2026-09，正式功能）
 
-**目标**：Material 3 Expressive 与 MIUIX（HyperOS 设计语言）**两套界面各自独立**，用户在**设置 → 实验性 → UI 风格**里切换，无需重启。
+**目标**：Material 3 Expressive 与 MIUIX（HyperOS 设计语言）**两套界面各自独立**，用户在**设置 → 外观 → UI 风格**里切换，无需重启。
 
 ⚠️ **重要约定（2026-09 起）**：MIUIX 模式**不再复用 Material 版的界面代码**。Material 版在 `ui/<模块>/`（`ui/components/Expressive.kt` 那套门面），MIUIX 版在 **`ui/miuix/`**，两边只共享 ViewModel 与数据层，UI 层零复用；路由处按风格二选一（见 `MainScaffold`）。`ui/components/Expressive.kt` 里的 `isMiuixStyle()` 分支只服务于**尚未迁移**的旧页面，迁移完成后会逐步移除。
 
@@ -499,7 +497,7 @@ Wenku8Reader/
 |---|---|
 | `ui/miuix/MiuixComponents.kt` | MIUIX 基础件：`MiuixPage`/`MiuixSubPage`（miuix Scaffold + 大标题/小标题顶栏）、`MiuixSection`（分组卡片）、`MiuixRow`/`MiuixArrowRow`/`MiuixSwitchRow`/`MiuixDropdownRow`/`MiuixSliderRow`、`MiuixRowDivider`、`MiuixLoading`、`MiuixEmptyState`。**只用 miuix 组件**，颜色/字号只取 `MiuixTheme`（图标仍用 material-icons：miuix-icons 图标集太小） |
 | `ui/miuix/MiuixSettingsPage.kt` | MIUIX 设置主 Tab（账号/外观/通用/存储入口/实验性/网络/更新/阅读/关于），逻辑复用 `SettingsViewModel` |
-| `ui/miuix/MiuixSettingsCategories.kt` | MIUIX 设置分类二级页（外观 / 网络 / 更新 / 实验性），`MiuixExperimentalPage` 里是多书架、账户登录与 UI 风格三个开关 |
+| `ui/miuix/MiuixSettingsCategories.kt` | MIUIX 设置分类二级页（外观 / 网络 / 更新 / 实验性）；UI 风格与多书架分别在外观/通用，实验性只保留总开关、账户登录和底栏效果 |
 | `ui/miuix/MiuixStoragePage.kt` | MIUIX 存储二级页（占用合计、按类型清理、网页缓存明细、上限、过期记录），确认弹窗用 miuix `WindowDialog` |
 | `ui/miuix/MiuixBookcasePage.kt` / `MiuixDetailPage.kt` / `MiuixTocPage.kt` / `MiuixExplorePage.kt` / `MiuixExploreBodies.kt` / `MiuixBookLists.kt` | 书架 / 详情 / 目录 / 探索 等主页面（各自独立实现，零复用 Material 侧） |
 | `ui/miuix/MiuixShelfPicker.kt` / `MiuixShelfManagePage.kt` | 归属勾选弹窗（含站方书架那一项）/ 管理书架页（多书架，§4.6.1 / §4.11） |
@@ -522,12 +520,12 @@ Wenku8Reader/
 | 排版适配 | MIUIX `TextStyles` → Material `Typography` 槽位映射，**所有既有 `MaterialTheme.typography.*` 调用点自动变成 HyperOS 字号** | `ui/theme/Theme.kt`（`miuixTypography`） |
 | 底部导航 | MIUIX `NavigationBar`（固定）或 `FloatingNavigationBar`（悬浮，HyperOS 胶囊底栏）+ `FloatingNavigationBarItem` | `ui/MainScaffold.kt` |
 | 液态玻璃 | `miuix-blur`：`rememberLayerBackdrop` + `Modifier.layerBackdrop`（页面内容作模糊源）+ `drawBackdrop { blur() }`；运行时门控 `isMiuixGlassSupported`（API ≥ 32） | `ui/miuix/LiquidGlass.kt` + `ui/miuix/liquid/`（效果）/ `ui/components/MiuixGlass.kt`（门控）/ `ui/miuix/MiuixLiquidBottomBar.kt`（悬浮底栏） |
-| 入口 | 设置 → 实验性 → UI 风格（`ExperimentalSection`，同处还有多书架 / 账户登录两个开关） | `ui/settings/SettingsSections.kt` + 页面壳 `ui/settings/SettingsScreen.kt` |
+| 入口 | 设置 → 外观 → UI 风格（多书架位于同一页的通用分组） | `ui/settings/SettingsSections.kt` + 页面壳 `ui/settings/SettingsScreen.kt` |
 
 - **为什么内嵌 Material 主题**：页面里仍有大量 Material 组件（`Text`、`Slider`、`DropdownMenu`、`AlertDialog`、阅读器的 `ModalBottomSheet`）。它们在 MIUIX 模式下若拿不到 M3 的 `LocalContentColor`，会退回默认黑色、深色下不可读；映射一层色板后两套组件的配色保持一致。
 - **哪些是真正的 miuix 组件**：`Scaffold`、`SmallTopAppBar`/`TopAppBar`（大标题 + 副标题）、`Card`、`Switch`、`SwitchPreference`（开关行）、`WindowDropdownPreference`（下拉行，HyperOS 圆角弹层）、`Slider`、`TabRow`（分段控件）、`CircularProgressIndicator`/`LinearProgressIndicator`、`NavigationBar`/`FloatingNavigationBar`。只有"行内容任意 composable"的普通列表行仍按 MIUIX 取值自绘（miuix 的行组件要求 `String` 标题，而封面/色点/Slider 这类内容无法字符串化）。
 - **两套风格不追求一致**：MIUIX 模式以 HyperOS 观感为准（大标题顶栏、胶囊底栏、分组卡片 + 缩进分隔线、miuix 滑块/下拉），不刻意与 M3 对齐；`Expressive*` 门面只负责"同一调用点分派到哪套实现"。为此顶栏门面签名从 `@Composable` 标题改为 `String` 标题 + `String?` 副标题（miuix 顶栏要求字符串），13 个调用点已同步。
-- **三种实验性外观开关**（设置 → 实验性）：UI 风格（Material 3 Expressive ↔ MIUIX）、悬浮底栏、底栏液态玻璃（后两者仅 MIUIX 生效；玻璃还要求 Android 12L+，低版本自动退化为半透明纯色）。
+- **正式 UI 风格开关**：设置 → 外观 → UI 风格（Material 3 Expressive ↔ MIUIX）。悬浮底栏与底栏液态玻璃仍是实验功能，受实验性总开关约束；玻璃还要求 Android 12L+，低版本自动退化为半透明纯色。
 - **工具链（本次一并升级）**：compileSdk **37** + **AGP 9.4.1** + **Gradle 9.7.1**，CI 的 JDK 由 17 提到 **21**。三个坑与对策：
   1. **AGP 9 内置 Kotlin**，不能再应用 `org.jetbrains.kotlin.android`（会直接报 "not compatible"）；内置默认 KGP 2.2.10 读不了 miuix 的 2.3.20 元数据 → 在根 `build.gradle.kts` 用 `buildscript { classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21") }` 提升 KGP（官方文档做法）。
   2. **cronet-embedded / cronet-api / cronet-common 共用 `org.chromium.net` namespace**，AGP 9 将其从警告升级为错误；三者的类缺一不可，故用 `android.uniquePackageNames=false` 放行。
@@ -601,8 +599,9 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
          pageTurnDirection(true，向左) / autoTurnInterval(10s) / clickTurnPage(true) /
          autoPadding(true) / topPadding(24) / bottomPadding(16) / leftPadding(20) / rightPadding(20)
 触觉:     hapticsEnabled(true) / hapticsStrength(50)
-实验性:   uiStyle(material3|miuix) / floatingBottomBar(true，仅 MIUIX) / bottomBarGlass(true，仅 MIUIX) /
-         multiShelfEnabled(false，§4.6.1) / accountLoginEnabled(false，§4.11)
+界面:     uiStyle(material3|miuix) / multiShelfEnabled(false，§4.6.1)
+实验性:   experimentalEnabled(false，5 秒确认) / floatingBottomBar(true，仅 MIUIX) /
+         bottomBarGlass(true，仅 MIUIX) / accountLoginEnabled(false，§4.11)
 ```
 
 - ⚠️ **新增一个字段要动 6 处**（漏一处就会表现为"设置不生效 / 重启丢失 / 老用户迁移不到"）：
@@ -672,7 +671,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
   `paginateChapter` 的边界（超长段落 / 空章节 / 图片页）、`UpdateChecker` 的版本比较矩阵。⚠️ 无 Robolectric / 无 androidTest，
   **UI 层仍只能人工验收**——所以纯逻辑尽量往 `data/local/*Ops.kt` 这类可测文件里抽（`ShelfOps` / `AccountOps` / `WordCount` / `SiteShelfEntry` 就是这么来的）。
 - 未做：日/周排行榜、书单、外部打开 EPUB/TXT、深链（`reader/{id}` 已可被外部跳转）。
-  （**多书架分组**（§4.6.1）与**账户登录 / 网站书架**（§4.11）**已实现**，均为实验性开关、默认关闭。）
+  （**多书架分组**（§4.6.1）已是正式功能；**账户登录 / 网站书架**（§4.11）仍是受总开关约束的实验功能。）
 - 账户侧仍可继续做的方向：收藏站点书架的**分组**（`clsssid`）、把站方书架整批导入本地、
   以及"内置账号"相关的运维整理（内置凭据目前仍是硬编码常量）。
 - 书架页里长按「Wenku8书架」的书目前走的是单独的"移出网站书架"确认弹窗（那张卡片可能不在本地书架里，
@@ -702,7 +701,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 ## 8. 参考文档与版本管理
 
 - 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 时间基准（分钟粒度）、发布三件套、dev 分支只构建不发布）。
-- **CI 经验**：`release.yml`（push main/master 触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（push dev 触发：仅构建上传 Artifact）。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
+- **CI 经验**：`release.yml`（手动触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（手动触发：仅构建上传 Artifact）。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
 
 `技术性文档(只读勿动)/`：
 - `wenku8-api.md` —— wenku8.net 全接口逆向文档（登录/搜索/详情/目录/正文/下载/书架、编码约定、限流策略）。**优先读它再改数据层。**

@@ -12,6 +12,7 @@ import com.hoshino.wenku8reader.data.Wenku8Shelf
 import com.hoshino.wenku8reader.data.local.AppPreferences
 import com.hoshino.wenku8reader.data.local.AccountStore
 import com.hoshino.wenku8reader.data.local.AppStorageManager
+import com.hoshino.wenku8reader.data.local.BuiltInSessionCookies
 import com.hoshino.wenku8reader.data.local.DefaultAccount
 import com.hoshino.wenku8reader.data.local.LibraryStore
 import com.hoshino.wenku8reader.data.local.LocalDataMigration
@@ -85,6 +86,9 @@ class AppContainer(context: Context) {
 
     /** 全部 HTTP 请求共用的 Cookie 存储与 Cronet 引擎。 */
     val cookieStore: CookieStore = CookieStore(context)
+    init {
+        BuiltInSessionCookies.seed(cookieStore)
+    }
     val cronetHttp: CronetHttpClient = CronetHttpClient(context, cookieStore, logger)
 
     /** Coil 的网络层也使用 [cronetHttp]；解码与图片缓存仍由 Coil 管理。 */

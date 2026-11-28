@@ -110,8 +110,8 @@ class ShelfManageViewModel(
                 // 「Wenku8书架」与本地书架同等地位：这里也列出来，只是不给改名/删除入口；
                 // 未登录（或开关没开）时它压根不存在，所以也不显示。
                 val siteVisible = wenku8ShelfVisible(
-                    accountLoginEnabled = settings.accountLoginEnabled,
-                    multiShelfEnabled = settings.multiShelfEnabled,
+                    accountLoginEnabled = settings.effectiveAccountLoginEnabled,
+                    multiShelfEnabled = settings.effectiveMultiShelfEnabled,
                     userAccountLoggedIn = account.activeUsername != null,
                 )
                 if (siteVisible) {

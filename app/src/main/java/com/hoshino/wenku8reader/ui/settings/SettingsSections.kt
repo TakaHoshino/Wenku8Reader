@@ -33,7 +33,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,6 +61,7 @@ import com.hoshino.wenku8reader.ui.components.SegmentedListItem
 import com.hoshino.wenku8reader.ui.components.SegmentedSwitchItem
 import com.hoshino.wenku8reader.ui.theme.seedColorOptions
 import com.hoshino.wenku8reader.ui.theme.UiStyle
+import kotlinx.coroutines.delay
 
 // ------------------------------------------------------------------ //
 // 分组
@@ -78,7 +81,7 @@ internal fun AccountSection(
     vm: SettingsViewModel,
     onOpenAccount: () -> Unit,
 ) {
-    if (!rs.accountLoginEnabled) {
+    if (!rs.effectiveAccountLoginEnabled) {
         AccountInfoCard(
             headline = stringResource(R.string.settings_builtin_account),
             summary = stringResource(R.string.settings_account_builtin_desc),
@@ -141,10 +144,28 @@ internal fun AppearanceSection(
         "zh-CN" to R.string.settings_language_simplified,
         "zh-TW" to R.string.settings_language_traditional,
     )
+    val styles = UiStyle.entries
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_appearance),
         items = listOf(
+            {
+                SegmentedDropdownItem(
+                    icon = Icons.Filled.Animation,
+                    title = stringResource(R.string.settings_ui_style),
+                    summary = stringResource(R.string.settings_ui_style_summary),
+                    items = styles.map { style ->
+                        stringResource(
+                            when (style) {
+                                UiStyle.MATERIAL3 -> R.string.settings_ui_style_material3
+                                UiStyle.MIUIX -> R.string.settings_ui_style_miuix
+                            },
+                        )
+                    },
+                    selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
+                    onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
+                )
+            },
             {
                 SegmentedDropdownItem(
                     icon = Icons.Filled.Language,
@@ -248,39 +269,36 @@ internal fun ExperimentalSection(
     rs: ReaderSettingsState,
     vm: SettingsViewModel,
 ) {
-    val styles = UiStyle.entries
     // 账户登录的前置依赖确认框（多书架未开时点账户开关才会出现）
     var askShelfPrerequisite by remember { mutableStateOf(false) }
+    var showExperimentalConfirm by remember { mutableStateOf(false) }
+    var experimentalCountdown by remember { mutableIntStateOf(5) }
+    LaunchedEffect(showExperimentalConfirm) {
+        if (!showExperimentalConfirm) return@LaunchedEffect
+        experimentalCountdown = 5
+        while (experimentalCountdown > 0) {
+            delay(1000)
+            experimentalCountdown--
+        }
+    }
     SegmentedColumn(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_experimental),
         items = listOf(
             {
-                SegmentedDropdownItem(
-                    icon = Icons.Filled.Animation,
-                    title = stringResource(R.string.settings_ui_style),
-                    summary = stringResource(R.string.settings_ui_style_summary),
-                    items = styles.map { style ->
-                        stringResource(
-                            when (style) {
-                                UiStyle.MATERIAL3 -> R.string.settings_ui_style_material3
-                                UiStyle.MIUIX -> R.string.settings_ui_style_miuix
-                            },
-                        )
-                    },
-                    selectedIndex = styles.indexOf(UiStyle.fromKey(rs.uiStyle)).coerceAtLeast(0),
-                    onItemSelected = { index -> vm.setUiStyle(styles[index].key) },
-                )
-            },
-            {
-                // 多书架是**通用**实验功能（Material 与 MIUIX 都生效），
-                // 因此和"仅 MIUIX 生效"的悬浮底栏/液态玻璃不同，它两套设置页都放。
                 SegmentedSwitchItem(
-                    icon = Icons.AutoMirrored.Filled.LibraryBooks,
-                    title = stringResource(R.string.settings_multi_shelf),
-                    summary = stringResource(R.string.settings_multi_shelf_summary),
-                    checked = rs.multiShelfEnabled,
-                    onCheckedChange = vm::setMultiShelfEnabled,
+                    icon = Icons.Filled.Animation,
+                    title = stringResource(R.string.settings_experimental_master),
+                    summary = stringResource(R.string.settings_experimental_master_summary),
+                    checked = rs.experimentalEnabled,
+                    onCheckedChange = { enable ->
+                        if (enable) {
+                            experimentalCountdown = 5
+                            showExperimentalConfirm = true
+                        } else {
+                            vm.setExperimentalEnabled(false)
+                        }
+                    },
                 )
             },
             {
@@ -291,6 +309,7 @@ internal fun ExperimentalSection(
                     title = stringResource(R.string.settings_account_login),
                     summary = stringResource(R.string.settings_account_login_summary),
                     checked = rs.accountLoginEnabled,
+                    enabled = rs.experimentalEnabled,
                     onCheckedChange = {
                         when (accountSwitchAction(rs.multiShelfEnabled, rs.accountLoginEnabled)) {
                             AccountSwitchAction.EnableAccount -> vm.setAccountLoginEnabled(true)
@@ -306,6 +325,39 @@ internal fun ExperimentalSection(
             // 它们只属于 MIUIX 的实验性页（MiuixExperimentalPage）。
         ),
     )
+
+    if (showExperimentalConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExperimentalConfirm = false },
+            title = { Text(stringResource(R.string.settings_experimental_confirm_title)) },
+            text = { Text(stringResource(R.string.settings_experimental_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    enabled = experimentalCountdown == 0,
+                    onClick = {
+                        showExperimentalConfirm = false
+                        vm.setExperimentalEnabled(true)
+                    },
+                ) {
+                    Text(
+                        if (experimentalCountdown > 0) {
+                            stringResource(
+                                R.string.settings_experimental_confirm_wait,
+                                experimentalCountdown,
+                            )
+                        } else {
+                            stringResource(R.string.settings_experimental_confirm_action)
+                        },
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExperimentalConfirm = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 
     if (askShelfPrerequisite) {
         AlertDialog(
@@ -340,6 +392,15 @@ internal fun GeneralSection(
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
         title = stringResource(R.string.settings_section_general),
         items = listOf(
+            {
+                SegmentedSwitchItem(
+                    icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                    title = stringResource(R.string.settings_multi_shelf),
+                    summary = stringResource(R.string.settings_multi_shelf_summary),
+                    checked = rs.multiShelfEnabled,
+                    onCheckedChange = vm::setMultiShelfEnabled,
+                )
+            },
             {
                 SegmentedSwitchItem(
                     icon = Icons.Filled.Vibration,

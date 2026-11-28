@@ -11,6 +11,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -61,6 +62,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
+import com.hoshino.wenku8reader.data.BookInfo
+import com.hoshino.wenku8reader.data.DownloadJob
 import com.hoshino.wenku8reader.data.local.DEFAULT_SHELF
 import com.hoshino.wenku8reader.data.local.WENKU8_SHELF
 import com.hoshino.wenku8reader.data.JobStatus
@@ -73,6 +76,8 @@ import com.hoshino.wenku8reader.ui.components.StatusTag
 import com.hoshino.wenku8reader.ui.components.TonalCard
 import com.hoshino.wenku8reader.ui.components.rememberExpressiveScrollBehavior
 import com.hoshino.wenku8reader.ui.shelf.ShelfPickerDialog
+
+private val DetailWideBreakpoint = 840.dp
 
 /**
  * 书籍详情页（子页）。参考 SukiSU-Ultra：折叠大顶栏 + 封面信息卡片 +
@@ -200,9 +205,45 @@ fun DetailScreen(
                             .nestedScroll(scrollBehavior.nestedScrollConnection)
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(13.dp),
                     ) {
-                        Spacer(Modifier.height(2.dp))
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            if (maxWidth >= DetailWideBreakpoint) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    DetailMainColumn(
+                                        info = info,
+                                        hasProgress = ui.hasProgress,
+                                        onRead = { onRead(vm.bookId) },
+                                        onOpenToc = { onOpenToc(vm.bookId) },
+                                        onOpenAuthor = onOpenAuthor,
+                                        onOpenTag = onOpenTag,
+                                        modifier = Modifier.weight(1.15f),
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(0.85f),
+                                        verticalArrangement = Arrangement.spacedBy(13.dp),
+                                    ) {
+                                        DetailDescriptionCard(
+                                            info = info,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                        DetailDownloadCard(
+                                            busy = busy,
+                                            job = job,
+                                            onDownload = vm::download,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(24.dp))
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(13.dp),
+                                ) {
+                                    Spacer(Modifier.height(2.dp))
 
                         // 封面 + 基本信息
                         TonalCard {
@@ -369,6 +410,9 @@ fun DetailScreen(
                         }
 
                         Spacer(Modifier.height(24.dp))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -406,6 +450,197 @@ fun DetailScreen(
                 vm.applyFavorite(result.shelves, result.siteShelf)
             },
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DetailMainColumn(
+    info: BookInfo,
+    hasProgress: Boolean,
+    onRead: () -> Unit,
+    onOpenToc: () -> Unit,
+    onOpenAuthor: (String) -> Unit,
+    onOpenTag: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        TonalCard {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+            ) {
+                CoverImage(
+                    url = info.coverUrl,
+                    width = 120.dp,
+                    height = 170.dp,
+                    contentDescription = stringResource(R.string.detail_cover),
+                    cornerRadius = 12.dp,
+                    crossfade = true,
+                )
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(info.title, style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(6.dp))
+                    AuthorLine(
+                        author = info.author.ifEmpty { "-" },
+                        enabled = info.author.isNotBlank(),
+                        onClick = { onOpenAuthor(info.author) },
+                    )
+                    InfoLine(stringResource(R.string.detail_category, info.category.ifEmpty { "-" }))
+                    InfoLine(stringResource(R.string.detail_status, info.status.ifEmpty { "-" }))
+                    InfoLine(stringResource(R.string.detail_word_count, info.wordCount.ifEmpty { "-" }))
+                }
+            }
+            if (info.tags.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    info.tags.forEach { tag ->
+                        StatusTag(
+                            label = tag,
+                            backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            onClick = { onOpenTag(tag) },
+                        )
+                    }
+                }
+            }
+        }
+
+        Button(
+            onClick = onRead,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(
+                    if (hasProgress) R.string.detail_continue_reading
+                    else R.string.detail_start_reading,
+                ),
+                style = MaterialTheme.typography.titleSmall,
+            )
+        }
+
+        FilledTonalButton(
+            onClick = onOpenToc,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.detail_toc))
+        }
+
+    }
+}
+
+@Composable
+private fun DetailDownloadCard(
+    busy: Boolean,
+    job: DownloadJob?,
+    onDownload: (String) -> Unit,
+) {
+    TonalCard {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                stringResource(R.string.detail_offline_download),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = { onDownload("txt") },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(R.string.detail_format_txt)) }
+                FilledTonalButton(
+                    onClick = { onDownload("epub") },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(R.string.detail_format_epub)) }
+            }
+
+            AnimatedVisibility(
+                visible = job != null,
+                enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                    expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                    shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()),
+            ) {
+                val currentJob = job
+                Spacer(Modifier.height(12.dp))
+                when (currentJob?.status) {
+                    JobStatus.RUNNING -> {
+                        ActiveProgressBar(
+                            progress = { currentJob.progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            stringResource(
+                                R.string.detail_downloading,
+                                (currentJob.progress * 100).toInt(),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    JobStatus.PENDING -> Text(
+                        stringResource(R.string.detail_queued),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    JobStatus.DONE -> AssistChip(
+                        onClick = {},
+                        label = {
+                            Text(
+                                stringResource(
+                                    R.string.detail_saved,
+                                    currentJob.filePath ?: "完成",
+                                ),
+                            )
+                        },
+                    )
+                    JobStatus.FAILED -> Text(
+                        stringResource(R.string.detail_failed, currentJob.error ?: "-"),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    JobStatus.CANCELLED -> Text(
+                        stringResource(R.string.detail_cancelled),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    null -> {}
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailDescriptionCard(info: BookInfo, modifier: Modifier = Modifier) {
+    TonalCard(modifier = modifier) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                stringResource(R.string.detail_description),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                info.description.ifEmpty { stringResource(R.string.detail_no_description) },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 
