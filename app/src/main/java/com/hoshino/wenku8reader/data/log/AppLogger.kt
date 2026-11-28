@@ -21,7 +21,7 @@ enum class LogLevel { DEBUG, INFO, WARN, ERROR }
  * - **可安全外发**：只写"方法 + 地址 + 状态码 + 耗时 + 错误类型"，地址经 [LogSanitizer] 脱敏；
  *   调用方**不得**把 Cookie、密码、请求体、章节正文传进来（见 `Wenku8Client` 的打点）；
  * - **不参与备份**：`backup_rules.xml` / `data_extraction_rules.xml` 排除了 `logs/`，
- *   只有用户主动导出（分享面板）时才会离开设备。
+ *   只有用户主动导出（系统文件选择器）时才会离开设备。
  *
  * 导出：`filesDir/logs/` 下的日志文件 + `device-info.txt` 打成 zip，放到 `cacheDir/log_exports/`。
  */
@@ -64,7 +64,7 @@ class AppLogger(context: Context) {
      */
     fun exportZip(extra: Map<String, String> = emptyMap()): Result<File> = runCatching {
         val exportDir = File(appContext.cacheDir, EXPORT_DIR).apply { mkdirs() }
-        // 清掉一小时前的旧包，而不是无差别清空：用户可能已点开分享面板、
+        // 清掉一小时前的旧包，而不是无差别清空：用户可能已打开文件选择器、
         // 但还没选好目标应用，此时删文件会让那次分享读到空 URI。
         exportDir.listFiles()?.forEach { file ->
             if (System.currentTimeMillis() - file.lastModified() > EXPORT_MAX_AGE_MS) file.delete()
@@ -126,7 +126,7 @@ class AppLogger(context: Context) {
         /** 导出目录名（`cacheDir/log_exports`，对应 `file_paths.xml` 的 `log_exports`）。 */
         const val EXPORT_DIR = "log_exports"
 
-        /** 导出包的保留时长：给"分享面板还开着"留足时间，之后随缓存回收。 */
+        /** 导出包的保留时长：给"文件选择器还开着"留足时间，之后随缓存回收。 */
         private const val EXPORT_MAX_AGE_MS = 60L * 60 * 1000
 
         private const val TAG = "LOG"

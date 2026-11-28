@@ -422,9 +422,9 @@ Wenku8Reader/
   消息单行化并限长。上述规则由 `LogSanitizerTest` 钉住。
 - **导出**（关于页 → 日志）：`AppLogger.exportZip()` 把现有日志（旧 → 新）+
   `device-info.txt`（版本 / Android / 机型 / 语言 / 当前镜像 / UI 风格 / 实验开关 / 更新通道）
-  打成 `cacheDir/log_exports/wenku8reader-logs-yyyyMMdd-HHmmss.zip`；UI 用
-  `ui/common/FileSharing.kt` 的 `shareFile()` 经 `FileProvider` 拉起系统分享面板
-  （不需要存储权限，也不会在 Downloads 留第二份；旧包在下次导出时清掉）。
+  打成 `cacheDir/log_exports/wenku8reader-logs-yyyyMMdd-HHmmss.zip`；关于页再用
+  `ActivityResultContracts.CreateDocument` 打开系统文件选择器，由
+  `ui/common/FileSharing.kt` 的 `saveFileToUri()` 写入用户选择的路径。
 - **清理**（设置 → 存储 → 日志）：确认后删除滚动日志与 `cacheDir/log_exports/`
   中的旧导出包，不影响之后的请求继续生成新日志。
 - **备份**：`backup_rules.xml` / `data_extraction_rules.xml` 都排除 `logs/`

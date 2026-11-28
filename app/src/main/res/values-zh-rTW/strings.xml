@@ -325,8 +325,8 @@
     <string name="settings_logs">日誌</string>
     <string name="settings_logs_export">匯出日誌</string>
     <string name="settings_logs_export_summary">封裝最近日誌（不含密碼與 Cookie），便於回報問題</string>
-    <string name="settings_logs_share_subject">Wenku8Reader 日誌</string>
     <string name="settings_logs_export_failed">日誌匯出失敗，請稍後重試</string>
+    <string name="settings_logs_saved">日誌已儲存</string>
     <string name="settings_logs_clear">清理日誌</string>
     <string name="settings_logs_clear_summary">刪除已記錄的診斷日誌與已匯出的日誌封裝</string>
     <string name="settings_logs_clear_done">已清理日誌 %1$s</string>

@@ -1,5 +1,7 @@
 package com.hoshino.wenku8reader.ui.miuix
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +25,9 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,8 +43,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hoshino.wenku8reader.R
 import com.hoshino.wenku8reader.ui.AppViewModelProvider
-import com.hoshino.wenku8reader.ui.common.shareFile
+import com.hoshino.wenku8reader.ui.common.saveFileToUri
 import com.hoshino.wenku8reader.ui.settings.SettingsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -57,6 +64,26 @@ fun MiuixAboutPage(
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pendingLogFile = remember { mutableStateOf<java.io.File?>(null) }
+    val saveLogLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        val file = pendingLogFile.value
+        pendingLogFile.value = null
+        if (uri != null && file != null) {
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    saveFileToUri(context, file, uri)
+                }
+                android.widget.Toast.makeText(
+                    context,
+                    if (saved) R.string.settings_logs_saved else R.string.settings_logs_export_failed,
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
     val iconBackgroundColor = remember {
         Color(context.getColor(R.color.ic_launcher_background))
     }
@@ -72,13 +99,8 @@ fun MiuixAboutPage(
     LaunchedEffect(Unit) {
         vm.logExport.collect { result ->
             result.onSuccess { file ->
-                shareFile(
-                    context = context,
-                    file = file,
-                    mimeType = "application/zip",
-                    subject = context.getString(R.string.settings_logs_share_subject),
-                    chooserTitle = context.getString(R.string.settings_logs_export),
-                )
+                pendingLogFile.value = file
+                saveLogLauncher.launch(file.name)
             }.onFailure {
                 android.widget.Toast.makeText(
                     context,
