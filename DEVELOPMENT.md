@@ -183,6 +183,7 @@ Wenku8Reader/
   ② **绕过栈 GET `/modules/article/search.php?searchtype=…&searchkey=…`**（POST 的 302 目标，关键词 GBK 百分号编码）；
   ③ 原直连 POST（能直连的网络里最快）。
   结果页含 `<caption>`/`id="centerm"` 时解析（0 条也算成功），登录页/挑战页/限流页则继续下一层；保留 5 秒最小间隔与限流页有界重试。
+  > **2026-11 修复**：Cronet POST/GET 都会先校验状态码与错误页特征；绕过栈保留**最终 URL**，精确命中 302 到详情页时直接按单本书解析。此前 `.cc` 的 403 正文会被误当成“0 条结果”，搜索因此始终不可用。
   > ⚠️ Cronet POST 的上传体必须用官方 `UploadDataProviders.create(bytes)`：自实现 `UploadDataProvider`
   > 在 cronet 119 上会直接报 `CallbackExceptionImpl: Exception received from UploadDataProvider`
   > （2026-10-18 实测），POST 还没发出去就失败。该类虽已 deprecated，但仍是当前版本唯一可用的实现，
@@ -202,6 +203,14 @@ Wenku8Reader/
 实现 `okhttp3.CookieJar` 兼容类型，登录成功后 `persist()` 落盘；Cronet 与 WebView 共用同一份 Cookie。
 请求侧参考 LightNovelReader 显式生成单个 `Cookie` 头（固定 `PHPSESSID` / `jieqi*` /
 `cf_clearance` 顺序），但值来自动态 CookieStore，不硬编码参考项目中的过期会话。
+
+- **构建期身份会话**：`app/build.gradle.kts` 将 `WENKU8_JIEQI_USER_INFO` / `WENKU8_JIEQI_VISIT_INFO`
+  写入 `BuildConfig`；优先读取同名环境变量，再回退未入库的 `local.properties`。
+  `AppContainer` 在创建网络客户端前由 `BuiltInSessionCookies` 种入全部镜像。
+- **CI Secrets**：`dev.yml` 与 `release.yml` 的构建步骤分别注入两个同名 Actions Secrets。
+  仓库需配置 `WENKU8_JIEQI_USER_INFO` 和 `WENKU8_JIEQI_VISIT_INFO`；值必须是已经 URL 编码的完整 Cookie 值，
+  不带 Cookie 名、分号或引号。Secret、日志、文档和测试夹具中都不得出现真实值。
+- **安全边界**：BuildConfig 数据仍可被逆向，因此本地/CI APK 都不应公开分发；账号失效时应更新 Secret 后重新构建。
 
 ### 4.5 下载（`DownloadEngine` / `FileSaver` / `EpubBuilder`）
 - `DownloadEngine`：`Dispatchers.IO` 单协程任务，`StateFlow<Map<Int, DownloadJob>>` 暴露进度；`cancelFlags`（`ConcurrentHashMap`，跨线程可见性有保证）支持取消，任务作用域由 `AppContainer` 统一注入。**经 `Wenku8Repository` 取数**（不再直连 `Wenku8Client`，保持分层一致）；落盘失败（`FileSaver.saveDownload` 返回 null）标记为 `FAILED` 而非"完成"。TXT 优先站点全本直链（`dl.wenku8.com/down.php?type=txt|utf8|big5`，`node=1` 失败自动尝试 `node=2`），再失败回退逐章抓取；EPUB 始终逐章抓取 HTML，以同时获得正文和插图 URL，再下载并内嵌插图，最后 `EpubBuilder.build` 打包（EPUB3：mimetype STORED + container/opf/nav/ncx/css + 每章 xhtml + `OEBPS/images/`；章节 id/文件名统一 `%04d`；图片项写入 manifest 并由章节相对路径引用；`nav.xhtml` 标记 `properties="nav"` 且**不进入 spine**，避免被阅读器排在正文最后一页；uid 取书名+作者 SHA-256 前 8 字节；`dcterms:modified` 用构建时刻）。
@@ -701,7 +710,7 @@ linesPerPage  = floor(maxHeightPx / lineHeightPx)        // lineHeight = fontSiz
 ## 8. 参考文档与版本管理
 
 - 版本号管理方案见根目录 **`VERSIONING.md`**（versionName SemVer + versionCode 时间基准（分钟粒度）、发布三件套、dev 分支只构建不发布）。
-- **CI 经验**：`release.yml`（手动触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（手动触发：仅构建上传 Artifact）。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
+- **CI 经验**：`release.yml`（手动触发：语义版本解析 + 构建 + tag + Release）与 `dev.yml`（手动触发：仅构建上传 Artifact）。两者都会把 `WENKU8_JIEQI_USER_INFO` / `WENKU8_JIEQI_VISIT_INFO` Secrets 作为环境变量传给 Gradle。⚠️ 版本解析必须用**内联 run 步骤**写 `$GITHUB_OUTPUT`——composite action 的输出在本环境不生效（曾导致 release tag 变成 `v`、versionName 为空）。
 
 `技术性文档(只读勿动)/`：
 - `wenku8-api.md` —— wenku8.net 全接口逆向文档（登录/搜索/详情/目录/正文/下载/书架、编码约定、限流策略）。**优先读它再改数据层。**
